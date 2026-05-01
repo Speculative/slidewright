@@ -32,7 +32,82 @@
   --font-mono: "JetBrains Mono", "Iosevka", ui-monospace, monospace;
 }
 
-deck-stage { background: #111; }
+/* ---------- presentation runtime ---------- */
+
+.presentation {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.presentation-canvas {
+  position: relative;
+  flex-shrink: 0;
+  transform-origin: center center;
+  background: var(--bg);
+  will-change: transform;
+}
+
+/* Stack every slide at the canvas's full size; only the active one is
+   visible. Non-active slides stay mounted so any embedded React/video/
+   form state survives navigation. */
+.presentation-canvas > section.slide {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+.presentation-canvas > section.slide.active {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Print: revert stacking so each slide is its own page at the design size.
+   The @page size + margin reset is injected at runtime by <Presentation>
+   (it has to match the width/height props). */
+@media print {
+  .presentation {
+    position: static;
+    inset: auto;
+    display: block;
+    overflow: visible;
+    background: none;
+    color: inherit;
+  }
+  .presentation-canvas {
+    transform: none !important;
+    width: auto !important;
+    height: auto !important;
+    background: none;
+    will-change: auto;
+  }
+  .presentation-canvas > section.slide {
+    position: relative;
+    inset: auto;
+    width: var(--deck-design-w) !important;
+    height: var(--deck-design-h) !important;
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
+    break-after: page;
+    page-break-after: always;
+    break-inside: avoid;
+    overflow: hidden;
+  }
+  .presentation-canvas > section.slide:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+}
 
 section.slide {
   position: relative;
@@ -235,56 +310,3 @@ svg .edge { stroke: var(--fg); stroke-width: 3; fill: none; }
 svg .edge-accent { stroke: var(--accent); stroke-width: 4; fill: none; }
 svg .edge-label { font-family: var(--font-mono); font-size: 22px; fill: var(--muted); }
 
-/* ---------- tweaks panel ---------- */
-#tweaks-panel {
-  position: fixed;
-  right: 20px;
-  bottom: 20px;
-  z-index: 9999;
-  background: #fff;
-  border: 3px solid #000;
-  box-shadow: 8px 8px 0 #0000FF;
-  padding: 20px;
-  font-family: 'Lato', sans-serif;
-  font-size: 14px;
-  width: 280px;
-  display: none;
-}
-#tweaks-panel.open { display: block; }
-#tweaks-panel h4 { font-family: 'Arvo', serif; margin: 0 0 12px 0; font-size: 18px; }
-#tweaks-panel label { display: block; margin: 10px 0 4px; font-weight: 700; }
-#tweaks-panel .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
-#tweaks-panel .swatch {
-  width: 36px; height: 36px; border: 3px solid #000; cursor: pointer;
-}
-#tweaks-panel .swatch.active { box-shadow: 3px 3px 0 #000; }
-#notes-overlay {
-  position: fixed; left: 20px; bottom: 20px;
-  z-index: 9998;
-  max-width: 560px;
-  max-height: 360px;
-  overflow: auto;
-  background: #111; color: #f4f4f4;
-  border: 3px solid #000;
-  box-shadow: 8px 8px 0 #0000FF;
-  padding: 18px 22px;
-  font-family: 'Lato', sans-serif;
-  font-size: 15px;
-  line-height: 1.45;
-  display: none;
-}
-#notes-overlay ul { margin: 0; padding-left: 18px; }
-#notes-overlay li { margin-bottom: 6px; }
-#notes-overlay li > ul { margin-top: 4px; padding-left: 18px; }
-#notes-overlay li > ul li { margin-bottom: 2px; color: #c8c8c8; font-size: 14px; }
-#notes-overlay b { color: #fff; }
-#notes-overlay code { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #b8d890; }
-#notes-overlay.open { display: block; }
-#notes-overlay .slide-num {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
-  color: #7aa83a;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  margin-bottom: 8px;
-}

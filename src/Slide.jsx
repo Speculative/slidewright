@@ -1,20 +1,24 @@
-// Slide framework. Per-deck files compose <Slide> and <Section> elements
-// inside a fragment; <DeckRoot> walks them at render time to inject indices
-// and act metadata, so deck authors never write `idx={N}` or `actNum={N}`.
+// Slide primitives. <Presentation> is the runtime that walks these,
+// derives slide indices + act metadata, and toggles which one is active;
+// <Slide> and <Section> are just the content shapes.
 import {
   Children,
   Fragment,
-  cloneElement,
   createContext,
   isValidElement,
   useContext,
 } from 'react';
 
+export const DeckMetaContext = createContext({
+  name: '',
+  subtitle: '',
+  total: 0,
+});
+
 // Children.toArray treats a top-level <>...</> as a single Fragment element
-// rather than unwrapping it, so a deck written as `<>{slide1}{slide2}</>`
-// would be processed as one child. Walk fragments recursively to surface
-// the actual slide elements.
-function flattenSlides(children) {
+// rather than unwrapping it. Walk fragments so deck authors can write
+// `<>{slide1}{slide2}</>` and we still see the actual slides.
+export function flattenSlides(children) {
   const out = [];
   Children.forEach(children, (child) => {
     if (!isValidElement(child)) return;
@@ -27,44 +31,8 @@ function flattenSlides(children) {
   return out;
 }
 
-const DeckMetaContext = createContext({ name: '', subtitle: '', total: 0 });
-
-// Wrap a deck's slides. Reads the children, derives:
-//   - idx (1-based) injected into each slide
-//   - actLabel + actNum, advanced by each <Section> child
-// and provides deck-wide name/subtitle/total via context for chrome.
-export function DeckRoot({ name, subtitle, setupLabel = 'Setup', children }) {
-  const slides = flattenSlides(children);
-  const total = slides.length;
-
-  let actLabel = setupLabel;
-  let actNum = null;
-  let actCounter = 0;
-  const perSlide = slides.map((child) => {
-    if (child.type === Section) {
-      actCounter += 1;
-      actNum = actCounter;
-      actLabel = child.props.actLabel || `Act ${actCounter}`;
-    }
-    return { actLabel, actNum };
-  });
-
-  return (
-    <DeckMetaContext.Provider value={{ name, subtitle, total }}>
-      {slides.map((child, i) =>
-        cloneElement(child, {
-          idx: i + 1,
-          actLabel: perSlide[i].actLabel,
-          actNum: perSlide[i].actNum,
-        })
-      )}
-    </DeckMetaContext.Provider>
-  );
-}
-
-// Pulls the `notes` prop off each top-level slide, in order. Returns one
-// string per slide (empty string if none), so positional indexing into the
-// array still aligns with deck-stage's slide index.
+// One string per slide, in order. Empty string when a slide has no notes,
+// so positional indexing into the array stays aligned with slide index.
 export function extractNotes(children) {
   return flattenSlides(children).map((child) =>
     dedent(child.props.notes || '')
@@ -84,8 +52,8 @@ function dedent(s) {
   return lines.map((l) => l.slice(min)).join('\n');
 }
 
-// idx, actLabel, actNum are injected by <DeckRoot>; authors don't pass them.
-// `notes` is read by extractNotes() and ignored here.
+// idx, actLabel, actNum, active are injected by <Presentation>; authors
+// don't pass them. `notes` is read by extractNotes() and ignored here.
 export function Slide({
   idx,
   label,
@@ -93,6 +61,7 @@ export function Slide({
   className,
   actLabel,
   notes,
+  active,
   children,
 }) {
   void notes;
@@ -100,6 +69,7 @@ export function Slide({
   const cls =
     'slide' +
     (sectionStyle ? ' section-slide' : '') +
+    (active ? ' active' : '') +
     (className ? ' ' + className : '');
   const screenLabel = String(idx).padStart(2, '0') + ' ' + (label || '');
   return (
@@ -130,6 +100,7 @@ export function Section({
   titleLines,
   subtitle,
   notes,
+  active,
 }) {
   return (
     <Slide
@@ -138,6 +109,7 @@ export function Section({
       sectionStyle
       actLabel={actLabel}
       notes={notes}
+      active={active}
     >
       <div
         style={{
