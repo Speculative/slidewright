@@ -1,0 +1,290 @@
+/* ============================================================
+   speculative.tech slide template — style system
+     - Arvo (slab serif) for titles
+     - Lato for body
+     - Iosevka / JetBrains Mono for code
+     - Blue primary accent; rainbow accents used sparingly
+     - Signature: thick black border + offset colored shadow
+   ============================================================ */
+
+:root {
+  --bg: #ffffff;
+  --fg: #000000;
+  --muted: #4a4a4a;
+  --rule: #000000;
+
+  /* accent swatches — Bloomberg-terminal saturated */
+  --blue: #0000FF;
+  --amber: #FFA500;
+  --cyan: #00BFFF;
+  --magenta: #FF0080;
+  --lime: #7FFF00;
+  --red: #FF3333;
+  --purple: #B026FF;
+  /* legacy alias so old .card.pink still works */
+  --pink: var(--magenta);
+
+  /* primary accent is the pure blue; Tweak overrides this */
+  --accent: var(--blue);
+
+  --font-display: "Arvo", Georgia, serif;
+  --font-body: "Lato", -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "Iosevka", ui-monospace, monospace;
+}
+
+deck-stage { background: #111; }
+
+section.slide {
+  position: relative;
+  width: 1920px;
+  height: 1080px;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 34px;
+  line-height: 1.35;
+  overflow: hidden;
+}
+
+/* ---------- frame & chrome ---------- */
+
+.slide-inner {
+  position: absolute;
+  inset: 0;
+  padding: 100px 120px 96px 120px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.chrome {
+  position: absolute;
+  left: 120px;
+  right: 120px;
+  bottom: 40px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 20px;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+.chrome .crumb { text-transform: uppercase; }
+.chrome .crumb .sep { margin: 0 10px; color: var(--accent); }
+.chrome .page { font-variant-numeric: tabular-nums; }
+
+/* ---------- typography ---------- */
+
+h1, h2, h3 { font-family: var(--font-display); font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+.title { font-family: var(--font-display); font-size: 112px; line-height: 1.05; font-weight: 700; }
+.title-xl { font-family: var(--font-display); font-size: 180px; line-height: 0.98; font-weight: 700; letter-spacing: -0.02em; }
+.title-xxl { font-family: var(--font-display); font-size: 240px; line-height: 0.95; font-weight: 700; letter-spacing: -0.03em; }
+.slide-title { font-family: var(--font-display); font-size: 84px; line-height: 1.05; font-weight: 700; margin-bottom: 48px; }
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 26px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 18px;
+}
+.body { font-size: 34px; line-height: 1.4; }
+.body-lg { font-size: 34px; line-height: 1.35; }
+.small { font-size: 26px; }
+
+code, .mono { font-family: var(--font-mono); }
+
+/* ---------- signature card treatment (border + offset shadow) ---------- */
+
+.card {
+  background: var(--bg);
+  border: 4px solid var(--fg);
+  padding: 28px 32px;
+  box-shadow: 12px 12px 0 var(--accent);
+  position: relative;
+}
+.card.tight { padding: 20px 24px; }
+.card.pink { box-shadow: 12px 12px 0 var(--pink); }
+.card.magenta { box-shadow: 12px 12px 0 var(--magenta); }
+.card.lime { box-shadow: 12px 12px 0 var(--lime); }
+.card.amber { box-shadow: 12px 12px 0 var(--amber); }
+.card.purple { box-shadow: 12px 12px 0 var(--purple); }
+.card.cyan { box-shadow: 12px 12px 0 var(--cyan); }
+.card.red { box-shadow: 12px 12px 0 var(--red); }
+.card.inverted { background: var(--fg); color: var(--bg); }
+.card h3 { font-size: 40px; margin-bottom: 12px; }
+.card .label {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+/* ---------- section header slide ---------- */
+
+.section-slide { background: var(--fg); color: var(--bg); }
+.section-slide .slide-title { color: var(--bg); }
+.section-slide .eyebrow { color: var(--accent); }
+.section-slide .chrome { color: #888; }
+.section-slide .chrome .sep { color: var(--accent); }
+.section-slide .act-num {
+  font-family: var(--font-mono);
+  font-size: 36px;
+  color: var(--accent);
+  margin-bottom: 20px;
+  letter-spacing: 0.1em;
+}
+
+/* ---------- code blocks ---------- */
+
+pre.code {
+  font-family: var(--font-mono);
+  font-size: 28px;
+  line-height: 1.45;
+  background: #f4f4f4;
+  border: 3px solid var(--fg);
+  padding: 24px 28px;
+  margin: 0;
+  white-space: pre;
+  overflow: hidden;
+}
+pre.code.dark { background: #111; color: #f4f4f4; border-color: #111; }
+/* Syntax tokens use the highest-contrast colors from the palette against
+   the #f4f4f4 code background. Blue (7.75) is reserved for accent/emphasis.
+   Ranked: purple 4.21, magenta 3.40, red 3.27, amber 2.73, cyan 1.97, lime 1.17. */
+.kw  { color: var(--purple); font-weight: 700; }
+.str { color: var(--magenta); }
+.com { color: var(--muted); font-style: italic; }
+.num { color: var(--amber); }
+
+/* ---------- rule / divider ---------- */
+
+hr.rule { border: none; border-top: 3px solid var(--fg); margin: 0; }
+.accent-rule { height: 8px; width: 120px; background: var(--accent); margin-bottom: 32px; }
+
+/* ---------- big-figure slide ---------- */
+.big-fig {
+  font-family: var(--font-display);
+  font-size: 380px;
+  line-height: 0.9;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}
+
+/* ---------- two-column layout ---------- */
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; flex: 1; }
+.cols-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 40px; flex: 1; }
+
+/* Card grids don't stretch to fill the slide; each card has a reasonable
+   minimum height so short copy still reads as a deliberate card, and
+   all cards in the grid are the same height (stretch). */
+.card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; align-items: stretch; }
+.card-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 40px; align-items: stretch; }
+.card-grid > .card, .card-grid-3 > .card { min-height: 260px; }
+.stack-48 > * + * { margin-top: 48px; }
+.stack-32 > * + * { margin-top: 32px; }
+.stack-24 > * + * { margin-top: 24px; }
+.stack-16 > * + * { margin-top: 16px; }
+
+/* ---------- badges / chips ---------- */
+.chip {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 22px;
+  padding: 6px 14px;
+  border: 3px solid var(--fg);
+  background: var(--bg);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.chip.filled { background: var(--accent); color: #fff; border-color: var(--accent); }
+.chip.pink { background: var(--pink); color: #fff; border-color: var(--pink); }
+.chip.lime { background: var(--lime); color: #000; border-color: var(--lime); }
+.chip.amber { background: var(--amber); color: #000; border-color: var(--amber); }
+.chip.magenta { background: var(--magenta); color: #fff; border-color: var(--magenta); }
+
+/* ---------- tables ---------- */
+table.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 26px;
+}
+table.tbl th, table.tbl td {
+  border: 3px solid var(--fg);
+  padding: 14px 18px;
+  text-align: left;
+  vertical-align: top;
+}
+table.tbl th {
+  font-family: var(--font-display);
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 28px;
+}
+table.tbl tr:nth-child(even) td { background: #fafafa; }
+
+/* ---------- diagrams ---------- */
+svg.diagram { width: 100%; height: 100%; }
+svg .node-fill { fill: var(--bg); stroke: var(--fg); stroke-width: 3; }
+svg .node-label { font-family: var(--font-display); font-size: 28px; fill: var(--fg); }
+svg .edge { stroke: var(--fg); stroke-width: 3; fill: none; }
+svg .edge-accent { stroke: var(--accent); stroke-width: 4; fill: none; }
+svg .edge-label { font-family: var(--font-mono); font-size: 22px; fill: var(--muted); }
+
+/* ---------- tweaks panel ---------- */
+#tweaks-panel {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 9999;
+  background: #fff;
+  border: 3px solid #000;
+  box-shadow: 8px 8px 0 #0000FF;
+  padding: 20px;
+  font-family: 'Lato', sans-serif;
+  font-size: 14px;
+  width: 280px;
+  display: none;
+}
+#tweaks-panel.open { display: block; }
+#tweaks-panel h4 { font-family: 'Arvo', serif; margin: 0 0 12px 0; font-size: 18px; }
+#tweaks-panel label { display: block; margin: 10px 0 4px; font-weight: 700; }
+#tweaks-panel .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+#tweaks-panel .swatch {
+  width: 36px; height: 36px; border: 3px solid #000; cursor: pointer;
+}
+#tweaks-panel .swatch.active { box-shadow: 3px 3px 0 #000; }
+#notes-overlay {
+  position: fixed; left: 20px; bottom: 20px;
+  z-index: 9998;
+  max-width: 560px;
+  max-height: 360px;
+  overflow: auto;
+  background: #111; color: #f4f4f4;
+  border: 3px solid #000;
+  box-shadow: 8px 8px 0 #0000FF;
+  padding: 18px 22px;
+  font-family: 'Lato', sans-serif;
+  font-size: 15px;
+  line-height: 1.45;
+  display: none;
+}
+#notes-overlay ul { margin: 0; padding-left: 18px; }
+#notes-overlay li { margin-bottom: 6px; }
+#notes-overlay li > ul { margin-top: 4px; padding-left: 18px; }
+#notes-overlay li > ul li { margin-bottom: 2px; color: #c8c8c8; font-size: 14px; }
+#notes-overlay b { color: #fff; }
+#notes-overlay code { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #b8d890; }
+#notes-overlay.open { display: block; }
+#notes-overlay .slide-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: #7aa83a;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
