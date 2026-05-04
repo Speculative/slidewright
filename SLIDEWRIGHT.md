@@ -26,7 +26,7 @@ Before any v0 code gets written, four topics need a design pass deep enough to c
 
 2. **Animations and builds — the value-model implications.** Deferred as a *feature*, but the *value model* (cells with computed defaults and overrides; see below) needs to either accommodate time-varying values or be explicitly bounded against them. Building v0 with the wrong value-model commitment makes adding builds later expensive.
 
-3. **Round-trip mechanics.** This doc commits to round-trip discipline as an invariant but leaves the mechanism unspecified: what does formatting-preservation mean concretely, how do comments survive structural edits, how are IDs generated and kept stable across both editor edits and out-of-band human/AI edits. The foundational property of the system can't stay a slogan.
+3. **Round-trip mechanics.** ~~Pre-v0 design pass complete~~ — see Mediation layer. Canonical re-emit on editor write (structure preserved, comments preserved, formatting normalized); per-slide type-prefixed counter IDs (Figma convention); leading/trailing comment attachment; gestures committed via VS Code's TextEdit API. Round-trip invariant softened from "formatting preserved" to "structure preserved." Hybrid emit and snapshot-fold undo are noted as long-term upgrades.
 
 4. **AI authoring posture.** Whether the grammar is strict-and-rejecting (AI output that doesn't parse fails the generation, retry) or permissive-with-repair (invalid trees can exist in the editor in a "draft" state and be incrementally fixed) is an architectural commitment that affects parser, editor, and review-flow shape. Can't wait until AI features are built; constrains v0.
 
@@ -323,22 +323,81 @@ These protocols solve the magnifier-on-a-diagram problem (see "Composition and c
 
 Translates between source files (the DSL) and the editor's runtime tree, in both directions:
 
-- Source → tree: parse, resolve imports, build the in-memory representation.
-- Tree → source: emit minimal, formatting-preserving edits when the user manipulates something.
+- Source → tree: parse, resolve imports, build the in-memory representation, normalize (auto-assign missing IDs).
+- Tree → source: emit canonical formatting from the AST when the editor structurally modifies the tree.
 
-External edits (a human typing in the code panel, an AI rewriting a file) are detected via file watching and re-parsed. The editor keeps selection and gesture state stable across re-parses by keying on IDs.
+External edits (a human typing in the code panel, an AI rewriting a file) are detected via VS Code's document-change events and re-parsed. The editor keeps selection stable across re-parses by keying on IDs. In-progress gesture state is dropped when an external edit lands; the external edit takes precedence.
 
-### Concurrency **TENTATIVE**
+### Round-trip discipline **DECIDED (softened from initial framing)**
 
-For v0, AI and human edits are **serialized**: at any given moment, exactly one of them is editing. Concurrent editing is deferred. This may need revisiting if/when "background AI" use cases (AI working on other slides while the human works on the current one) become a priority.
+The mediation layer must round-trip cleanly: source → tree → mutated tree → source must produce a file that re-parses to **the same mutated tree** (structure preserved). This is the foundational invariant. Test it relentlessly with property-based tests: random sequences of edit operations applied to a corpus of source files should produce sources that re-parse to the expected trees.
 
-### Undo/redo **OPEN**
+**Formatting is canonical on emit, not preserved.** When the editor writes back, it uses a deterministic formatter over the AST — it does not splice the original source. Comments are preserved (the formatter is comment-aware), but author whitespace and alignment are normalized.
 
-The editor needs gesture-level undo ("undo the resize"), but VS Code has its own file-level undo. **OPEN:** how these reconcile. Likely answer: the editor owns a semantic undo stack while it's open and commits to the file in coherent units, but this needs deliberate design and may interact poorly with external edits.
+This is a softening of the original "formatting preserved" framing. Rationale: recast-style emitters that preserve original formatting have a long tail of subtle bugs (whitespace context shifts, comment-attachment edge cases, trivia ownership) that take years to polish out. Our DSL is constrained enough that canonical re-emit produces nice output, and authors will be using a projectional editor — much of the source-level alignment work happens automatically, so canonical formatting on editor write is acceptable.
 
-### Round-trip discipline **DECIDED**
+**Hybrid is a maybe-someday upgrade**, not a v0 commitment: canonical-on-editor-write, leave-alone on regions the editor doesn't structurally touch. Cuts the worst of both — no whitespace churn in idle regions, no infinite-recast complexity. Worth keeping in mind if author churn from canonical re-emit becomes painful in practice.
 
-The mediation layer must round-trip cleanly: source → tree → mutated tree → source must produce a file that re-parses to the same mutated tree, with formatting and comments preserved. This is the foundational invariant. Test it relentlessly.
+### Comments **DECIDED**
+
+Standard leading/trailing comment attachment (Babel/recast/libCST/Roslyn convention). Each AST node carries leading-comments and trailing-comments arrays, attached at parse time by adjacency:
+
+- Comments above a node are leading comments of that node.
+- Comments on the same line after a node are trailing comments of that node.
+- Comments after the last child of a parent are trailing comments of the parent.
+
+Comments move with their attached node under structural edits. Edge cases (comment between siblings; comment above a deleted node) are heuristic-driven; canonical re-emit places the comment in approximately the right position but makes no perfect guarantee.
+
+### IDs in source **DECIDED**
+
+Per-slide unique, type-prefixed counter IDs. Format: `<type>-<n>` (e.g., `box-3`, `card-1`, `arrow-2`) — the Figma convention. Implementation rules:
+
+- **Scope**: per-slide. Slide-scope references work; deck-wide cross-slide references use compound `<slide-id>.<element-id>` form.
+- **Generation**: counter advances monotonically per type per slide. Inserting a new box picks the next-available number for "box" in that slide.
+- **No renumbering on delete**: if `box-2` is deleted, the next inserted box gets `box-3`, not reused `box-2`. Stable under undo/redo and structural moves.
+- **Renames are honored**: an author can rename `box-3` to `intro-card` for readability or to make it referenceable; the editor preserves the rename. The counter continues picking numeric `box-N`; author-named IDs don't enter the counter.
+- **Normalization on parse**: if the parser sees a primitive without an ID, it auto-assigns one. The next save writes it back. ID-less DSL source is a valid input the editor normalizes; once normalized, round-trip is exact.
+
+### VS Code integration **TENTATIVE**
+
+The editor commits gesture changes via VS Code's TextEdit API rather than writing files directly. This:
+
+- Routes changes through VS Code's text buffer (so the source panel stays live and consistent).
+- Integrates with VS Code's file-save flow and dirty-state tracking.
+- Avoids the "extension wrote a file vs. editor watched a file change" race that direct disk writes would create.
+- Adds gestures to VS Code's text-buffer undo stack, one entry per gesture.
+
+**Granularity**: each gesture commit is one TextEdit. v0 can replace the entire file as that TextEdit; future versions can compute minimal-diff TextEdits if file size makes whole-file replacement painful. Both are valid; granularity is an optimization, not a correctness concern.
+
+### Concurrency and out-of-band edits **TENTATIVE**
+
+For v0, AI and human edits are **serialized**: at any moment, exactly one of them is editing. Concurrent editing is deferred. This may need revisiting if/when "background AI" use cases (AI working on other slides while the human works on the current one) become a priority.
+
+External edits to source (typed in the code panel, applied by an AI agent) are detected via VS Code's document-change events. On change:
+
+1. Re-parse the document.
+2. Update the editor's in-memory AST.
+3. Restore selection if the previously selected element's ID still exists in the new tree; clear selection otherwise.
+4. **Cancel any in-progress gesture** — the external edit takes precedence; the gesture's pending changes are dropped and don't enter the undo stack.
+
+Selection-restoration depends on ID stability across the round-trip — another reason IDs are required and round-tripped through both editor edits and external edits.
+
+### Undo/redo **TENTATIVE (v0) / OPEN (long-term)**
+
+Two undo stacks coexist:
+
+1. **Canvas gesture stack**: gesture-level semantic undo for direct-manipulation edits ("undo the resize," "un-edit that text").
+2. **VS Code text-buffer stack**: standard text-level undo accessible from the source panel.
+
+Each canvas gesture pushes onto both stacks at once: one semantic entry on the canvas stack, one TextEdit on VS Code's stack. They stay aligned 1:1 for canvas-originated edits.
+
+External edits (code-panel typing, AI applying changes) push onto VS Code's stack only — not the canvas stack. **For v0, the canvas stack treats them as barriers**: canvas-undo unwinds gestures up to the most recent external edit and stops there. The user can still undo past the barrier from the source panel (Cmd-Z in the text editor), but not from the canvas.
+
+**Barriers are a v0 concession, not the ideal end state.** Walls in the undo history are a bad user experience; users expect Cmd-Z to keep working. The better long-term design folds external code/agent edits into a single unified canvas undo stack with a snapshot of DSL contents taken just before each external edit applies. Canvas-undo through an external-edit boundary restores the pre-edit snapshot, then continues unwinding gestures from before. Nothing is frozen behind a wall. This is genuinely harder to implement (snapshots, snapshot diffing, gesture rebasing across snapshot boundaries) and we don't need it for v0, but it's the design we should grow toward — captured in the open-questions list as a real follow-up, not a hand-wave.
+
+**Edge cases for v0:**
+- Canvas-undo target invalidated by an external edit (the Box you were going to un-drag has been deleted): fail soft — show "this gesture's target no longer exists; can't undo." Surprising but correct.
+- Mid-gesture external edit: gesture cancelled per the Concurrency rules above; the cancelled gesture does not enter the undo stack.
 
 ---
 
@@ -569,11 +628,12 @@ For ease of reference, the major unresolved questions:
 
 **Pre-v0 design topics (still need answers before implementation):**
 - Animation/build value model and its implications for the cell model
-- Round-trip mechanism (formatting preservation, comment survival, ID stability)
 - AI authoring posture (strict-rejecting vs. permissive-with-repair)
 
 **Resolved by recent design pass:**
 - ~~Slide-component contract shape~~ → v0-light shape committed: `{ produces, slots, params, protocols: {} }` plus default React component taking `{ slots, params }` props. See Wrapper / contract design.
+- ~~Round-trip mechanism~~ → canonical re-emit on editor write; structure preserved, comments preserved, formatting normalized; per-slide type-prefixed counter IDs. See Mediation layer.
+- ~~Undo/redo reconciliation between Slidewright and VS Code~~ → canvas gesture stack + VS Code text-buffer stack, each canvas gesture pushes onto both 1:1; external edits are barriers in the canvas stack for v0. Long-term direction (snapshot+fold, no walls in history) noted but not v0. See Mediation layer / Undo/redo.
 - ~~Layout primitive granularity~~ → stacks (HStack/VStack/ZStack) + Grid + Freeform.
 - ~~Gesture semantics for layout-controlled positions~~ → gestures dispatch to container; container interprets.
 - ~~Direct manipulation inside structured components~~ → pins as primary mechanism; constraint-style and demote-to-freeform as adjuncts.
@@ -585,13 +645,14 @@ For ease of reference, the major unresolved questions:
 - Token system specifics (spacing scale, color model, typography vocabulary)
 - Coordination protocol APIs (full shape pinned by component-contract design)
 - Panel schema extensions (conditional visibility, custom widgets)
-- Undo/redo reconciliation between Slidewright and VS Code (likely resolves with round-trip mechanism)
 - AI invocation UX
 - Presentation features (notes, transitions, timed advance)
 - Reusability across decks (workspace structure, shared component packages)
 - Inventory of computed-default forms in the cell model
 - How structured + freeform compose within a single diagram
 - Auto-router choice(s) for arrows (straight, orthogonal-with-rounded-corners, obstacle-avoiding)
+- **Long-term: snapshot-and-fold undo model** (post-v0; replaces external-edit barriers with a unified history)
+- **Long-term: hybrid emit** (canonical-on-editor-write, leave-alone on idle regions; replaces pure canonical re-emit if author churn becomes painful)
 
 Most of these should not be answered before v0. Several can only be answered by living with v0 for a while.
 
