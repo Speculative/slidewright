@@ -16,3 +16,4 @@ This directory contains worked examples of slides written in candidate Slidewrig
 
 **Index:**
 - `three-obstacles.md` — the "Three obstacles" slide from `decks/ne-agents-day-2026/Deck.jsx`. The first sketch; motivated the typed-slot model, three-component-layer split, and stack-based layout primitives in SLIDEWRIGHT.md.
+- `title-slide.md` — the deck's title slide reimagined as a custom component against the v0-light slide-component contract. Demonstrates the schema/render split and the React-side authoring view.

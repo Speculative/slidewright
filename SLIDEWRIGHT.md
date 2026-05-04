@@ -22,7 +22,7 @@ Slidewright is **not** trying to be a general visual editor (Figma, Framer) or a
 
 Before any v0 code gets written, four topics need a design pass deep enough to commit to an architecture. These are not v0 features — they are the design commitments v0 has to be built against.
 
-1. **The slide-component contract.** What every custom component implements. Binds together render, slot schema, panel schema, and coordination protocols, and shapes how every later feature attaches. Flagged as "the most important early decision." Title-slide and image-slide templates depend on it. Until it's pinned down, there's nothing to build composites against.
+1. **The slide-component contract.** ~~Pre-v0 design pass complete~~ — see "Slide-component contract" below for the v0-light shape. Thin by design (props + typed slots + typed params + reserved `protocols` namespace) on the principle that the React escape hatch is always available, so the contract stays minimal and grows only when accumulated escape-hatch evidence shows what it's missing. Iterate freely until external consumers exist.
 
 2. **Animations and builds — the value-model implications.** Deferred as a *feature*, but the *value model* (cells with computed defaults and overrides; see below) needs to either accommodate time-varying values or be explicitly bounded against them. Building v0 with the wrong value-model commitment makes adding builds later expensive.
 
@@ -196,18 +196,100 @@ This is the spreadsheet model — formula + overridable cell value — applied u
 
 ## Wrapper / contract design
 
-### Slide-component contract **OPEN**
+### Slide-component contract **TENTATIVE (v0-light)**
 
-Components that participate in slide layout receive contextual information from the editor (size, position, edit mode, selection state) and report layout semantics back. The exact shape of the contract is not yet pinned down.
+The contract is **what the editor needs to know about a component, not constraints on what the component can do.** Internally, a component is arbitrary React; the editor only cares about what's promised to expose. The React escape hatch is always available — anything the DSL can't express can fall back to "write a React component with some slots and put the missing behavior in JS." That makes the contract minimum genuinely small.
 
-Initial sketch — components export:
+**The most important feedback signal during early Slidewright is: "when do authors reach for the escape hatch?"** Each reach is evidence of a DSL pattern we should consider promoting. The contract stays thin and deliberately under-featured; it gets enriched only when accumulated escape-hatch evidence justifies it.
 
-- A render function (the React component itself)
-- Layout metadata (am I a flex container, an absolutely-positioned region, a leaf? what children am I willing to accept?)
-- A panel schema (parameters with types, for the inspector UI — see Panels below)
-- Optional protocol implementations (see Coordination protocols below)
+#### v0 contract shape
 
-This is the **most important early decision** because every custom component implements this contract and changes are breaking. **Worth investing significant design effort upfront.**
+Every Slidewright component is a `.tsx` file exporting:
+
+- A `slidewright` metadata object describing the component to the editor.
+- A default React component that takes `{ slots, params }` as props.
+
+```typescript
+export const slidewright = {
+  produces: "slide",                      // type this component produces
+  slots: {
+    title:     { type: "text",  required: true },
+    subtitle:  { type: "text",  required: false },
+    headshot:  { type: "image", required: true },
+    /* ... */
+  },
+  params: {
+    accentColor: { type: "color-token", default: "accent" },
+  },
+  protocols: {},                          // reserved; empty in v0
+};
+
+export default function TitleSlide({ slots, params }) {
+  /* arbitrary React internals */
+}
+```
+
+The editor reads `slidewright.slots` to validate DSL slot-fillings and render slot placeholders; reads `slidewright.params` to render the inspector panel; uses `produces` to know which slots can accept this component as a value. It calls the default export with resolved data. Everything else — DOM, hooks, refs, internal animations, third-party libraries — is opaque and unrestricted.
+
+A fuller worked example showing the existing deck's title slide as a Slidewright component is in `design/sketches/title-slide.md`.
+
+#### Slot types and `produces` share one vocabulary
+
+A component's `produces` value is drawn from the same vocabulary as slot types. Component placement is just type-checking — same machinery as filling any other slot. No separate "kind" concept.
+
+The v0 vocabulary:
+
+- **Content types**: `text` (string or `(string | Span)+` runs), `block` (a tree of layout primitives or composite components), `image` (image reference), `slide` (top-level slide content).
+- **Scalar types**: `string`, `number`, `boolean`.
+- **Token types**: `color-token`, `spacing-token`, `font-token` — drawn from the deck theme.
+- **Containers**: `array<T>`.
+
+Examples: `TitleSlide.produces = "slide"`. `Card.produces = "block"`. `Eyebrow.produces = "text"`. A `Deck`'s slide-list slot accepts type `slide`. A `body` slot of type `block` accepts anything producing `block`. A `text` slot accepts strings or anything producing `text`.
+
+The vocabulary is extensible later; v0 ships this fixed set and gates additions on escape-hatch evidence.
+
+#### Variables and computed defaults in slot fillings
+
+Handled by the DSL value system, not the contract. Anywhere a value of type `T` is expected, the DSL accepts a literal, a variable reference resolving to `T`, or a computed default producing `T` (per the cell model). The slot only type-checks. The contract doesn't need to know about variables; it just declares slot types.
+
+Practical implication: the type vocabulary must be runtime-inspectable, so the inspector can surface compatible in-scope variables when editing a slot.
+
+#### Resolved values at the React boundary
+
+The editor resolves DSL values to React-friendly forms before passing them to the component:
+
+- `text` slots arrive as React nodes (strings or fragments with `Span` styling already applied) — the component author treats them as opaque renderable values, not as run arrays.
+- `block` slots arrive as resolved React children (the sub-tree is already rendered against the runtime).
+- `image` slots arrive as strings (URL or asset path) ready for `<img src={...}>`.
+- Scalar and token types arrive as their resolved values (numbers, strings, resolved CSS variable references).
+
+This keeps component authors writing ordinary React, not Slidewright-runtime traversal code.
+
+#### React interop
+
+v0 uses **props-only**: the editor passes `{ slots, params }` as props to the default-exported component. Components are testable in isolation (just call with props) and the API is intuitive React.
+
+A `useSlidewrightContext()` hook is reserved as a planned extension for editor-mediated state (selection state, edit mode, geometry callbacks, eventually protocol participation). Not implemented in v0; documented so we don't preclude it:
+
+```tsx
+export default function TitleSlide({ slots, params }) {
+  // v0: just slots + params
+  // future: const { selected, isEditing } = useSlidewrightContext();
+  return <div>...</div>;
+}
+```
+
+#### What's deliberately not in v0
+
+- **Protocol implementations** — geometry exposure, anchor publishing, obstacle awareness, pin acceptance, selection forwarding. `protocols: {}` reserves the namespace; populating it later is non-breaking.
+- **Custom panel widgets** — built-in widgets only. Reach for the React escape hatch and hand-rolled UI if you need something exotic.
+- **Animation/build participation** — pre-v0 design topic; the contract may need to grow here once the value model decides on time-varying cells.
+- **Imperative APIs** — refs/measurement callbacks for editor-side measurement. Add when needed.
+- **Slot constraints beyond type** — e.g., "this slide can only appear in the first position." Not needed for v0; add a `constraints:` field if needed later.
+
+#### Why thin (and why we can iterate)
+
+The contract is the only Slidewright architectural piece with external consumers — user-authored components, eventually AI-generated components, eventually shared component libraries across decks. Once those exist, contract changes can't be unilateral. **In the early phase, iterate freely; commit to stability only when external consumers exist.** v0 is small enough that we are the only consumers; the contract can change as we learn. What's locked in now is the minimum needed to build — not a stable public API. The most important post-v0 signal is escape-hatch frequency: when authors keep dropping into raw React for a recurring pattern, that pattern is the priority for promotion into the DSL or the protocols.
 
 ### Coordination protocols **TENTATIVE**
 
@@ -485,13 +567,13 @@ This is a research-flavored project with many open questions. The intended proce
 
 For ease of reference, the major unresolved questions:
 
-**Pre-v0 design topics (need answers before implementation):**
-- Slide-component contract shape (the most important early decision)
+**Pre-v0 design topics (still need answers before implementation):**
 - Animation/build value model and its implications for the cell model
 - Round-trip mechanism (formatting preservation, comment survival, ID stability)
 - AI authoring posture (strict-rejecting vs. permissive-with-repair)
 
 **Resolved by recent design pass:**
+- ~~Slide-component contract shape~~ → v0-light shape committed: `{ produces, slots, params, protocols: {} }` plus default React component taking `{ slots, params }` props. See Wrapper / contract design.
 - ~~Layout primitive granularity~~ → stacks (HStack/VStack/ZStack) + Grid + Freeform.
 - ~~Gesture semantics for layout-controlled positions~~ → gestures dispatch to container; container interprets.
 - ~~Direct manipulation inside structured components~~ → pins as primary mechanism; constraint-style and demote-to-freeform as adjuncts.
