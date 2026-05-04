@@ -24,7 +24,7 @@ Before any v0 code gets written, four topics need a design pass deep enough to c
 
 1. **The slide-component contract.** ~~Pre-v0 design pass complete~~ — see "Slide-component contract" below for the v0-light shape. Thin by design (props + typed slots + typed params + reserved `protocols` namespace) on the principle that the React escape hatch is always available, so the contract stays minimal and grows only when accumulated escape-hatch evidence shows what it's missing. Iterate freely until external consumers exist.
 
-2. **Animations and builds — the value-model implications.** Deferred as a *feature*, but the *value model* (cells with computed defaults and overrides; see below) needs to either accommodate time-varying values or be explicitly bounded against them. Building v0 with the wrong value-model commitment makes adding builds later expensive.
+2. **Animations and builds — the value-model implications.** ~~Pre-v0 design pass complete~~ — see Animations and builds. Three categories surfaced (enter/exit, cell-value transitions, motion graphics); discrete states as primary; implicit-by-ID-match defaults with explicit customization layer. The v0 architectural commitment is that cells are addressable handles, resolution takes a context (`resolve(handle, context): T`), caches and dependency-graph nodes are `(handle, context)`-keyed, and the cell type reserves space for a `valuesByState` layer. Everything else (DSL syntax, timeline UI, interpolation algorithms, transition declarations) is deferred as feature work.
 
 3. **Round-trip mechanics.** ~~Pre-v0 design pass complete~~ — see Mediation layer. Canonical re-emit on editor write (structure preserved, comments preserved, formatting normalized); per-slide type-prefixed counter IDs (Figma convention); leading/trailing comment attachment; gestures committed via VS Code's TextEdit API. Round-trip invariant softened from "formatting preserved" to "structure preserved." Hybrid emit and snapshot-fold undo are noted as long-term upgrades.
 
@@ -190,7 +190,7 @@ This is the spreadsheet model — formula + overridable cell value — applied u
 
 **OPEN:** the inventory of computed-default forms (`solve.*`, anchor expressions, auto-router types, etc.) and their declaration syntax. Not all values need a computed default; the model is opt-in per value.
 
-**OPEN (pre-v0 design topic):** time-varying cells. Build/animation states might extend the cell model with per-state values; or might require a separate scope variable that values implicitly depend on. Candidate sketch: a build state is a deck-scope variable that cells implicitly depend on; per-state values on a cell are specified as a small map from state to value; transitions are auto-derived for interpolatable types and declared for structural changes. Whether this is the right shape needs a real design pass before the value model is implemented.
+**Time-varying cells (resolved by recent design pass).** Animations extend cells with an optional fourth layer: `valuesByState` — a map from state ID to value. Most cells leave this unset (no animation); animated cells specify per-state values. Resolution is state-aware: `resolve(handle, context): T` where `context` carries `currentState` (and `currentSlide` for cross-slide cases). v0 ships with empty context; the resolution interface and any caches/dependency-graph nodes are `(handle, context)`-keyed throughout, including in v0 where context is unused. This is the architectural commitment that lets animations grow additively without refactoring v0. See Animations and builds for the full design.
 
 ---
 
@@ -588,14 +588,84 @@ A separate render path that:
 
 ## Animations and builds
 
-A core differentiator and an area where existing tools are weakest. **OPEN: design.** General direction:
+A core differentiator and an area where existing tools are weakest. **TENTATIVE (v0 architectural commitment) / DEFERRED (feature).** Slidewright treats animation as a property of cells, not a separate subsystem — a cell can have per-state values, and resolution is state-aware. v0 ships no animation features; the v0 architectural commitment is to structure the cell model so animations grow additively.
 
-- Slides have **build states** (ordered steps); the deck advances through them.
-- Components declare per-state values and how to animate between them.
-- The editor provides a timeline-like UI for setting per-state values (analogous to keyframes).
-- Common transitions (position, size, opacity, color) are interpolated automatically; structural changes use declared animations.
+### Three categories of animation
 
-This is significant scope and **not part of v0** as a feature. **But the architectural shape is one of the pre-v0 design topics**, because the cell model for values has to either accommodate time-varying cells (per-state values per cell, with interpolation) or be explicitly bounded against them. The candidate sketch is in the Cell model section's open-questions list. Whether it's the right shape needs a real design pass before the value model is implemented.
+The "animation" word covers genuinely different things, and the data model has to handle each cleanly:
+
+1. **Enter/exit builds** — elements appearing or disappearing as the deck advances. The PowerPoint custom-animations / reveal.js fragments / Slidev v-click case. Most academic-presentation animation falls here. Modeled as a per-element existence schedule across build states.
+2. **Cell-value transitions** — an element stays in place but some of its cells (position, size, color, opacity, value) change between states. Keynote Magic Move and PowerPoint Morph fall here. Modeled as per-state values on cells, with default interpolation between adjacent states for interpolatable types.
+3. **Motion graphics** — Manim / After Effects / Motion Canvas-style continuous-time animations within a state. Far less common in slides; a power feature. Modeled as cells whose value is a function of continuous time progress within a state. Deferred indefinitely; not core to slide-shaped use cases.
+
+### Discrete states as the primary model
+
+Slidewright builds use discrete states (numbered build steps), like Keynote/PowerPoint/reveal.js. The deck advances through states with click/key. Transitions between adjacent states animate cell values automatically. Continuous-time motion graphics (category 3) are a future extension on top of discrete states (a state with a duration > 0 that interpolates internally), not an alternative primary model.
+
+### Cells with per-state values
+
+A cell currently has up to three layers (literal / computed default / manual override). Animations add an optional fourth layer:
+
+- **`valuesByState`**: a map from state ID to literal/computed/override value. Most cells leave this unset; animated cells specify per-state values where they animate. Resolution at state S consults `valuesByState[S]` if present, falling through to the existing layers otherwise.
+
+This is the DAW-automation pattern: a parameter has a static value; an automation lane optionally overrides per time/state. The static-only case stays uncluttered; animation is opt-in per cell.
+
+### Implicit-by-default, explicit-when-needed
+
+Most animations don't require declarations. Two layers:
+
+- **Implicit (default).** Same ID across states with different cell values → the cells animate between states. No declaration needed. The dependency graph propagates: if `arrow.endpoint = box.right` and `box.x` has per-state values, the arrow's endpoint inherits the animation automatically.
+- **Explicit (customization).** When the default doesn't suffice — custom interpolation curves or timing, declared entrance/exit effects, morphs across different IDs, structural transitions like split/join — explicit declarations supplement or override the default behavior.
+
+The explicit form is needed for cases the implicit can't express:
+- An element with a different ID in the next slide that should morph into something here (different IDs = no implicit match).
+- A specific entrance or exit effect distinct from cell-value interpolation.
+- Custom timing or curves on a per-element basis.
+
+The pure-implicit-vs-pure-explicit binary is wrong. The default-implicit-with-explicit-customization model gives the common case (the box moved) for free while keeping rich cases (cross-ID morph) expressible.
+
+### Cross-slide animations
+
+Same machinery as within-slide builds, just operating across slide boundaries. Two cases:
+
+- **Same ID across slides.** Implicit Magic-Move-style transition at the slide-transition boundary; engine identifies the pair automatically and interpolates resolved positions.
+- **Different IDs, same content.** Explicit morph declaration links the IDs. The author writes "morph from `box-3.text` to `slide-2.title`" and the engine animates between the source's resolved end-state and the target's resolved start-state.
+
+Within-slide builds and cross-slide transitions probably share one underlying mechanism with two surface affordances: builds are configured per-slide on a per-state basis; slide transitions are configured at deck level or per-slide-pair.
+
+### Resolution machinery requirements
+
+The animation engine queries cells at multiple states simultaneously: state N for "where am I now," state N+1 for "where am I going," with progress between them. This pins down the cell-resolution interface for the entire system:
+
+- **Resolution takes a context.** `resolve(handle, context): T` where `context` carries `currentState` (and, for cross-slide animations, `currentSlide`).
+- **Caches and dependency-graph nodes are keyed on `(handle, context)`**, not handle alone. The engine asks for the same cell's value at multiple contexts simultaneously; caches must keep both live.
+- **Resolution must be safe at arbitrary contexts**, not just "the current state." Even v0, which only ever queries at the empty context, must be implemented this way — retrofitting state-keyed caches into a single-state-cached implementation is painful.
+
+This last point is the load-bearing v0 commitment. Without it, the cell model could be implemented with single-state caching as a v0 simplification, and adding animations later would require ripping out the cache layer.
+
+### v0 architectural commitment
+
+v0 ships no animation features. The architectural commitment is just enough to keep the door open:
+
+- Cells are addressable handles, not eagerly-resolved values.
+- `resolve(handle, context): T` is the resolution interface; context is `{}` in v0.
+- Caches and dependency graph are `(handle, context)`-keyed.
+- The cell type definition reserves space for the `valuesByState` layer (e.g., as an optional field, undefined in v0).
+
+That's it. The DSL surface syntax for per-state values, the timeline UI, the transition declaration form, the interpolation algorithms — all deferred.
+
+### What's deferred
+
+- DSL surface syntax for per-state values (the cell model represents them; the surface form is a future grammar addition).
+- Surface syntax for explicit transitions, morphs, and entrance/exit effects.
+- Timeline UI in the editor.
+- Per-type default interpolation algorithms (numeric blend, color blend in HSL, position blend in 2D, etc.).
+- Custom interpolation curves and easing functions.
+- Continuous-time motion graphics within a state (category 3).
+- Slide-to-slide transition primitives (fade, slide, etc.) distinct from element-level morphs.
+- The `protocols.animation` slot on the slide-component contract — reserved space in v0; populating it is non-breaking.
+
+Worked examples of how each animation category looks in candidate source live in `design/sketches/animations.md`.
 
 ---
 
@@ -666,14 +736,14 @@ This is a research-flavored project with many open questions. The intended proce
 
 For ease of reference, the major unresolved questions:
 
-**Pre-v0 design topics (still need answers before implementation):**
-- Animation/build value model and its implications for the cell model
+**Pre-v0 design topics:** all four resolved. See Pre-v0 design topics above for cross-references.
 
 **Resolved by recent design pass:**
 - ~~Slide-component contract shape~~ → v0-light shape committed: `{ produces, slots, params, protocols: {} }` plus default React component taking `{ slots, params }` props. See Wrapper / contract design.
 - ~~Round-trip mechanism~~ → canonical re-emit on editor write; structure preserved, comments preserved, formatting normalized; per-slide type-prefixed counter IDs; tree-sitter parser with error recovery. See Mediation layer.
 - ~~Undo/redo reconciliation between Slidewright and VS Code~~ → canvas gesture stack + VS Code text-buffer stack, each canvas gesture pushes onto both 1:1; external edits are barriers in the canvas stack for v0. Long-term direction (snapshot+fold, no walls in history) noted but not v0. See Mediation layer / Undo/redo.
 - ~~AI authoring posture~~ → dissolved by agent-external framing. No first-party agentic features; instead provide TS types, CLI tooling, structured diagnostics, and `AGENTS.md`-style docs. Parser permissive, validator strict, editor renders permissively. See AI authoring.
+- ~~Animation/build value model~~ → cells gain optional `valuesByState` layer; resolution is `(handle, context)`-keyed throughout, including v0; three categories (enter/exit, cell-value transitions, motion graphics) surfaced; implicit-by-ID-match defaults with explicit customization for non-trivial cases; discrete states as primary, continuous-time motion graphics as future extension. See Animations and builds.
 - ~~Layout primitive granularity~~ → stacks (HStack/VStack/ZStack) + Grid + Freeform.
 - ~~Gesture semantics for layout-controlled positions~~ → gestures dispatch to container; container interprets. Gestures over invalid regions split into repairing / unrelated / dependent.
 - ~~Direct manipulation inside structured components~~ → pins as primary mechanism; constraint-style and demote-to-freeform as adjuncts.
