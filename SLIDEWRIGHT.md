@@ -28,7 +28,7 @@ Before any v0 code gets written, four topics need a design pass deep enough to c
 
 3. **Round-trip mechanics.** ~~Pre-v0 design pass complete~~ — see Mediation layer. Canonical re-emit on editor write (structure preserved, comments preserved, formatting normalized); per-slide type-prefixed counter IDs (Figma convention); leading/trailing comment attachment; gestures committed via VS Code's TextEdit API. Round-trip invariant softened from "formatting preserved" to "structure preserved." Hybrid emit and snapshot-fold undo are noted as long-term upgrades.
 
-4. **AI authoring posture.** Whether the grammar is strict-and-rejecting (AI output that doesn't parse fails the generation, retry) or permissive-with-repair (invalid trees can exist in the editor in a "draft" state and be incrementally fixed) is an architectural commitment that affects parser, editor, and review-flow shape. Can't wait until AI features are built; constrains v0.
+4. **AI authoring posture.** ~~Pre-v0 design pass complete~~ — see AI authoring. The strict-vs-permissive binary is dissolved by the agent-external framing: Slidewright doesn't ship first-party agentic AI; agents are external (Claude Code, Cursor, etc.) interacting with a typed codebase. Parser is permissive (tree-sitter, error-recovering), validator is strict (CLI tool agents call), editor renders permissively with markers. We provide types, CLI tooling, structured diagnostics, and project docs aimed at agents.
 
 ## Architecture overview
 
@@ -328,6 +328,16 @@ Translates between source files (the DSL) and the editor's runtime tree, in both
 
 External edits (a human typing in the code panel, an AI rewriting a file) are detected via VS Code's document-change events and re-parsed. The editor keeps selection stable across re-parses by keying on IDs. In-progress gesture state is dropped when an external edit lands; the external edit takes precedence.
 
+### Parser **TENTATIVE (tree-sitter as v0 default)**
+
+The parser is **error-recovering**: malformed source produces a partial CST with explicit error nodes rather than a parse failure. The editor renders what's parseable; broken regions show error markers and do not block rendering of their siblings. This is the IDE-grade default, not a special accommodation for AI — humans typing in the source panel get the same recovery.
+
+**v0 implementation: tree-sitter.** Purpose-built for IDE error recovery; declarative grammar; produces an incremental CST; JS bindings via WASM (`web-tree-sitter`) so the same parser works in the editor and in CLI tooling. The serious alternative is hand-rolled recursive descent (TS compiler / Roslyn / rustc) — higher ceiling on diagnostics quality, much more upfront work, recovery hard to get right. Defer hand-rolled until tree-sitter's diagnostics ceiling becomes painful.
+
+**Diagnostics layer is ours.** Tree-sitter's built-in error messages are structural ("expected X, got Y"); user-friendly Slidewright-specific diagnostics (slot-type mismatches, missing-required-slot hints, "did you mean …") live in a translator layer over the CST. This is where the polish goes — error quality is one of our priorities and the diagnostics layer is small and fully under our control.
+
+**Slide-level is the error-boundary floor.** Each slide is a top-level construct in source; the parser's recovery anchors on slide boundaries. Damage to one slide never causes loss of a sibling slide. Finer-grained recovery (a malformed slot inside an otherwise-fine slide) is automatic to the extent tree-sitter supports it; we don't have to engineer it specially.
+
 ### Round-trip discipline **DECIDED (softened from initial framing)**
 
 The mediation layer must round-trip cleanly: source → tree → mutated tree → source must produce a file that re-parses to **the same mutated tree** (structure preserved). This is the foundational invariant. Test it relentlessly with property-based tests: random sequences of edit operations applied to a corpus of source files should produce sources that re-parse to the expected trees.
@@ -429,6 +439,14 @@ Standard interactions: click to select, drag to move, handles to resize, double-
 
 The dispatch shape needs to anticipate `Freeform` and pin-supporting components from day one even though v0 only ships stack containers. Generic dispatch, not hardcoded handlers.
 
+**Gestures over invalid regions** fall into three categories, derived from the cell-model dependency graph:
+
+- **Repairing gestures** — the gesture directly writes a value that resolves the validation error (e.g., inspector dropdown overwrites a number slot's invalid expression). *Always allowed*, including over invalid regions, since they fix the broken state.
+- **Unrelated gestures** — the gesture acts on an element that doesn't depend on the broken one. *Always allowed*.
+- **Dependent gestures** — the gesture's outcome depends on the broken region's resolved value (dragging an arrow whose target slot has an invalid reference; resizing a Box whose width is bound to a broken cell). *Blocked* until the dependency resolves.
+
+Invalid regions render with error markers in place; sibling slides and unrelated elements continue to render normally. Slide-level is the error-boundary floor — a malformed slide does not take down its neighbors.
+
 ### Direct manipulation of structured component output **TENTATIVE → leaning DECIDED**
 
 When a user wants to nudge an element inside a structured diagram, the primary mechanism is **pins**: drag writes a per-element override on position/size, stored alongside the structural component's data, applied after the layout function. This is the cell-with-override pattern from "Cell model for values" applied to spatial values from a layout function. "Reset this pin" returns the element to auto-layout.
@@ -509,28 +527,50 @@ Real academic diagrams sometimes mix a well-formed sub-diagram (a sequence diagr
 
 ## AI authoring
 
-**Pre-v0 design topic:** the *posture* the grammar takes toward AI-generated output (strict-and-rejecting vs. permissive-with-repair) is an architectural commitment that has to be made before v0, even though AI features themselves come later. See "Pre-v0 design topics" above.
+**Slidewright does not ship first-party agentic AI features.** No in-editor chat panel, no built-in invocation UX, no orchestrator competing with the user's existing coding assistant. Agents are Claude Code, Copilot, Cursor, and similar tools the user already uses; they interact with a Slidewright project as a typed codebase, the same way they would with any other project. This is a much smaller scope than the original framing of this section, and a deliberate one — building agentic UX is not in our core competency, and the user's existing tools are continually improving on their own axis.
 
-### Roles **TENTATIVE**
+What we *do* ship are affordances that make a Slidewright project tractable for agents. Each is also useful for human developers; nothing here is AI-specific.
 
-The AI does two things:
+### Strong TypeScript types **TENTATIVE**
 
-1. **Authors custom components** (writes new `.tsx` files conforming to the slide-component contract).
-2. **Edits slide source** (modifies the DSL).
+The `slidewright` metadata object on a component is a typed const, and the slot/param schemas produce a derived `Props` type via TS inference. A component author writes `function TitleSlide({ slots, params })` and gets type errors if `slots.title` is misused — using TypeScript's normal type-checking as the first line of feedback. No Slidewright-specific magic; just well-typed schemas and good inference. Agents writing components see TS errors directly in their existing tooling.
 
-Both are gated by the contract: generated components must conform to be usable; generated DSL must parse and round-trip. Validation happens before output is accepted.
+### CLI tooling **TENTATIVE**
 
-### Invocation **OPEN**
+Programs an agent (or human, or CI) can invoke directly. All output structured (file:line:col with error kind) so agents can parse and iterate. Standard tool-call loop: write code → run tool → read errors → fix → repeat.
 
-How the user invokes AI: command palette? Inline prompt? Sidebar chat? Multiple of these? Deferred until v0 editor exists.
+- `slidewright validate <path>` — parse + slot-schema validation + cross-file slot-fill type-check; nonzero exit on failure.
+- `slidewright query slide <N>` — structured representation of slide N's parsed tree.
+- `slidewright query contract <ComponentName>` — the `slidewright` metadata schema for a custom component, in a format agents can ingest without reading source.
+- `slidewright list slides` / `slidewright list components` — discoverability without grep.
+- (Future) `slidewright query refs <slide>` — references and IDs in scope, for figuring out what to bind to.
 
-### Context assembly **TENTATIVE**
+Structured queries spare agents the grep-the-codebase pattern and reduce the chance of agents hallucinating component shapes. They are faster, more accurate, and more token-efficient than text search.
 
-When the AI generates, it sees: the current slide, the deck's theme tokens, the available custom components (with their panel schemas), the DSL grammar, and the slide-component contract. The AI's job is constrained code generation, not free-form generation.
+### Project documentation aimed at agents **TENTATIVE**
 
-### Review flow **TENTATIVE**
+A Slidewright project ships with an `AGENTS.md`-style file explaining: project layout, DSL syntax, slot model, cell model, how to write a custom component, when and how to run the validator. The agent reads it on entry and treats it as the rule set. Where agentic interfaces support skill/rule mechanisms (Claude Code skills, Cursor rules, etc.), the doc is also surfaceable in those formats.
 
-AI edits surface as a diff for human review and acceptance, rather than writing directly to source. This avoids races with human edits and keeps the human in control. **OPEN: whether some classes of edits (clearly safe ones, like adding a slide) can be auto-applied.**
+### Error messages structured for LLM consumption **TENTATIVE**
+
+Beyond "syntax error": every diagnostic carries an error kind (`parse` / `slot-type-mismatch` / `missing-required` / `unknown-reference` / etc.), a location, expected and actual values, and where applicable a hint ("the slot expects `text` but received a `block`; if you meant a styled run, wrap in `Span`"). Agents act on hints; humans benefit too. This is the same diagnostics layer described under Mediation layer / Parser.
+
+### What we deliberately don't do
+
+- No in-editor agent panel.
+- No first-party prompting, context assembly, or context-window optimization — the agent owns its context.
+- No first-party review/diff/accept flow — review happens in the agent's interface, or in the user's existing accept-edits posture (e.g., Claude Code's diff approval, git review).
+- No concurrency machinery beyond the external-edit handling already in the Mediation layer — agents are just another source of out-of-band edits.
+
+### Posture decision **DECIDED**
+
+The original "AI authoring posture" pre-v0 question (strict-rejecting vs. permissive-with-repair) is dissolved by the agent-external framing:
+
+- **Parser is permissive** (tree-sitter, error-recovering) — humans and agents both benefit from partial-tree feedback.
+- **Validator is strict** — `slidewright validate` returns nonzero on schema violations, missing required slots, type mismatches, and unresolved references. Agents iterate against this.
+- **Editor renders permissively** — broken regions show error markers; siblings render normally; gesture rules block dependent gestures and allow repairing/unrelated ones (see Editor / Direct manipulation).
+
+There is no separate "AI ingestion path" with its own posture. The same parsing and validation serve humans editing source, agents writing source, and the editor itself.
 
 ---
 
@@ -628,14 +668,14 @@ For ease of reference, the major unresolved questions:
 
 **Pre-v0 design topics (still need answers before implementation):**
 - Animation/build value model and its implications for the cell model
-- AI authoring posture (strict-rejecting vs. permissive-with-repair)
 
 **Resolved by recent design pass:**
 - ~~Slide-component contract shape~~ → v0-light shape committed: `{ produces, slots, params, protocols: {} }` plus default React component taking `{ slots, params }` props. See Wrapper / contract design.
-- ~~Round-trip mechanism~~ → canonical re-emit on editor write; structure preserved, comments preserved, formatting normalized; per-slide type-prefixed counter IDs. See Mediation layer.
+- ~~Round-trip mechanism~~ → canonical re-emit on editor write; structure preserved, comments preserved, formatting normalized; per-slide type-prefixed counter IDs; tree-sitter parser with error recovery. See Mediation layer.
 - ~~Undo/redo reconciliation between Slidewright and VS Code~~ → canvas gesture stack + VS Code text-buffer stack, each canvas gesture pushes onto both 1:1; external edits are barriers in the canvas stack for v0. Long-term direction (snapshot+fold, no walls in history) noted but not v0. See Mediation layer / Undo/redo.
+- ~~AI authoring posture~~ → dissolved by agent-external framing. No first-party agentic features; instead provide TS types, CLI tooling, structured diagnostics, and `AGENTS.md`-style docs. Parser permissive, validator strict, editor renders permissively. See AI authoring.
 - ~~Layout primitive granularity~~ → stacks (HStack/VStack/ZStack) + Grid + Freeform.
-- ~~Gesture semantics for layout-controlled positions~~ → gestures dispatch to container; container interprets.
+- ~~Gesture semantics for layout-controlled positions~~ → gestures dispatch to container; container interprets. Gestures over invalid regions split into repairing / unrelated / dependent.
 - ~~Direct manipulation inside structured components~~ → pins as primary mechanism; constraint-style and demote-to-freeform as adjuncts.
 - DSL slot model (typed named slots) — semantics decided; surface syntax still bikeshed-able.
 
@@ -645,14 +685,15 @@ For ease of reference, the major unresolved questions:
 - Token system specifics (spacing scale, color model, typography vocabulary)
 - Coordination protocol APIs (full shape pinned by component-contract design)
 - Panel schema extensions (conditional visibility, custom widgets)
-- AI invocation UX
 - Presentation features (notes, transitions, timed advance)
 - Reusability across decks (workspace structure, shared component packages)
 - Inventory of computed-default forms in the cell model
 - How structured + freeform compose within a single diagram
 - Auto-router choice(s) for arrows (straight, orthogonal-with-rounded-corners, obstacle-avoiding)
+- Full inventory of CLI query commands beyond the v0 set (`query refs`, etc.)
 - **Long-term: snapshot-and-fold undo model** (post-v0; replaces external-edit barriers with a unified history)
 - **Long-term: hybrid emit** (canonical-on-editor-write, leave-alone on idle regions; replaces pure canonical re-emit if author churn becomes painful)
+- **Long-term: hand-rolled parser** (post-v0; replaces tree-sitter if its diagnostics ceiling becomes painful)
 
 Most of these should not be answered before v0. Several can only be answered by living with v0 for a while.
 
