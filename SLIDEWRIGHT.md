@@ -46,36 +46,78 @@ Each layer should be designed to know as little as possible about the layers abo
 
 ## DSL design
 
-### Form **TENTATIVE (semantics) / OPEN (surface syntax)**
+### Form **TENTATIVE (semantics + surface syntax both committed for v0)**
 
-The DSL parses with a custom parser and only permits a constrained subset:
+The DSL is parsed with a tree-sitter grammar (per Mediation layer) and only permits a constrained subset:
 
 - Slidewright primitives only at the layout level (no raw HTML/SVG)
 - Imported components from TS files as leaves
-- Props are literals, token references, named bindings, or constrained "solve"/anchor-reference forms (see "Cell model for values" below) — no free-form expressions
+- Values are literals, token references, named bindings, or constrained "solve"/anchor-reference forms (see "Cell model for values" below) — no free-form expressions
 - Stable IDs required on every primitive
 - No conditional rendering or loops at the DSL level (use components like `<Repeat>` instead)
 - **Components declare typed named slots; the DSL fills slots, it does not just nest children positionally.** This is the most important commitment about the DSL's shape: the slot schema makes templates projectional-editor-friendly because the editor knows what content is allowed where, can show empty slots as obvious "fields to fill in," and can render slot-aware suggestions in the component library.
 
-**Surface syntax is bikeshed-able.** A JSX-with-named-slots form is one option; an indented-colon form (StrictYAML/NestedText-shaped at the slot level, tree-shaped notation within slot bodies) is another. Pick something, ship, revise. The architecture does not depend on the surface syntax — it depends on (a) typed named slots, (b) round-trippable, (c) stable IDs in source.
+#### Surface syntax: brace-block form
 
-Working sketch in the indented-colon form:
+After working through indented-colon, NestedText, JSX-with-named-slots, and brace-block forms (see `design/sketches/three-obstacles.md` for the comparison), the v0 commitment is **brace-block syntax** in the spirit of HCL / Rust struct literals. The shape:
+
+- **Component invocation**: `Name { body }`. Always braces.
+- **Slot fill**: `name: value`. The `value` is a literal, another component, or a list.
+- **Capitalization disambiguates**: capitalized identifiers are component types; lowercase identifiers are slot or param names. Grammar uses this purely; schema validates.
+- **Inside a brace block**: items are separated by newline OR comma. Newline is the multi-line default; comma is the inline form.
+- **Lists** use `[...]` with newline-or-comma separator, parallel to `{...}` for component bodies.
+- **Indentation is purely cosmetic.** Canonical formatting indents one level per brace depth; the parser doesn't care about it.
+- **Multi-line strings**: triple-quoted `"""..."""` with Python-style dedent rules.
+- **Adjacent string literals concatenate at parse time** (Python convention) — useful for wrapping long single-line prose without taking on multi-line semantics. Triple-quoted strings do not adjacency-join.
+- **Markdown allowed inside text-typed slots** via the slot type — `text` for plain text, `text-markdown` for slots whose content is parsed as Markdown and resolved into `(string | Span)+` runs. Opt-in per slot in the component schema.
+- **Implicit children**: when a brace block contains *only* capitalized component invocations (no other slots filled in that invocation), they are treated as filling the containing component's `children` slot directly. If the invocation also fills any other slot, children must be expressed as an explicit `children: [...]` slot fill. **Per-invocation rule, not per-schema.** May be revisited.
+
+Working sketch:
 
 ```
-ContentSlide
+ContentSlide {
   eyebrow: "Three obstacles"
   title:   "Behavior is hidden by default."
-  intro:   "Programs do a lot..."
-  body:    VStack
-             Card color=purple ...
-             Card color=cyan   ...
-             Card color=magenta ...
-  notes:   """ - Behavior isn't a thing you can just look at. ... """
+  intro:   "Programs do a lot, and most of it is invisible by default. "
+           "To observe behavior, you have to solve three problems."
+
+  body: VStack {
+    spacing: 32
+    children: [
+      CardRow {
+        color:   purple
+        eyebrow: "Representation"
+        heading: "Code isn't behavior."
+        body:    "Code shows what could happen, not what did."
+      }
+      CardRow { color: cyan,    eyebrow: "Attention", heading: "It's mostly noise.",     body: "..." }
+      CardRow { color: magenta, eyebrow: "Volume",    heading: "There's too much stuff.", body: "..." }
+    ]
+  }
+
+  notes: """
+    - Behavior isn't a thing you can just look at.
+    - First, attention — programs do a lot, where do you point your eyes?
+    - **Second**, volume — even when you know where to look, there's a *firehose*.
+  """
+}
 ```
 
-**Worked examples** of slides in candidate DSL syntax live in `design/sketches/` — markdown files with code blocks plus commentary on assumptions, what we like, and what we don't. They are not authoritative (this doc is) but they make syntax decisions concrete and provide a corpus the round-trip test harness can exercise once v0 lands.
+Implicit-children example (no other slots filled):
 
-**Why custom parser, not TSX:** the hard part isn't parsing TSX (ts-morph and recast handle it), it's specifying the round-trippable subset. Designing a grammar that only permits what we support is cleaner than parsing all of TSX and validating against a subset. **OPEN: revisit if early implementation suggests the parser cost outweighs the validation cost.**
+```
+body: Freeform {
+  Box   { x: 100, y: 200, width: 200, height: 100 }
+  Arrow { from: #boxA.right, to: #boxB.left }
+  Text  { x: 350, y: 250, content: "step 1" }
+}
+```
+
+**Worked examples** of representative slides live in `design/sketches/` — markdown files with code blocks plus commentary. They are not authoritative (this doc is) but they make decisions concrete and provide a corpus the round-trip test harness can exercise once v0 lands.
+
+**Why tree-sitter for this grammar:** delimiter-based brace grammars are tree-sitter's sweet spot. Error recovery is automatic; the CST round-trips through the canonical formatter cleanly. The diagnostics translator on top of the CST is where Slidewright-specific error messages live.
+
+**Why a custom grammar, not TSX**: the hard part isn't parsing TSX (ts-morph and recast handle it), it's specifying the round-trippable subset. Designing a grammar that only permits what we support is cleaner than parsing all of TSX and validating against a subset. **OPEN: revisit if early implementation suggests the parser cost outweighs the validation cost.**
 
 ### Three component layers **DECIDED (in shape)**
 
@@ -671,49 +713,101 @@ Worked examples of how each animation category looks in candidate source live in
 
 ## v0 scope
 
-**Before v0 implementation begins**, the four design topics listed in "Pre-v0 design topics" above need to be worked through. Building v0 requires a defined component contract (otherwise even the title-slide template can't be built), a value model that anticipates animations (otherwise the model has to be re-cut later), a concrete round-trip mechanism (otherwise the foundational invariant is a slogan), and an AI-authoring posture (otherwise the grammar's strictness is undefined). v0 feature scope below assumes those exist.
+The pre-v0 design pass is **complete**. All four big topics have committed v0 architectural shapes (see "Pre-v0 design topics" above and section cross-references). Implementation can begin.
 
 ### What v0 must prove
 
 The fundamental bet: **bidirectional projectional editing of a typed component tree, with stable round-tripping, works.** Everything else is scope.
 
-### What v0 includes
+### v0 sequencing **TENTATIVE**
 
-- A tiny DSL: `Deck`, `Slide`, `Box`, `Text`, one layout primitive (probably `Stack`).
-- One slide per file (no multi-slide files yet).
-- Static trees only (no `Repeat`, no conditionals, no computed values).
-- Stable IDs in source.
-- A minimal styling system (a handful of spacing tokens, no theme yet).
-- Parser and emitter that round-trip cleanly, preserving formatting.
-- VS Code extension with a webview that renders one slide.
+v0 is broken into incremental milestones. Each ends in a runnable demo of the substrate at that level — we don't wait for full v0 before exercising the system. The split was made deliberately: direct manipulation is meaningful work that depends on a working parser+renderer, so the first cut (v0.0) defers all canvas/gesture concerns to validate the foundation in isolation.
+
+**v0.0 — Read-only viewer.** Parser + renderer + minimal cell runtime. No canvas, no editing.
+- Tree-sitter grammar for the brace-block DSL.
+- Diagnostics translator over the CST (Slidewright-friendly errors on top of tree-sitter's structural errors).
+- Cell-resolution runtime (`resolve(handle, context): T` interface; `(handle, context)`-keyed cache; v0 context is empty; literals only — no computed defaults yet).
+- Slide-component contract consumer: load `.tsx` files with `slidewright` metadata, validate slot fillings, dispatch to default React export with resolved `{ slots, params }`.
+- Render via the existing slide-template scaffold (`Presentation` runtime in `src/`); Slidewright produces React elements; scaffold handles navigation, scaling, notes, print.
+- Tiny reference deck: title slide + one content slide written in the DSL with one or two custom components.
+- CLI: `slidewright validate` (parse + slot-schema validation; structured diagnostic output).
+- **Demo**: author hand-writes a `.sw` file, runs `vite`, sees the slide rendered. Edits to source hot-reload.
+
+**v0.1 — VS Code extension with read-only canvas.**
+- VS Code extension scaffolding; webview integration.
+- Side-by-side: source panel + canvas.
+- Selection sync: click an element in canvas → highlight in source; cursor in source → highlight in canvas.
+- File-watcher → re-parse → re-render. No editing gestures yet.
+- **Demo**: open a `.sw` file in VS Code, see it rendered live in a side panel; edits in source reflect instantly; selection round-trips between panes.
+
+**v0.2 — First interactive gesture: drag-to-move + round-trip emit.**
+- Canonical re-emit pipeline (AST → source via the formatter).
+- VS Code TextEdit API integration for canvas → source writes.
+- Drag-to-move gesture on `Freeform`-positioned elements (the simplest gesture that exercises the full edit → emit → re-parse loop).
+- Cell model with literal overrides (drag writes a literal x/y).
+- Initial round-trip property test on a small corpus.
+- **Demo**: drag a Box, see its `x` and `y` update in source; source change re-renders the canvas.
+
+**v0.3 — Text editing + resize + selection model.**
+- Double-click to edit text on text-typed slots.
+- Resize handles on Box-like elements.
+- Single-selection model (multi-select deferred).
+- Inspector panel (read-only — shows resolved cell values for the current selection).
+- **Demo**: edit text and resize boxes through canvas; inspector reflects current state.
+
+**v0.4 — Slot-aware editing + external-edit reconciliation.**
+- Click into named slots (typed slot selection in canvas).
+- Empty-slot placeholders.
+- Inspector panel becomes editable for params.
+- External-edit detection (typing in source while canvas is open): re-parse, restore selection by ID, cancel mid-gesture.
+- Canvas gesture undo stack with VS Code text-buffer integration; external-edit barriers.
+- **Demo**: edit slides via canvas AND via source, with selection preserved across external edits and proper undo behavior.
+
+**v0.5 — Reference deck + round-trip harness + first polish.**
+- Re-create the existing `decks/ne-agents-day-2026/` deck (or a meaningful subset) in Slidewright DSL with custom components.
+- Round-trip property test harness on the full reference deck plus a corpus of synthesized edit sequences.
+- Diagnostics layer polish; better error rendering with slide-level error boundaries.
+- Markdown rendering in `text-markdown`-typed slots.
+- **Demo**: the reference deck runs end-to-end in Slidewright; edits via canvas and source work together; round-trip property tests pass at high volume.
+
+v0.5 is the demoable v0 — it satisfies the success criteria below.
+
+### What v0 includes (cumulative across phases)
+
+- The DSL: brace-block grammar with the slot model, cell model, layout primitives (`HStack`, `VStack`, `ZStack`, `Grid`, `Freeform`), basic primitives (`Box`, `Text`, `Image`).
+- The slide-component contract: `{ produces, slots, params, protocols: {} }` plus default React component.
+- Custom components: TitleSlide, ImageSlide, ContentSlide, plus a few composites (Card, CardRow) authored against the contract.
+- Stable IDs in source (per-slide, type-prefixed counter).
+- Parser and canonical-emit that round-trip structure cleanly. Comments preserved.
+- VS Code extension with side-by-side source + canvas.
 - Selection, drag-to-move, resize-with-handles, double-click-to-edit-text.
-- Gesture changes write back to source; source changes re-render.
-- A test harness for the round-trip property (sequence of edit operations → source file → re-parse → expected tree).
+- Gesture changes write back to source via TextEdit API; source changes re-render the canvas.
+- External-edit reconciliation, gesture undo with external-edit barriers.
+- A test harness for the round-trip property exercised at scale.
 
 ### What v0 explicitly excludes
 
 - Multi-select, group operations, alignment, distribution.
-- Component library panel (no custom components yet).
-- Inspector/panel system.
-- AI integration.
-- Presentation mode.
-- Animations and builds.
-- FFI to TypeScript components (deferred until DSL alone works).
-- Structured diagrams, magnifiers, coordination protocols.
-- Theme system.
-- Slide navigator (one slide at a time is fine).
+- Inline TS expressions in DSL (`{js: ...}`) — deferred.
+- AI integration as a first-party feature (per AI authoring section, Slidewright doesn't ship agent UX; agents are external).
+- Presentation-mode UI beyond what the existing scaffold already provides.
+- Animations and builds (per Animations and builds — value model is reserved space; no surface or runtime).
+- Computed defaults and the "solve" expression form on cells (literals only in v0).
+- Structured diagrams, magnifiers, coordination protocols beyond what's reserved (`protocols: {}` empty).
+- Theme system (per Styling — minimal tokens only).
 
 ### v0 success criteria
 
 A user can:
 
 1. Open a Slidewright project in VS Code.
-2. See a slide rendered in the webview.
+2. See multiple slides rendered in the webview.
 3. Click a Box, drag it to a new position; the source file updates with the new position.
 4. Resize a Box with handles; the source updates.
 5. Edit text in a Text element; the source updates.
-6. Edit the source file directly; the canvas re-renders to match.
-7. Run the round-trip test harness on a corpus of source files and edit sequences with zero failures.
+6. Edit the source file directly; the canvas re-renders to match; selection survives the edit if its element still exists.
+7. Undo their canvas gestures via Cmd-Z, with external edits acting as barriers (per Mediation layer / Undo/redo).
+8. Run the round-trip test harness on the reference deck plus synthesized edit sequences with zero failures.
 
 If those work reliably, the architecture is proven and we can scope v1.
 
@@ -747,10 +841,9 @@ For ease of reference, the major unresolved questions:
 - ~~Layout primitive granularity~~ → stacks (HStack/VStack/ZStack) + Grid + Freeform.
 - ~~Gesture semantics for layout-controlled positions~~ → gestures dispatch to container; container interprets. Gestures over invalid regions split into repairing / unrelated / dependent.
 - ~~Direct manipulation inside structured components~~ → pins as primary mechanism; constraint-style and demote-to-freeform as adjuncts.
-- DSL slot model (typed named slots) — semantics decided; surface syntax still bikeshed-able.
+- ~~DSL slot model and surface syntax~~ → typed named slots in a brace-block surface syntax (HCL/Rust-flavored); capitalization-disambiguated component-vs-slot; newline-or-comma separators inside braces; lists in `[...]`; triple-quoted multi-line strings with adjacent-literal concatenation; Markdown allowed in `text-markdown`-typed slots; per-invocation implicit-children rule. See Form.
 
 **Still open (lower priority, OK to defer):**
-- DSL surface syntax (typed-slot semantics decided; pick a form, ship, revise)
 - Whether to allow inline TS expressions in DSL prop positions
 - Token system specifics (spacing scale, color model, typography vocabulary)
 - Coordination protocol APIs (full shape pinned by component-contract design)

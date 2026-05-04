@@ -95,21 +95,23 @@ export default function TitleSlide({ slots, params }) {
 
 ## The DSL invocation
 
-In the deck's slide source (candidate A indented-colon syntax — surface form still bikeshed-able):
+In the deck's slide source (brace-block form — see SLIDEWRIGHT.md / Form):
 
 ```
-TitleSlide
+TitleSlide {
   venue:       "NE AGENTS DAY · 2026"
-  title:
+  title:       [
     "Vibe Debugging with "
-    Span color=accent font=mono: "autopsy-report"
+    Span { color: accent, font: mono, content: "autopsy-report" }
+  ]
   subtitle:    "or: towards comprehending agent-written code"
   presenter:   "Jeffrey Tao"
   affiliation: "Penn HCI Lab"
   headshot:    headshotImg
+}
 ```
 
-`headshotImg` is an imported asset reference resolved by the DSL value system. The Spans in `title` are styled text runs that the editor pre-resolves into React nodes before `TitleSlide` ever sees them.
+`headshotImg` is an imported asset reference resolved by the DSL value system. The `title` slot accepts text runs (`(string | Span)+`) — here the value is a list with a string followed by a styled `Span`; the editor pre-resolves these into React nodes before `TitleSlide` ever sees them.
 
 ---
 

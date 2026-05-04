@@ -11,26 +11,39 @@ The data model: cells get an optional `valuesByState` layer; elements get an opt
 A simple slide with three cards, each appearing one at a time as the speaker advances.
 
 ```
-ContentSlide
+ContentSlide {
   eyebrow: "Three obstacles"
   title:   "Behavior is hidden by default."
-  body:
-    VStack spacing=32
-      Card id=card-1 color=purple
-        existsInStates: [1, 2, 3]
-        eyebrow: "Representation"
-        heading: "Code isn't behavior."
-        body:    "..."
-      Card id=card-2 color=cyan
-        existsInStates: [2, 3]
-        eyebrow: "Attention"
-        heading: "It's mostly noise."
-        body:    "..."
-      Card id=card-3 color=magenta
-        existsInStates: [3]
-        eyebrow: "Volume"
-        heading: "There's too much stuff."
-        body:    "..."
+  body: VStack {
+    spacing: 32
+    children: [
+      Card {
+        id:              card-1
+        color:           purple
+        existsInStates:  [1, 2, 3]
+        eyebrow:         "Representation"
+        heading:         "Code isn't behavior."
+        body:            "..."
+      }
+      Card {
+        id:              card-2
+        color:           cyan
+        existsInStates:  [2, 3]
+        eyebrow:         "Attention"
+        heading:         "It's mostly noise."
+        body:            "..."
+      }
+      Card {
+        id:              card-3
+        color:           magenta
+        existsInStates:  [3]
+        eyebrow:         "Volume"
+        heading:         "There's too much stuff."
+        body:            "..."
+      }
+    ]
+  }
+}
 ```
 
 **What this exercises:**
@@ -59,18 +72,22 @@ ContentSlide
 A box that moves from left to right between two states. Static height, static color.
 
 ```
-SimpleSlide
+SimpleSlide {
   title: "Box on the move"
-  body:
-    Freeform
-      Box id=box-1
-        x:
-          state.1: 100
-          state.2: 800
-        y: 360
-        width: 200
-        height: 200
-        color: accent
+  body: Freeform {
+    Box {
+      id:     box-1
+      x: {
+        state.1: 100
+        state.2: 800
+      }
+      y:      360
+      width:  200
+      height: 200
+      color:  accent
+    }
+  }
+}
 ```
 
 **What this exercises:**
@@ -81,9 +98,11 @@ SimpleSlide
 **Inheritance via the dependency graph.** Suppose an arrow points at the box's right edge:
 
 ```
-      Arrow id=arrow-1
-        from: 50, 460
-        to:   #box-1.right.midpoint
+Arrow {
+  id:   arrow-1
+  from: (50, 460)
+  to:   #box-1.right.midpoint
+}
 ```
 
 The arrow's `to` is a computed default that depends on `box-1.x`. When the box's `x` animates between states, the arrow's endpoint inherits the animation automatically. No per-state values on the arrow needed; the dependency graph does the right thing.
@@ -108,26 +127,32 @@ The arrow's `to` is a computed default that depends on `box-1.x`. When the box's
 Two consecutive slides that share an element by ID. The element interpolates across the slide boundary.
 
 ```
-ContentSlide id=slide-1
+ContentSlide {
+  id:    slide-1
   title: "First, attention"
-  body:
-    Freeform
-      Card id=intro-card
-        x: 100
-        y: 100
-        width: 800
-        height: 600
-        ...
+  body: Freeform {
+    Card {
+      id:     intro-card
+      x:      100
+      y:      100
+      width:  800
+      height: 600
+    }
+  }
+}
 
-ContentSlide id=slide-2
-  body:
-    Freeform
-      Card id=intro-card
-        x: 200
-        y: 200
-        width: 400
-        height: 300
-        ...
+ContentSlide {
+  id: slide-2
+  body: Freeform {
+    Card {
+      id:     intro-card
+      x:      200
+      y:      200
+      width:  400
+      height: 300
+    }
+  }
+}
 ```
 
 **What this exercises:**
@@ -153,30 +178,40 @@ ContentSlide id=slide-2
 The "zoom into the box" example: a Box's text on slide N becomes the title of slide N+1, even though they have different IDs.
 
 ```
-ContentSlide id=slide-1
-  body:
-    Freeform
-      Box id=box-3
-        x: 200
-        y: 300
-        width: 400
-        height: 200
-        children:
-          Text id=box-3-text: "First, attention"
+ContentSlide {
+  id: slide-1
+  body: Freeform {
+    Box {
+      id:     box-3
+      x:      200
+      y:      300
+      width:  400
+      height: 200
+      children: [
+        Text { id: box-3-text, content: "First, attention" }
+      ]
+    }
+  }
+}
 
-ContentSlide id=slide-2
+ContentSlide {
+  id:    slide-2
   title: "First, attention"
-  ...
+}
 
 # Sibling to the slides at deck level:
-transitions:
-  - from: slide-1
+Transitions {
+  Transition {
+    from: slide-1
     to:   slide-2
-    morph:
-      from: #box-3-text
-      to:   #slide-2.title
+    morph: {
+      from:     #box-3-text
+      to:       #slide-2.title
       duration: 0.6s
       curve:    ease-in-out
+    }
+  }
+}
 ```
 
 **What this exercises:**
