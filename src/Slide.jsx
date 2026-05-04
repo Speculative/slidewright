@@ -62,6 +62,7 @@ export function Slide({
   actLabel,
   notes,
   active,
+  chromeless,
   children,
 }) {
   void notes;
@@ -69,21 +70,24 @@ export function Slide({
   const cls =
     'slide' +
     (sectionStyle ? ' section-slide' : '') +
+    (chromeless ? ' chromeless' : '') +
     (active ? ' active' : '') +
     (className ? ' ' + className : '');
   const screenLabel = String(idx).padStart(2, '0') + ' ' + (label || '');
   return (
     <section className={cls} data-screen-label={screenLabel}>
       <div className="slide-inner">{children}</div>
-      <div className="chrome">
-        <div className="crumb">
-          {name} <span className="sep">//</span> {subtitle}{' '}
-          <span className="sep">//</span> {actLabel}
+      {chromeless ? null : (
+        <div className="chrome">
+          <div className="crumb">
+            {name} <span className="sep">//</span> {subtitle}{' '}
+            <span className="sep">//</span> {actLabel}
+          </div>
+          <div className="page">
+            {String(idx).padStart(String(total).length, '0')} / {total}
+          </div>
         </div>
-        <div className="page">
-          {String(idx).padStart(String(total).length, '0')} / {total}
-        </div>
-      </div>
+      )}
     </section>
   );
 }

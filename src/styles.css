@@ -132,6 +132,13 @@ section.slide {
   flex-direction: column;
 }
 
+/* Chromeless slides drop the footer crumb and shrink the safe-area
+   padding so big artifacts (screenshots, diagrams) can dominate.
+   Just enough room for the offset shadow + a little breathing space. */
+section.slide.chromeless > .slide-inner {
+  padding: 16px;
+}
+
 .chrome {
   position: absolute;
   left: 120px;

@@ -109,6 +109,12 @@ export function Presentation({
     return () => window.removeEventListener('keydown', onKey);
   }, [total]);
 
+  // ── document title from deck meta ────────────────────────────────────
+  useEffect(() => {
+    const parts = [name, subtitle].filter(Boolean);
+    if (parts.length) document.title = parts.join(' · ');
+  }, [name, subtitle]);
+
   // ── auto-scale canvas to viewport ────────────────────────────────────
   const canvasRef = useRef(null);
   useEffect(() => {

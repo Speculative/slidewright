@@ -78,6 +78,10 @@ services:
       # two projects share a slug they share state (same caveat as compose
       # project name collisions).
       - ${HOME}/.carthage/state/slides-template:/commandhistory:rw
+      # Read-only refs to companion projects, used as source material for the
+      # NE Agents Day 2026 deck (cpython tracing fork + autopsy-report UI).
+      - /home/jtao/phd/cpython:/refs/cpython:ro
+      - /home/jtao/phd/autopsy-report:/refs/autopsy-report:ro
 
     # Host-side ports the user opted into during /carthage-annex.
     # Collision detection: `carthage up` will refuse if another Carthage
