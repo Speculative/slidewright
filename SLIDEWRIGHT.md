@@ -73,6 +73,8 @@ ContentSlide
   notes:   """ - Behavior isn't a thing you can just look at. ... """
 ```
 
+**Worked examples** of slides in candidate DSL syntax live in `design/sketches/` — markdown files with code blocks plus commentary on assumptions, what we like, and what we don't. They are not authoritative (this doc is) but they make syntax decisions concrete and provide a corpus the round-trip test harness can exercise once v0 lands.
+
 **Why custom parser, not TSX:** the hard part isn't parsing TSX (ts-morph and recast handle it), it's specifying the round-trippable subset. Designing a grammar that only permits what we support is cleaner than parsing all of TSX and validating against a subset. **OPEN: revisit if early implementation suggests the parser cost outweighs the validation cost.**
 
 ### Three component layers **DECIDED (in shape)**
