@@ -24,8 +24,10 @@
 // gating doesn't apply — every thumbnail is visible regardless of
 // the `active` prop.
 
-import { cloneElement, useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import type { ReactElement } from 'react';
+
+import { prepareSlide } from './App.js';
 
 const DESIGN_W = 1920;
 
@@ -33,7 +35,6 @@ interface Props {
   slides: ReactElement[];
   activeIdx: number;
   onSelect: (idx: number) => void;
-  actLabel: string;
   width: number;
 }
 
@@ -41,7 +42,6 @@ export function SlideStrip({
   slides,
   activeIdx,
   onSelect,
-  actLabel,
   width,
 }: Props): ReactElement {
   const stripRef = useRef<HTMLDivElement>(null);
@@ -78,7 +78,6 @@ export function SlideStrip({
           idx={i}
           active={i === activeIdx}
           onClick={() => onSelect(i)}
-          actLabel={actLabel}
           frameRef={i === 0 ? probeRef : undefined}
         />
       ))}
@@ -91,22 +90,15 @@ function SlideThumb({
   idx,
   active,
   onClick,
-  actLabel,
   frameRef,
 }: {
   slide: ReactElement;
   idx: number;
   active: boolean;
   onClick: () => void;
-  actLabel: string;
   frameRef?: React.RefObject<HTMLDivElement | null>;
 }): ReactElement {
-  // Same prep as the main canvas slide — the chrome reads `active`
-  // and `actLabel`, and the loader has already injected `idx`.
-  const prepared = cloneElement(slide, {
-    active: true,
-    actLabel,
-  } as Record<string, unknown>);
+  const prepared = prepareSlide(slide);
   return (
     <button
       type="button"

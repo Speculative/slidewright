@@ -6,7 +6,11 @@
 //     command focuses the existing panel rather than creating duplicates.
 //   - Source updates are pushed via webview.postMessage; the webview
 //     bundle (extension/src/webview/index.tsx) renders them.
-// v0.1d will add selection-sync messages in both directions.
+//   - Selection sync (v0.1e) flows in both directions:
+//     * canvas-side click → webview posts `select-source-range` →
+//       extension reveals + selects that range in the .sw editor
+//     * editor cursor moves → extension posts `cursor-changed` →
+//       webview shifts active slide to match.
 
 import * as vscode from 'vscode';
 
@@ -23,12 +27,23 @@ interface SourceUpdatedMessage {
   assets: Record<string, string>;
 }
 
+interface CursorChangedMessage {
+  type: 'cursor-changed';
+  offset: number;
+}
+
 interface WebviewReadyMessage {
   type: 'ready';
 }
 
-type ExtensionToWebview = SourceUpdatedMessage;
-type WebviewToExtension = WebviewReadyMessage;
+interface SelectSourceRangeMessage {
+  type: 'select-source-range';
+  start: number;
+  end: number;
+}
+
+type ExtensionToWebview = SourceUpdatedMessage | CursorChangedMessage;
+type WebviewToExtension = WebviewReadyMessage | SelectSourceRangeMessage;
 
 export class SlidewrightCanvasPanel {
   // One panel per source document URI. Reusing keeps the experience
@@ -111,13 +126,52 @@ export class SlidewrightCanvasPanel {
         if (message?.type === 'ready') {
           this.webviewReady = true;
           this.pushSource();
+        } else if (message?.type === 'select-source-range') {
+          this.revealSourceRange(message.start, message.end);
         }
       },
       null,
       this.disposables,
     );
 
+    // Push the editor's cursor position to the webview whenever it
+    // moves on this document. Lets the canvas highlight the slide that
+    // contains the source caret (v0.1e Phase 2). Filtered by URI so
+    // selections in other open editors don't drive this panel.
+    this.disposables.push(
+      vscode.window.onDidChangeTextEditorSelection((event) => {
+        if (event.textEditor.document.uri.toString() !== this.document.uri.toString()) {
+          return;
+        }
+        const offset = event.textEditor.document.offsetAt(
+          event.textEditor.selection.active,
+        );
+        this.pushCursor(offset);
+      }),
+    );
+
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
+  }
+
+  // Reveal the given source range in the editor showing this panel's
+  // document, opening it if it's not currently visible. The selection
+  // is placed *inside* the range start so the caret lands at the
+  // beginning of the matching component invocation rather than
+  // sweeping across it (less disruptive when the user is in the
+  // middle of typing somewhere else).
+  private async revealSourceRange(start: number, end: number): Promise<void> {
+    void end;
+    const startPos = this.document.positionAt(start);
+    const editor = await vscode.window.showTextDocument(this.document, {
+      viewColumn: vscode.ViewColumn.One,
+      preserveFocus: true,
+      preview: false,
+    });
+    editor.selection = new vscode.Selection(startPos, startPos);
+    editor.revealRange(
+      new vscode.Range(startPos, startPos),
+      vscode.TextEditorRevealType.InCenterIfOutsideViewport,
+    );
   }
 
   // Called externally (extension.ts) when the document changes. Safe to
@@ -134,6 +188,15 @@ export class SlidewrightCanvasPanel {
       source: this.document.getText(),
       fileName: this.document.fileName,
       assets: this.computeAssets(),
+    };
+    void this.panel.webview.postMessage(message);
+  }
+
+  private pushCursor(offset: number): void {
+    if (!this.webviewReady) return;
+    const message: ExtensionToWebview = {
+      type: 'cursor-changed',
+      offset,
     };
     void this.panel.webview.postMessage(message);
   }

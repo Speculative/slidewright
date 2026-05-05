@@ -9,9 +9,16 @@
 // Slide-prop preparation (active, actLabel) is App's responsibility
 // (slidewright/canvas/App.tsx) — ScaledCanvas just scales whatever
 // React node it's given.
+//
+// Selection-sync (v0.1e): clicks anywhere in the rendered slide bubble
+// up to .presentation; we walk to the nearest [data-sw-span-start]
+// ancestor (placed by loader.ts/wrapWithSpan around each component
+// invocation) and forward the source range to the host.
 
 import { useLayoutEffect, useRef, useState } from 'react';
-import type { ReactElement, ReactNode } from 'react';
+import type { MouseEvent, ReactElement, ReactNode } from 'react';
+
+import type { SourceRange } from './host.js';
 
 const DESIGN_W = 1920;
 const DESIGN_H = 1080;
@@ -21,7 +28,12 @@ const DESIGN_H = 1080;
 // space, so the margin shows as a uniform gutter.
 const MARGIN = 16;
 
-export function ScaledCanvas({ children }: { children: ReactNode }): ReactElement {
+interface Props {
+  children: ReactNode;
+  onSelectRange?: (range: SourceRange) => void;
+}
+
+export function ScaledCanvas({ children, onSelectRange }: Props): ReactElement {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
 
@@ -40,13 +52,26 @@ export function ScaledCanvas({ children }: { children: ReactNode }): ReactElemen
     return () => observer.disconnect();
   }, []);
 
+  const handleClick = (event: MouseEvent<HTMLDivElement>): void => {
+    if (!onSelectRange) return;
+    const target = event.target as Element | null;
+    if (!target?.closest) return;
+    const node = target.closest('[data-sw-span-start]');
+    if (!node) return;
+    const start = parseInt(node.getAttribute('data-sw-span-start') ?? '', 10);
+    const end = parseInt(node.getAttribute('data-sw-span-end') ?? '', 10);
+    if (Number.isFinite(start) && Number.isFinite(end)) {
+      onSelectRange({ start, end });
+    }
+  };
+
   // Outline scales with the CSS transform, so we divide by scale to
   // get a roughly constant 2px-visible border around the slide
   // regardless of the panel size.
   const outlineWidth = scale > 0 ? 2 / scale : 2;
 
   return (
-    <div className="presentation" ref={wrapperRef}>
+    <div className="presentation" ref={wrapperRef} onClick={handleClick}>
       <div
         className="presentation-canvas"
         style={{

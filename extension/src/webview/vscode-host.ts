@@ -4,14 +4,13 @@
 // Source updates arrive via webview postMessage from the extension
 // (see extension/src/canvas.ts → SlidewrightCanvasPanel.pushSource).
 // Asset URIs are computed extension-side via webview.asWebviewUri().
-//
-// Lifecycle:
-//   - constructor attaches a window 'message' listener
-//   - subscribe(cb) stores cb and posts {type: 'ready'} so the
-//     extension knows it can push the initial source
-//   - the listener forwards source-updated messages to the cb
+// Selection sync (v0.1e) flows in both directions: clicks in the
+// canvas post `select-source-range` upstream so the extension can
+// reveal + select that range in the .sw editor, and editor-side
+// cursor changes arrive as `cursor-changed` messages so the canvas
+// can highlight the matching slide.
 
-import type { Host, HostState } from '../../../slidewright/canvas/host.js';
+import type { Host, HostState, SourceRange } from '../../../slidewright/canvas/host.js';
 
 interface SourceUpdatedMessage {
   type: 'source-updated';
@@ -20,7 +19,12 @@ interface SourceUpdatedMessage {
   assets: Record<string, string>;
 }
 
-type ExtensionToWebview = SourceUpdatedMessage;
+interface CursorChangedMessage {
+  type: 'cursor-changed';
+  offset: number;
+}
+
+type ExtensionToWebview = SourceUpdatedMessage | CursorChangedMessage;
 
 declare function acquireVsCodeApi(): {
   postMessage(message: unknown): void;
@@ -30,33 +34,55 @@ declare function acquireVsCodeApi(): {
 
 export class VSCodeHost implements Host {
   private readonly vscode = acquireVsCodeApi();
-  private subscribers = new Set<(state: HostState) => void>();
+  private stateSubscribers = new Set<(state: HostState) => void>();
+  private cursorSubscribers = new Set<(offset: number) => void>();
 
   constructor() {
     window.addEventListener('message', this.onMessage);
   }
 
   subscribe(callback: (state: HostState) => void): () => void {
-    this.subscribers.add(callback);
-    if (this.subscribers.size === 1) {
+    this.stateSubscribers.add(callback);
+    if (
+      this.stateSubscribers.size === 1 &&
+      this.cursorSubscribers.size === 0
+    ) {
       // First subscriber — tell the extension we're ready for the
       // initial push. Without this handshake the extension's first
       // postMessage races the webview script load and gets dropped.
       this.vscode.postMessage({ type: 'ready' });
     }
     return () => {
-      this.subscribers.delete(callback);
+      this.stateSubscribers.delete(callback);
+    };
+  }
+
+  sendSelection(range: SourceRange): void {
+    this.vscode.postMessage({
+      type: 'select-source-range',
+      start: range.start,
+      end: range.end,
+    });
+  }
+
+  onCursorChange(callback: (offset: number) => void): () => void {
+    this.cursorSubscribers.add(callback);
+    return () => {
+      this.cursorSubscribers.delete(callback);
     };
   }
 
   private onMessage = (event: MessageEvent<ExtensionToWebview>): void => {
     const message = event.data;
-    if (message?.type !== 'source-updated') return;
-    const state: HostState = {
-      source: message.source,
-      fileName: message.fileName,
-      assets: message.assets,
-    };
-    for (const cb of this.subscribers) cb(state);
+    if (message?.type === 'source-updated') {
+      const state: HostState = {
+        source: message.source,
+        fileName: message.fileName,
+        assets: message.assets,
+      };
+      for (const cb of this.stateSubscribers) cb(state);
+    } else if (message?.type === 'cursor-changed') {
+      for (const cb of this.cursorSubscribers) cb(message.offset);
+    }
   };
 }

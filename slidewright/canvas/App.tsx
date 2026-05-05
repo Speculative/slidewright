@@ -10,7 +10,7 @@
 // with an on-the-fly deck loader; for v0.1 the canvas is hardcoded to
 // v0-reference.
 
-import { cloneElement, useCallback, useEffect, useState } from 'react';
+import { cloneElement, useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 
 import { loadDeck } from '../runtime/loader.js';
@@ -18,7 +18,7 @@ import type { Diagnostic } from '../runtime/diagnostics.js';
 import { components, staticTokens } from '../../decks/v0-reference/registry.js';
 import { DeckMetaContext } from '../../src/Slide.jsx';
 
-import type { Host } from './host.js';
+import type { Host, SourceRange } from './host.js';
 import { ScaledCanvas } from './ScaledCanvas.js';
 import { DiagnosticsPanel } from './DiagnosticsPanel.js';
 import { SlideStrip } from './SlideStrip.js';
@@ -58,6 +58,25 @@ function readStoredStripWidth(): number {
   } catch {
     return STRIP_WIDTH_DEFAULT;
   }
+}
+
+// Inject the props that Presentation.jsx normally adds (active=true so
+// styles.css's .slide.active visibility rule kicks in, actLabel so the
+// chrome's third crumb isn't blank). The slide arrives pre-wrapped by
+// the loader for selection sync — see slidewright/runtime/loader.ts /
+// wrapWithSpan — so we clone the *inner* SlideFrame, not the wrapper
+// div, and rewrap. Cloning the wrapper directly would leak `active`
+// and `actLabel` onto a plain <div> and trigger React DOM warnings.
+export function prepareSlide(wrappedSlide: ReactElement): ReactElement {
+  const inner = (wrappedSlide.props as { children?: ReactElement }).children;
+  if (!inner || typeof inner !== 'object' || !('type' in inner)) {
+    return wrappedSlide;
+  }
+  const preparedInner = cloneElement(inner, {
+    active: true,
+    actLabel: DEFAULT_ACT_LABEL,
+  } as Record<string, unknown>);
+  return cloneElement(wrappedSlide, undefined, preparedInner);
 }
 
 export function App({ host }: { host: Host }): ReactElement {
@@ -111,6 +130,40 @@ export function App({ host }: { host: Host }): ReactElement {
     [total],
   );
 
+  // Source-cursor → canvas-slide sync (v0.1e Phase 2). The host emits
+  // the .sw-editor's caret offset whenever it moves; we walk the
+  // slide list and pick the one whose top-level span contains the
+  // offset. Reading the data-sw-span attrs directly off the React
+  // elements (placed by loader.ts/wrapWithSpan) keeps span info
+  // available without a parallel data structure.
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+  useEffect(() => {
+    if (!host.onCursorChange) return;
+    return host.onCursorChange((offset) => {
+      const cur = stateRef.current;
+      if (!cur) return;
+      for (let i = 0; i < cur.slides.length; i++) {
+        const slide = cur.slides[i];
+        if (!slide) continue;
+        const props = slide.props as Record<string, unknown>;
+        const s = props['data-sw-span-start'];
+        const e = props['data-sw-span-end'];
+        if (
+          typeof s === 'number' &&
+          typeof e === 'number' &&
+          offset >= s &&
+          offset <= e
+        ) {
+          setActiveIdx(i);
+          return;
+        }
+      }
+    });
+  }, [host]);
+
   // Keyboard nav — mirrors src/Presentation.jsx's handler. Skips when
   // the focus is inside an editable text element so the host-side
   // editor (or future inline-text-edit gestures) don't lose keys.
@@ -161,14 +214,13 @@ export function App({ host }: { host: Host }): ReactElement {
   const errors = state.diagnostics.filter((d) => d.severity === 'error');
   const slide = state.slides[activeIdx];
 
-  // Same cloneElement injection the strip thumbnails use — keeps
-  // chrome consistent across active slide and thumbnails.
-  const preparedSlide = slide
-    ? cloneElement(slide, {
-        active: true,
-        actLabel: DEFAULT_ACT_LABEL,
-      } as Record<string, unknown>)
-    : null;
+  // Same prep the strip thumbnails use — keeps chrome consistent
+  // across active slide and thumbnails. The slide element comes
+  // pre-wrapped from the loader (<div data-sw-span-...><SlideFrame
+  // /></div> for selection sync); we clone the *inner* slide with
+  // active/actLabel props and rewrap so the wrapper div doesn't get
+  // unknown DOM props.
+  const preparedSlide = slide ? prepareSlide(slide) : null;
 
   return (
     <DeckMetaContext.Provider
@@ -187,7 +239,6 @@ export function App({ host }: { host: Host }): ReactElement {
           slides={state.slides}
           activeIdx={activeIdx}
           onSelect={select}
-          actLabel={DEFAULT_ACT_LABEL}
           width={stripWidth}
         />
         <ResizeHandle
@@ -196,7 +247,13 @@ export function App({ host }: { host: Host }): ReactElement {
           min={STRIP_WIDTH_MIN}
           max={STRIP_WIDTH_MAX}
         />
-        {preparedSlide ? <ScaledCanvas>{preparedSlide}</ScaledCanvas> : null}
+        {preparedSlide ? (
+          <ScaledCanvas
+            onSelectRange={(range: SourceRange) => host.sendSelection(range)}
+          >
+            {preparedSlide}
+          </ScaledCanvas>
+        ) : null}
       </div>
     </DeckMetaContext.Provider>
   );

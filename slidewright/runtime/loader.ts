@@ -234,7 +234,10 @@ function renderSlide(comp: Component, ctx: LoadCtx, idx: number): ReactElement |
   }
   const inner = renderComponent(comp, ctx);
   if (!inner) return null;
-  return createElement(SlideFrame, { key: idx, idx: idx + 1, label: comp.name, children: inner });
+  return wrapWithSpan(
+    comp,
+    createElement(SlideFrame, { key: idx, idx: idx + 1, label: comp.name, children: inner }),
+  );
 }
 
 function renderBuiltinSlide(comp: Component, ctx: LoadCtx, idx: number): ReactElement | null {
@@ -254,16 +257,40 @@ function renderBuiltinSlide(comp: Component, ctx: LoadCtx, idx: number): ReactEl
   const notes = readText(fills.get('notes'), ctx);
   const chromeless = readBoolean(fills.get('chromeless'), ctx);
   const content = renderBlockValue(contentFill.value, ctx);
-  return createElement(
-    SlideFrame,
-    {
+  return wrapWithSpan(
+    comp,
+    createElement(SlideFrame, {
       key: idx,
       idx: idx + 1,
       label: label ?? '',
       notes: typeof notes === 'string' ? notes : '',
       chromeless: chromeless ?? false,
       children: content,
+    }),
+  );
+}
+
+// ── Selection-sync instrumentation ─────────────────────────────────────
+//
+// Wraps a rendered component invocation in a marker div that carries
+// the source-span offsets. `display: contents` keeps the wrapper out of
+// the layout tree (children participate in the parent's layout), but
+// the wrapper is still visible to the DOM event system and to
+// element.closest() — so a click anywhere inside the rendered slide
+// can walk up to the nearest wrapping component and read its source
+// range. Used by ScaledCanvas's click handler to drive selection sync
+// (canvas.tsx → host.sendSelection → extension reveals the range).
+function wrapWithSpan(comp: Component, element: ReactNode): ReactElement {
+  return createElement(
+    'div',
+    {
+      key: `wrap-${comp.span.start.offset}`,
+      'data-sw-component': comp.name,
+      'data-sw-span-start': comp.span.start.offset,
+      'data-sw-span-end': comp.span.end.offset,
+      style: { display: 'contents' },
     },
+    element,
   );
 }
 
@@ -332,7 +359,7 @@ function renderComponent(comp: Component, ctx: LoadCtx): ReactNode {
     params,
     key: cellKey(comp),
   };
-  return createElement(loaded.render, props);
+  return wrapWithSpan(comp, createElement(loaded.render, props));
 }
 
 function renderSpanAsNode(comp: Component, ctx: LoadCtx): ReactNode {
@@ -348,7 +375,17 @@ function renderSpanAsNode(comp: Component, ctx: LoadCtx): ReactNode {
   if (font) style.fontFamily = `var(--font-${font})`;
   if (weight) style.fontWeight = weight;
   if (italic) style.fontStyle = 'italic';
-  return createElement('span', { style, key: cellKey(comp) }, inner);
+  return createElement(
+    'span',
+    {
+      style,
+      key: cellKey(comp),
+      'data-sw-component': 'Span',
+      'data-sw-span-start': comp.span.start.offset,
+      'data-sw-span-end': comp.span.end.offset,
+    },
+    inner,
+  );
 }
 
 // ── Value resolution by slot type ──────────────────────────────────────

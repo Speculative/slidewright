@@ -14,7 +14,11 @@
 
 import deckSourceInitial from '../decks/v0-reference/deck.sw?raw';
 import headshotImg from '../decks/v0-reference/headshot.jpg';
-import type { Host, HostState } from '../slidewright/canvas/host.js';
+import type {
+  Host,
+  HostState,
+  SourceRange,
+} from '../slidewright/canvas/host.js';
 
 const FILE_NAME = 'decks/v0-reference/deck.sw';
 
@@ -55,5 +59,12 @@ export class StandaloneHost implements Host {
   private setSource(source: string): void {
     this.state = { ...this.state, source };
     for (const cb of this.subscribers) cb(this.state);
+  }
+
+  // No-op until v0.1f's standalone source editor lands. Keeps the
+  // Host contract honest; the canvas doesn't have to special-case
+  // standalone vs VS Code.
+  sendSelection(_range: SourceRange): void {
+    void _range;
   }
 }
