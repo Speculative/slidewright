@@ -15,6 +15,11 @@ import type { ReactElement, ReactNode } from 'react';
 
 const DESIGN_W = 1920;
 const DESIGN_H = 1080;
+// Visual margin between the slide and the panel edges. The slide
+// shrinks to fit (clientWidth - 2*MARGIN); existing flex centering on
+// .presentation puts the result in the middle of the surrounding white
+// space, so the margin shows as a uniform gutter.
+const MARGIN = 16;
 
 export function ScaledCanvas({ children }: { children: ReactNode }): ReactElement {
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -24,9 +29,9 @@ export function ScaledCanvas({ children }: { children: ReactNode }): ReactElemen
     const wrapper = wrapperRef.current;
     if (!wrapper) return;
     const fit = () => {
-      const w = wrapper.clientWidth;
-      const h = wrapper.clientHeight;
-      if (w === 0 || h === 0) return;
+      const w = wrapper.clientWidth - MARGIN * 2;
+      const h = wrapper.clientHeight - MARGIN * 2;
+      if (w <= 0 || h <= 0) return;
       setScale(Math.min(w / DESIGN_W, h / DESIGN_H));
     };
     fit();
@@ -34,6 +39,11 @@ export function ScaledCanvas({ children }: { children: ReactNode }): ReactElemen
     observer.observe(wrapper);
     return () => observer.disconnect();
   }, []);
+
+  // Outline scales with the CSS transform, so we divide by scale to
+  // get a roughly constant 2px-visible border around the slide
+  // regardless of the panel size.
+  const outlineWidth = scale > 0 ? 2 / scale : 2;
 
   return (
     <div className="presentation" ref={wrapperRef}>
@@ -43,6 +53,7 @@ export function ScaledCanvas({ children }: { children: ReactNode }): ReactElemen
           width: `${DESIGN_W}px`,
           height: `${DESIGN_H}px`,
           transform: `scale(${scale})`,
+          outline: `${outlineWidth}px solid rgba(0, 0, 0, 0.35)`,
           ['--deck-design-w' as string]: `${DESIGN_W}px`,
           ['--deck-design-h' as string]: `${DESIGN_H}px`,
         }}

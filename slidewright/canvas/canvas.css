@@ -7,8 +7,8 @@ html, body, #root {
   margin: 0;
   padding: 0;
   height: 100%;
-  background: #000;
-  color: #fff;
+  background: #fff;
+  color: #111;
 }
 
 #root {
@@ -20,9 +20,9 @@ html, body, #root {
   padding: 6px 12px;
   font-size: 12px;
   opacity: 0.7;
-  color: #ccc;
+  color: #444;
   font-family: var(--vscode-editor-font-family, ui-monospace, monospace);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
   flex: 0 0 auto;
 }
 
@@ -33,20 +33,124 @@ html, body, #root {
   font-size: 12px;
   line-height: 1.5;
   font-family: var(--vscode-editor-font-family, ui-monospace, monospace);
-  background: rgba(255, 80, 80, 0.08);
-  color: var(--vscode-errorForeground, #f14c4c);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 80, 80, 0.1);
+  color: var(--vscode-errorForeground, #b3261e);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
   flex: 0 0 auto;
 }
 
+/* The body of the canvas — strip on the left, active slide on the
+ * right. Takes the remaining vertical space below status + diagnostics. */
+.sw-canvas-body {
+  display: flex;
+  flex-direction: row;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 /* Override styles.css's .presentation positioning. The existing
- * scaffold is fullscreen; our canvas puts the presentation as a flex
- * child below the status / diagnostics bars. */
+ * scaffold is fullscreen (black background); our canvas puts it as a
+ * flex child of .sw-canvas-body on a white surface. */
 .presentation {
   position: relative;
   inset: auto;
   flex: 1 1 auto;
-  width: 100%;
+  width: auto;
   height: auto;
   min-height: 0;
+  min-width: 0;
+  background: #fff;
+}
+
+/* ── Slide strip (vertical thumbnail column) ────────────────────── */
+
+.sw-strip {
+  flex: 0 0 auto;
+  /* width is supplied via inline style from React state; min/max
+   * here cap the resize range so the strip can't disappear or eat
+   * the whole panel. */
+  min-width: 200px;
+  max-width: 600px;
+  padding: 12px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.sw-resize-handle {
+  flex: 0 0 4px;
+  background: rgba(0, 0, 0, 0.18);
+  cursor: col-resize;
+  transition: background 80ms ease;
+}
+
+.sw-resize-handle:hover,
+.sw-resize-handle.dragging {
+  background: var(--accent, #0066ff);
+}
+
+.sw-thumb {
+  flex: 0 0 auto;
+  position: relative;
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  background: transparent;
+  padding: 0;
+  border: 2px solid rgba(0, 0, 0, 0.35);
+  border-radius: 2px;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  transition: border-color 60ms ease;
+}
+
+.sw-thumb:hover {
+  border-color: rgba(0, 0, 0, 0.6);
+}
+
+.sw-thumb.active {
+  border-color: var(--accent, #0066ff);
+}
+
+.sw-thumb-frame {
+  /* Sized by CSS to fill the thumbnail's content area; the inner
+   * section.slide is 1920x1080 layout-space, scaled via transform
+   * (--thumb-scale, set by SlideStrip's ResizeObserver to match the
+   * frame's actual rendered width). */
+  width: 100%;
+  aspect-ratio: 1920 / 1080;
+  overflow: hidden;
+  position: relative;
+  background: #fff;
+}
+
+.sw-thumb-frame > section.slide {
+  /* Override styles.css's section.slide default positioning so the
+   * scaled slide sits at the frame's top-left and the transform
+   * covers the visible area. */
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: scale(var(--thumb-scale));
+  transform-origin: top left;
+}
+
+.sw-thumb-num {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  padding: 2px 6px;
+  font-family: var(--vscode-editor-font-family, ui-monospace, monospace);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  border-radius: 2px;
+  pointer-events: none;
 }
