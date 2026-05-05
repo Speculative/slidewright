@@ -294,6 +294,29 @@ function wrapWithSpan(comp: Component, element: ReactNode): ReactElement {
   );
 }
 
+// Wraps a resolved string value in an inline span carrying the source
+// offsets of the original StringLit. Lets the canvas's edit gesture
+// (v0.2+) target individual string literals — closest('[data-sw-text-
+// span-start]') from the click target. Skipped for triple-quoted
+// (multiline) strings since their edit UX needs richer handling
+// (indentation, line-wrap) than the single-line input overlay covers.
+function wrapEditableString(
+  lit: StringLit,
+  resolved: string,
+  key?: number,
+): ReactNode {
+  if (lit.multiline) return resolved;
+  return createElement(
+    'span',
+    {
+      key: key,
+      'data-sw-text-span-start': lit.span.start.offset,
+      'data-sw-text-span-end': lit.span.end.offset,
+    },
+    resolved,
+  );
+}
+
 // ── Component dispatch ─────────────────────────────────────────────────
 
 function renderComponent(comp: Component, ctx: LoadCtx): ReactNode {
@@ -438,12 +461,13 @@ function resolveTextValue(value: Value, ctx: LoadCtx): ReactNode {
   // text accepts: a string, a list of (string | Span | name_ref-resolving-to-string).
   if (value.kind === 'string') {
     const lit = ctx.cellStore.registerLiteral(nextCellId(ctx, 'text'), value.value);
-    return ctx.cellStore.resolve<string>(lit, EMPTY_CONTEXT);
+    const resolved = ctx.cellStore.resolve<string>(lit, EMPTY_CONTEXT);
+    return wrapEditableString(value, resolved);
   }
   if (value.kind === 'list') {
     const parts: ReactNode[] = value.items.map((v, i) => {
       if (v.kind === 'string') {
-        return v.value;
+        return wrapEditableString(v, v.value, i);
       }
       if (v.kind === 'component' && v.name === 'Span') {
         return renderSpanAsNode(v, ctx);

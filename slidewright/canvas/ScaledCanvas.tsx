@@ -28,12 +28,27 @@ const DESIGN_H = 1080;
 // space, so the margin shows as a uniform gutter.
 const MARGIN = 16;
 
+export interface TextEditTarget {
+  // The DOM node we'll make contentEditable. Editing happens in-place
+  // on the styled element itself so font, color, and the surrounding
+  // CSS transform all carry over for free — no overlay needed.
+  node: HTMLElement;
+  start: number;
+  end: number;
+  originalText: string;
+}
+
 interface Props {
   children: ReactNode;
   onSelectRange?: (range: SourceRange) => void;
+  onTextEdit?: (target: TextEditTarget) => void;
 }
 
-export function ScaledCanvas({ children, onSelectRange }: Props): ReactElement {
+export function ScaledCanvas({
+  children,
+  onSelectRange,
+  onTextEdit,
+}: Props): ReactElement {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
 
@@ -52,14 +67,34 @@ export function ScaledCanvas({ children, onSelectRange }: Props): ReactElement {
     return () => observer.disconnect();
   }, []);
 
-  // Double-click (rather than single) to send selection upstream.
+  // Double-click dispatch:
+  //   - text-span ancestor (data-sw-text-span-*) → in-place edit
+  //   - component-span ancestor (data-sw-span-*)  → selection sync
   // Single clicks happen too easily during navigation; making the
-  // source-jump explicit keeps the user in control of when their
-  // editor caret moves.
+  // source-affecting actions explicit (double-click) keeps the user
+  // in control of when text becomes editable / when their editor
+  // caret moves.
   const handleDoubleClick = (event: MouseEvent<HTMLDivElement>): void => {
-    if (!onSelectRange) return;
     const target = event.target as Element | null;
     if (!target?.closest) return;
+
+    const textNode = target.closest('[data-sw-text-span-start]');
+    if (textNode instanceof HTMLElement && onTextEdit) {
+      const start = parseInt(textNode.getAttribute('data-sw-text-span-start') ?? '', 10);
+      const end = parseInt(textNode.getAttribute('data-sw-text-span-end') ?? '', 10);
+      if (Number.isFinite(start) && Number.isFinite(end)) {
+        onTextEdit({
+          node: textNode,
+          start,
+          end,
+          originalText: textNode.textContent ?? '',
+        });
+        event.preventDefault();
+        return;
+      }
+    }
+
+    if (!onSelectRange) return;
     const node = target.closest('[data-sw-span-start]');
     if (!node) return;
     const start = parseInt(node.getAttribute('data-sw-span-start') ?? '', 10);

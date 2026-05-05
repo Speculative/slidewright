@@ -65,6 +65,10 @@ export class VSCodeHost implements Host {
     });
   }
 
+  setSource(source: string): void {
+    this.vscode.postMessage({ type: 'set-source', source });
+  }
+
   onCursorChange(callback: (offset: number) => void): () => void {
     this.cursorSubscribers.add(callback);
     return () => {

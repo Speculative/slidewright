@@ -19,7 +19,7 @@ import { components, staticTokens } from '../../decks/v0-reference/registry.js';
 import { DeckMetaContext } from '../../src/Slide.jsx';
 
 import type { Host, SourceRange } from './host.js';
-import { ScaledCanvas } from './ScaledCanvas.js';
+import { ScaledCanvas, type TextEditTarget } from './ScaledCanvas.js';
 import { DiagnosticsPanel } from './DiagnosticsPanel.js';
 import { SlideStrip } from './SlideStrip.js';
 import { ResizeHandle } from './ResizeHandle.js';
@@ -34,6 +34,9 @@ interface RenderState {
   diagnostics: Diagnostic[];
   fileName: string;
   meta: DeckMeta;
+  // Kept on render state so text-edit commits can splice into it
+  // without a parallel host.subscribe subscription.
+  source: string;
 }
 
 // Pre-Section slides in the existing scaffold show "Setup" in the
@@ -83,6 +86,7 @@ export function App({ host }: { host: Host }): ReactElement {
   const [state, setState] = useState<RenderState | null>(null);
   const [activeIdx, setActiveIdx] = useState(0);
   const [stripWidth, setStripWidth] = useState<number>(readStoredStripWidth);
+  const [editing, setEditing] = useState<TextEditTarget | null>(null);
 
   useEffect(() => {
     try {
@@ -109,6 +113,7 @@ export function App({ host }: { host: Host }): ReactElement {
           diagnostics: result.diagnostics,
           fileName,
           meta: { name: result.meta.name, subtitle: result.meta.subtitle },
+          source,
         };
         // Clamp activeIdx if the new deck has fewer slides than where
         // we were. Done as a side-effect to keep the state setter pure.
@@ -207,6 +212,74 @@ export function App({ host }: { host: Host }): ReactElement {
     return () => window.removeEventListener('keydown', onKey);
   }, [total]);
 
+  // Text-edit gesture: when `editing` is set, flip the targeted span
+  // to contentEditable, focus it, select all. Editing happens directly
+  // on the styled element so font / color / scaling all carry through
+  // for free — no overlay positioning, no font-size mismatch with the
+  // CSS-transformed canvas. React doesn't track contentEditable as a
+  // prop, so the imperative attribute setting survives re-renders as
+  // long as the slide React tree doesn't change (which it doesn't
+  // until host.setSource fires).
+  const sourceRef = useRef<string>('');
+  useEffect(() => {
+    sourceRef.current = state?.source ?? '';
+  }, [state]);
+  useEffect(() => {
+    if (!editing) return;
+    const { node, originalText, start, end } = editing;
+    // `plaintext-only` (Chromium / WebKit) keeps browser-default
+    // formatting commands (Cmd+B etc.) from inserting markup; Firefox
+    // treats it as `true` which is acceptable.
+    node.contentEditable = 'plaintext-only';
+    node.focus();
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+
+    let exited: 'commit' | 'cancel' | null = null;
+
+    const finish = (intent: 'commit' | 'cancel') => {
+      if (exited !== null) return;
+      exited = intent;
+      const newText = node.textContent ?? '';
+      node.contentEditable = 'false';
+      if (intent === 'commit' && newText !== originalText) {
+        const src = sourceRef.current;
+        const next =
+          src.substring(0, start) + JSON.stringify(newText) + src.substring(end);
+        host.setSource?.(next);
+      } else if (intent === 'cancel') {
+        // Restore the original text — without this, the user-typed
+        // content stays in the DOM until the next host re-render.
+        node.textContent = originalText;
+      }
+      setEditing(null);
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        finish('commit');
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        finish('cancel');
+      }
+    };
+    const onBlur = () => finish('commit');
+
+    node.addEventListener('keydown', onKeyDown);
+    node.addEventListener('blur', onBlur);
+    return () => {
+      node.removeEventListener('keydown', onKeyDown);
+      node.removeEventListener('blur', onBlur);
+      // Defensive: if effect re-runs while still mid-edit, leave the
+      // element in a sane state so it's not mysteriously editable.
+      if (exited === null) node.contentEditable = 'false';
+    };
+  }, [editing, host]);
+
   if (!state) {
     return <div className="sw-canvas-status">waiting for source…</div>;
   }
@@ -250,6 +323,7 @@ export function App({ host }: { host: Host }): ReactElement {
         {preparedSlide ? (
           <ScaledCanvas
             onSelectRange={(range: SourceRange) => host.sendSelection(range)}
+            onTextEdit={(target) => setEditing(target)}
           >
             {preparedSlide}
           </ScaledCanvas>

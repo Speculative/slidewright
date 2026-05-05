@@ -42,8 +42,16 @@ interface SelectSourceRangeMessage {
   end: number;
 }
 
+interface SetSourceMessage {
+  type: 'set-source';
+  source: string;
+}
+
 type ExtensionToWebview = SourceUpdatedMessage | CursorChangedMessage;
-type WebviewToExtension = WebviewReadyMessage | SelectSourceRangeMessage;
+type WebviewToExtension =
+  | WebviewReadyMessage
+  | SelectSourceRangeMessage
+  | SetSourceMessage;
 
 export class SlidewrightCanvasPanel {
   // One panel per source document URI. Reusing keeps the experience
@@ -128,6 +136,8 @@ export class SlidewrightCanvasPanel {
           this.pushSource();
         } else if (message?.type === 'select-source-range') {
           this.revealSourceRange(message.start, message.end);
+        } else if (message?.type === 'set-source') {
+          void this.applySource(message.source);
         }
       },
       null,
@@ -151,6 +161,24 @@ export class SlidewrightCanvasPanel {
     );
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
+  }
+
+  // Apply a canvas-emitted source string to the document. v0.2 first
+  // gestures (text edit) replace the whole document with the new
+  // source via WorkspaceEdit; once round-trip emit lands and we can
+  // compute minimal diffs we'll narrow this to the specific edited
+  // range. Whole-document replace is fine for v0.2 — the document
+  // change fires onDidChangeTextDocument → existing pushSource path
+  // → webview re-renders.
+  private async applySource(source: string): Promise<void> {
+    if (source === this.document.getText()) return;
+    const edit = new vscode.WorkspaceEdit();
+    const fullRange = new vscode.Range(
+      this.document.positionAt(0),
+      this.document.positionAt(this.document.getText().length),
+    );
+    edit.replace(this.document.uri, fullRange, source);
+    await vscode.workspace.applyEdit(edit);
   }
 
   // Reveal the given source range in the editor showing this panel's
