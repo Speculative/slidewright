@@ -25,6 +25,7 @@ import type {
   Value,
 } from '../ast.js';
 import { formatDiagnostic } from '../diagnostics.js';
+import { emit } from '../emitter.js';
 import { parse } from '../parser.js';
 
 const ITERATIONS = 200;
@@ -225,18 +226,63 @@ for (const c of cases) {
     const failure = runProperty(c.label, c.source, seed);
     if (failure) {
       failures += 1;
-      console.log(`FAIL ${c.label} seed=${seed} iter=${failure.iteration}: ${failure.reason}`);
+      console.log(`FAIL [edit] ${c.label} seed=${seed} iter=${failure.iteration}: ${failure.reason}`);
       console.log(failure.details);
       console.log('---');
     } else {
-      console.log(`OK   ${c.label} seed=${seed} (${ITERATIONS} iterations)`);
+      console.log(`OK   [edit] ${c.label} seed=${seed} (${ITERATIONS} iterations)`);
     }
   }
+}
+
+// ── Emitter property: parse → emit → parse → shape-equal ──────────────
+//
+// For each test source, parse it to an AST, run the emitter to produce
+// canonical source, re-parse, and assert the shape is unchanged. Also
+// asserts emit(parse(emit(parse(s)))) === emit(parse(s)) — the emitter
+// is idempotent: a second pass through canonicalization yields no
+// further changes.
+for (const c of cases) {
+  const initial = parse(c.source, `<emit:${c.label}>`);
+  const errs = initial.diagnostics.filter((d) => d.severity === 'error');
+  if (errs.length > 0) {
+    failures += 1;
+    console.log(`FAIL [emit] ${c.label}: initial parse failed`);
+    console.log(errs.map(formatDiagnostic).join('\n'));
+    continue;
+  }
+  const initialShape = shapeOf(initial.ast);
+  const emitted = emit(initial.ast);
+  const reparsed = parse(emitted, `<emit:${c.label}:re>`);
+  const reErrs = reparsed.diagnostics.filter((d) => d.severity === 'error');
+  if (reErrs.length > 0) {
+    failures += 1;
+    console.log(`FAIL [emit] ${c.label}: re-parse of emitted source failed`);
+    console.log(reErrs.map(formatDiagnostic).join('\n'));
+    console.log(`--- emitted source ---\n${emitted}`);
+    continue;
+  }
+  if (!shapesEqual(initialShape, shapeOf(reparsed.ast))) {
+    failures += 1;
+    console.log(`FAIL [emit] ${c.label}: shape diverged after parse → emit → parse`);
+    console.log(`--- emitted source ---\n${emitted}`);
+    continue;
+  }
+  // Idempotence check.
+  const emitted2 = emit(reparsed.ast);
+  if (emitted !== emitted2) {
+    failures += 1;
+    console.log(`FAIL [emit] ${c.label}: emitter not idempotent`);
+    continue;
+  }
+  console.log(`OK   [emit] ${c.label} (parse → emit → parse equal; idempotent)`);
 }
 
 if (failures > 0) {
   console.log(`\n${failures} property failure(s).`);
   process.exit(1);
 } else {
-  console.log(`\nall ${cases.length * SEEDS.length} property runs passed.`);
+  console.log(
+    `\nall ${cases.length * SEEDS.length + cases.length} property runs passed.`,
+  );
 }
