@@ -5,8 +5,12 @@
 // container resizes. Mirrors src/Presentation.jsx's geometry without
 // the rest of its concerns (popout notes, localStorage, document title,
 // keyboard nav).
+//
+// Slide-prop preparation (active, actLabel) is App's responsibility
+// (slidewright/canvas/App.tsx) — ScaledCanvas just scales whatever
+// React node it's given.
 
-import { cloneElement, useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 
 const DESIGN_W = 1920;
@@ -31,14 +35,6 @@ export function ScaledCanvas({ children }: { children: ReactNode }): ReactElemen
     return () => observer.disconnect();
   }, []);
 
-  // Mirror the existing scaffold's class structure so styles.css's
-  // `.presentation`, `.presentation-canvas`, and `section.slide.active`
-  // rules apply. The slide arrives unprepped (no `active` prop);
-  // cloneElement adds it so the .active visibility rule kicks in.
-  const slideEl = isReactElement(children)
-    ? cloneElement(children, { active: true } as Record<string, unknown>)
-    : children;
-
   return (
     <div className="presentation" ref={wrapperRef}>
       <div
@@ -51,17 +47,8 @@ export function ScaledCanvas({ children }: { children: ReactNode }): ReactElemen
           ['--deck-design-h' as string]: `${DESIGN_H}px`,
         }}
       >
-        {slideEl}
+        {children}
       </div>
     </div>
-  );
-}
-
-function isReactElement(node: ReactNode): node is ReactElement {
-  return (
-    node !== null &&
-    typeof node === 'object' &&
-    'type' in (node as object) &&
-    'props' in (node as object)
   );
 }
