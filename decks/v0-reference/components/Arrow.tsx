@@ -73,10 +73,17 @@ export default function Arrow({ params }: ComponentRenderProps) {
         stroke={`var(--${color})`}
         strokeWidth={strokeWidth}
         strokeLinecap="round"
+        // Re-enable pointer events on the line itself (the parent
+        // SVG is pointer-events: none so clicks pass through to
+        // shapes underneath when they don't hit the line). v0.2.h's
+        // selection model relies on this — clicking the line
+        // selects the Arrow.
+        style={{ pointerEvents: 'visiblePainted' }}
       />
       <polygon
         points={`${x2},${y2} ${px1},${py1} ${px2},${py2}`}
         fill={`var(--${color})`}
+        style={{ pointerEvents: 'visiblePainted' }}
       />
     </svg>
   );

@@ -89,6 +89,11 @@ interface Props {
   // creation tool is active (activeTool !== 'select'). Same gesture
   // lifecycle — handler attaches its own move/up listeners.
   onCreateStart?: (target: CreateStart) => void;
+  // Fired when pointer goes down in Select mode. Argument is the
+  // selectable shape's source range, or null if the click landed on
+  // the canvas background (in which case the host typically clears
+  // its selection state).
+  onSelectShape?: (range: SourceRange | null) => void;
   activeTool?: 'select' | 'box' | 'textbox' | 'arrow';
 }
 
@@ -101,12 +106,19 @@ interface Props {
 const DRAGGABLE_SELECTOR =
   '[data-sw-component="Box"], [data-sw-component="TextBox"]';
 
+// Shapes that respond to Select-mode clicks. Wider than the
+// draggable set since Arrow is selectable (for Delete, future
+// endpoint editing) even though it doesn't yet support drag-to-move.
+const SELECTABLE_SELECTOR =
+  '[data-sw-component="Box"], [data-sw-component="TextBox"], [data-sw-component="Arrow"]';
+
 export function ScaledCanvas({
   children,
   onSelectRange,
   onTextEdit,
   onDragStart,
   onCreateStart,
+  onSelectShape,
   activeTool = 'select',
 }: Props): ReactElement {
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -202,21 +214,43 @@ export function ScaledCanvas({
       // activeTool !== 'select').
     }
 
-    if (!onDragStart) return;
-    const node = target.closest(DRAGGABLE_SELECTOR);
-    if (!(node instanceof HTMLElement)) return;
-    const start = parseInt(node.getAttribute('data-sw-span-start') ?? '', 10);
-    const end = parseInt(node.getAttribute('data-sw-span-end') ?? '', 10);
-    if (!Number.isFinite(start) || !Number.isFinite(end)) return;
-    event.preventDefault();
-    onDragStart({
-      node,
-      start,
-      end,
-      pointerStartX: event.clientX,
-      pointerStartY: event.clientY,
-      scale,
-    });
+    // Select-mode dispatch: emit selection state regardless of
+    // whether the shape is draggable, then start a drag if it is.
+    // Box/TextBox: select + drag. Arrow: select only.
+    // Click on background (no shape ancestor): clear selection.
+    const selectable = target.closest(SELECTABLE_SELECTOR);
+    if (selectable instanceof HTMLElement) {
+      const start = parseInt(selectable.getAttribute('data-sw-span-start') ?? '', 10);
+      const end = parseInt(selectable.getAttribute('data-sw-span-end') ?? '', 10);
+      if (Number.isFinite(start) && Number.isFinite(end)) {
+        onSelectShape?.({ start, end });
+      }
+      const draggable = target.closest(DRAGGABLE_SELECTOR);
+      if (
+        draggable instanceof HTMLElement &&
+        draggable === selectable &&
+        onDragStart &&
+        Number.isFinite(start) &&
+        Number.isFinite(end)
+      ) {
+        event.preventDefault();
+        onDragStart({
+          node: draggable,
+          start,
+          end,
+          pointerStartX: event.clientX,
+          pointerStartY: event.clientY,
+          scale,
+        });
+      }
+      return;
+    }
+
+    // Click on background (anywhere over the canvas that isn't a
+    // shape) clears the selection. Don't preventDefault — the host
+    // may want browser-default click semantics for things outside
+    // shapes (e.g., toolbar focus management).
+    onSelectShape?.(null);
   };
 
   // Outline scales with the CSS transform, so we divide by scale to

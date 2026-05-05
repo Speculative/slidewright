@@ -320,6 +320,54 @@ function appendShapeToFreeform(freeform: Component, shape: Component): void {
   childrenFill.value.items.push(shape);
 }
 
+// Walks the AST and removes any Component whose source span exactly
+// matches `target` from any list it appears in. Returns true if a
+// removal happened. Used by the Delete-key handler — the selected
+// span identifies which child of which Freeform-children list to
+// drop.
+function removeShapeAtSpan(
+  ast: SourceFile,
+  target: SourceRange,
+): boolean {
+  let removed = false;
+  const visit = (node: Node | Value): void => {
+    if (removed) return;
+    switch (node.kind) {
+      case 'source_file':
+        for (const c of node.items) visit(c);
+        return;
+      case 'component':
+        for (const f of node.fills) visit(f);
+        for (const c of node.implicitChildren) visit(c);
+        return;
+      case 'slot_fill':
+        visit(node.value);
+        return;
+      case 'list': {
+        const before = node.items.length;
+        node.items = node.items.filter(
+          (item) =>
+            !(
+              item.kind === 'component' &&
+              item.span.start.offset === target.start &&
+              item.span.end.offset === target.end
+            ),
+        );
+        if (node.items.length !== before) {
+          removed = true;
+          return;
+        }
+        for (const item of node.items) visit(item);
+        return;
+      }
+      default:
+        return;
+    }
+  };
+  visit(ast);
+  return removed;
+}
+
 // Inject the props that Presentation.jsx normally adds (active=true so
 // styles.css's .slide.active visibility rule kicks in, actLabel so the
 // chrome's third crumb isn't blank). The slide arrives pre-wrapped by
@@ -347,6 +395,7 @@ export function App({ host }: { host: Host }): ReactElement {
   const [dragging, setDragging] = useState<DragStart | null>(null);
   const [creating, setCreating] = useState<CreateStart | null>(null);
   const [activeTool, setActiveTool] = useState<Tool>('select');
+  const [selected, setSelected] = useState<SourceRange | null>(null);
 
   useEffect(() => {
     try {
@@ -382,6 +431,11 @@ export function App({ host }: { host: Host }): ReactElement {
         }
         return next;
       });
+      // Clear selection on source updates — span offsets shift when
+      // emit re-canonicalizes, so the previously-selected (start, end)
+      // no longer matches any shape. User re-clicks to re-select. Polish
+      // (preserve selection across drags) is future work.
+      setSelected(null);
     });
   }, [host, activeIdx]);
 
@@ -589,11 +643,38 @@ export function App({ host }: { host: Host }): ReactElement {
     const originalLeft = parseFloat(cs.left) || 0;
     const originalTop = parseFloat(cs.top) || 0;
 
+    // If the dragged shape is currently selected, mirror the
+    // position update onto the selection overlay so the dashed
+    // outline follows in real-time. Lookup is lazy (in onMove
+    // rather than at effect setup) because the selection effect
+    // and the drag effect both fire from the same React batched
+    // update — the overlay element may not exist yet at this
+    // point in the commit.
+    const isSelectedDrag =
+      selected !== null && selected.start === start && selected.end === end;
+    let overlayEl: HTMLElement | null = null;
+    const findOverlay = (): HTMLElement | null => {
+      if (!isSelectedDrag) return null;
+      if (overlayEl && overlayEl.isConnected) return overlayEl;
+      const el = document.querySelector(
+        '.sw-canvas-stage .presentation .sw-selection-outline',
+      );
+      overlayEl = el instanceof HTMLElement ? el : null;
+      return overlayEl;
+    };
+
     const onMove = (e: PointerEvent) => {
       const designDx = (e.clientX - pointerStartX) / scale;
       const designDy = (e.clientY - pointerStartY) / scale;
-      visualNode.style.left = `${originalLeft + designDx}px`;
-      visualNode.style.top = `${originalTop + designDy}px`;
+      const newLeft = originalLeft + designDx;
+      const newTop = originalTop + designDy;
+      visualNode.style.left = `${newLeft}px`;
+      visualNode.style.top = `${newTop}px`;
+      const ov = findOverlay();
+      if (ov) {
+        ov.style.left = `${newLeft - 4}px`;
+        ov.style.top = `${newTop - 4}px`;
+      }
     };
 
     const onUp = (e: PointerEvent) => {
@@ -790,20 +871,108 @@ export function App({ host }: { host: Host }): ReactElement {
     };
   }, [creating, host]);
 
-  // Escape returns to the Select tool. Common modal-tool convention
-  // and avoids the user feeling trapped if they press Box and don't
-  // know how to exit.
+  // Escape returns to the Select tool *and* clears any active
+  // selection. Common modal-tool convention. Also wires Delete /
+  // Backspace to remove the selected shape from its parent list.
   useEffect(() => {
-    if (activeTool === 'select') return;
     const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))
+      ) {
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
       if (e.key === 'Escape') {
-        setActiveTool('select');
+        if (activeTool !== 'select') setActiveTool('select');
+        if (selected) setSelected(null);
+        e.preventDefault();
+        return;
+      }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
+        const result = parse(sourceRef.current, '<delete>');
+        if (!result.diagnostics.some((d) => d.severity === 'error')) {
+          if (removeShapeAtSpan(result.ast, selected)) {
+            host.setSource?.(emit(result.ast));
+            setSelected(null);
+          }
+        }
         e.preventDefault();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [activeTool]);
+  }, [activeTool, selected, host]);
+
+  // Selection overlay. Computes bounds from the selected shape's
+  // DOM (offsetLeft/Top/Width/Height for div-shapes; line attrs
+  // for Arrow), appends an outline div to the active Freeform.
+  // Re-runs on source change since the wrapper element identities
+  // change after each emit + re-render.
+  useEffect(() => {
+    if (!selected || !state) return;
+    // Find the active slide's Freeform DOM. Scope the query to the
+    // .presentation container so thumbnails (which contain their
+    // own Freeforms) aren't accidentally targeted.
+    const presentation = document.querySelector(
+      '.sw-canvas-stage .presentation',
+    );
+    if (!presentation) return;
+    const shapeWrapper = presentation.querySelector(
+      `[data-sw-span-start="${selected.start}"][data-sw-span-end="${selected.end}"]`,
+    );
+    if (!shapeWrapper) return;
+    const shapeInner = shapeWrapper.firstElementChild;
+    if (!shapeInner) return;
+
+    let bounds: { left: number; top: number; width: number; height: number };
+    const componentName = shapeWrapper.getAttribute('data-sw-component');
+    if (componentName === 'Arrow') {
+      const line = shapeInner.querySelector('line');
+      if (!line) return;
+      const x1 = parseFloat(line.getAttribute('x1') ?? '0');
+      const y1 = parseFloat(line.getAttribute('y1') ?? '0');
+      const x2 = parseFloat(line.getAttribute('x2') ?? '0');
+      const y2 = parseFloat(line.getAttribute('y2') ?? '0');
+      bounds = {
+        left: Math.min(x1, x2),
+        top: Math.min(y1, y2),
+        width: Math.abs(x2 - x1),
+        height: Math.abs(y2 - y1),
+      };
+    } else {
+      // Box / TextBox: read the absolutely-positioned div's offset
+      // metrics (in design-space CSS pixels — the canvas's CSS
+      // transform doesn't affect offset values).
+      if (!(shapeInner instanceof HTMLElement)) return;
+      bounds = {
+        left: shapeInner.offsetLeft,
+        top: shapeInner.offsetTop,
+        width: shapeInner.offsetWidth,
+        height: shapeInner.offsetHeight,
+      };
+    }
+
+    // Anchor the overlay on the Freeform that contains the shape.
+    const freeformWrapper = shapeWrapper.closest('[data-sw-component="Freeform"]');
+    const freeformDiv = freeformWrapper?.firstElementChild;
+    if (!(freeformDiv instanceof HTMLElement)) return;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'sw-selection-outline';
+    overlay.style.position = 'absolute';
+    overlay.style.left = `${bounds.left - 4}px`;
+    overlay.style.top = `${bounds.top - 4}px`;
+    overlay.style.width = `${bounds.width + 8}px`;
+    overlay.style.height = `${bounds.height + 8}px`;
+    overlay.style.pointerEvents = 'none';
+    freeformDiv.appendChild(overlay);
+    return () => {
+      overlay.parentElement?.removeChild(overlay);
+    };
+  }, [selected, state]);
 
   if (!state) {
     return <div className="sw-canvas-status">waiting for source…</div>;
@@ -853,6 +1022,7 @@ export function App({ host }: { host: Host }): ReactElement {
               onTextEdit={(target) => setEditing(target)}
               onDragStart={(target) => setDragging(target)}
               onCreateStart={(target) => setCreating(target)}
+              onSelectShape={(range) => setSelected(range)}
               activeTool={activeTool}
             >
               {preparedSlide}

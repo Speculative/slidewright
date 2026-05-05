@@ -240,6 +240,17 @@ html, body, #root {
   color: #fff;
 }
 
+/* Selection outline (v0.2.h). Imperative div appended by App's
+ * selection effect; positioned in design-space coords inside the
+ * Freeform. Dashed accent-colored border — the classic marching-
+ * ants affordance, sans animation for now. v0.2.i adds corner /
+ * edge handles on top of this for resize. */
+.sw-selection-outline {
+  border: 2px dashed var(--accent, #0066ff);
+  border-radius: 2px;
+  box-sizing: border-box;
+}
+
 /* ── Standalone layout (canvas + bottom-mounted editor pane) ────── */
 
 /* Editor goes at the bottom — same screen real-estate that speaker
