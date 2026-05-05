@@ -218,6 +218,21 @@ const cases: { label: string; source: string }[] = [
     label: 'mixed-list',
     source: `Title { title: ["plain " Span { color: accent, content: "fancy" } " plain"] }`,
   },
+  {
+    label: 'comments',
+    source:
+      `// top of file comment\n` +
+      `// continuation\n\n` +
+      `Deck {\n` +
+      `  // before name\n` +
+      `  name: "x"\n` +
+      `  // before slides\n` +
+      `  slides: [\n` +
+      `    Slide { content: TitleSlide { title: "y" } }\n` +
+      `  ]\n` +
+      `  // end-of-block\n` +
+      `}\n`,
+  },
 ];
 
 let failures = 0;

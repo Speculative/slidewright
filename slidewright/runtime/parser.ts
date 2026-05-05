@@ -8,6 +8,7 @@
 // parsed.
 
 import type {
+  Comment,
   Component,
   ListLit,
   NameRef,
@@ -35,6 +36,11 @@ export function parse(source: string, file: string): ParseResult {
 class Parser {
   pos = 0;
   diagnostics: Diagnostic[];
+  // Comments seen since the last regular token was consumed. Drained
+  // by takePendingLeading() when a node is entered (becomes its
+  // leading comments) or at end-of-block (becomes the parent's
+  // trailing comments).
+  private pendingLeading: Comment[] = [];
 
   constructor(
     public tokens: Token[],
@@ -46,15 +52,47 @@ class Parser {
 
   // ── token helpers ───────────────────────────────────────────────────
 
+  // Walks the token stream past comment tokens (collecting them into
+  // pendingLeading) so they're invisible to the rest of the parser.
+  // Must be called before any token-position read.
+  private absorbComments(): void {
+    while (this.pos < this.tokens.length) {
+      const t = this.tokens[this.pos]!;
+      if (t.kind === 'line_comment' || t.kind === 'block_comment') {
+        this.pendingLeading.push({
+          kind: t.kind === 'line_comment' ? 'line' : 'block',
+          text: t.text,
+          span: t.span,
+        });
+        this.pos += 1;
+      } else {
+        return;
+      }
+    }
+  }
+
   private peek(skipNewlines = false): Token {
+    this.absorbComments();
     let p = this.pos;
     if (skipNewlines) {
-      while (p < this.tokens.length && this.tokens[p]!.kind === 'newline') p++;
+      while (p < this.tokens.length) {
+        const t = this.tokens[p]!;
+        if (t.kind === 'newline') {
+          p++;
+        } else if (t.kind === 'line_comment' || t.kind === 'block_comment') {
+          // peek-with-skip shouldn't have side-effects on the buffer,
+          // so don't absorb here — just skip past for the lookahead.
+          p++;
+        } else {
+          break;
+        }
+      }
     }
     return this.tokens[p] ?? this.tokens[this.tokens.length - 1]!;
   }
 
   private advance(): Token {
+    this.absorbComments();
     const t = this.tokens[this.pos]!;
     if (this.pos < this.tokens.length - 1) this.pos += 1;
     return t;
@@ -75,6 +113,13 @@ class Parser {
     return consumed;
   }
 
+  private takePendingLeading(): Comment[] | undefined {
+    if (this.pendingLeading.length === 0) return undefined;
+    const c = this.pendingLeading;
+    this.pendingLeading = [];
+    return c;
+  }
+
   private error(span: Span, message: string, hint?: string): void {
     this.diagnostics.push({
       kind: 'parse',
@@ -92,6 +137,10 @@ class Parser {
     const startTok = this.tokens[0]!;
     const items: Component[] = [];
     this.skipSeparators();
+    // Comments at the very top of the file (before the first item)
+    // become leading comments on the SourceFile. They migrate onto
+    // the first item once we enter parseComponent — see below.
+    const fileLeading = this.takePendingLeading();
     while (this.peek().kind !== 'eof') {
       const t = this.peek();
       if (t.kind !== 'upper_ident') {
@@ -110,19 +159,35 @@ class Parser {
         continue;
       }
       const comp = this.parseComponent();
+      // Hoist file-leading comments onto the first item rather than
+      // stranding them on the SourceFile — keeps them adjacent in
+      // emit and matches author intent ("these comments describe the
+      // first thing in the file").
+      if (items.length === 0 && fileLeading) {
+        comp.leadingComments = [
+          ...fileLeading,
+          ...(comp.leadingComments ?? []),
+        ];
+      }
       items.push(comp);
       // Allow optional separator after each top-level item.
       this.skipSeparators();
     }
+    // Anything left in pendingLeading after the last item → trailing
+    // of the SourceFile (end-of-file comments).
+    const fileTrailing = this.takePendingLeading();
     const endTok = this.tokens[this.tokens.length - 1]!;
-    return {
+    const file: SourceFile = {
       kind: 'source_file',
       items,
       span: { start: startTok.span.start, end: endTok.span.end },
     };
+    if (fileTrailing) file.trailingComments = fileTrailing;
+    return file;
   }
 
   parseComponent(): Component {
+    const leading = this.takePendingLeading();
     const nameTok = this.advance(); // upper_ident, already verified
     const lbrace = this.peek();
     if (lbrace.kind !== 'lbrace') {
@@ -184,6 +249,10 @@ class Parser {
       // already disambiguates, so just skip whatever separators are there.
       this.skipSeparators();
     }
+    // Anything left in pendingLeading at this point came after the
+    // last item in the body but before `}` — those are end-of-block
+    // comments, attached as trailingComments on the parent.
+    const trailing = this.takePendingLeading();
     const rbrace = this.peek();
     if (rbrace.kind !== 'rbrace') {
       this.error(
@@ -212,7 +281,7 @@ class Parser {
     }
 
     const endPos = (rbrace.kind === 'rbrace' ? rbrace.span.end : (this.tokens[this.pos - 1]?.span.end ?? nameTok.span.end));
-    return {
+    const comp: Component = {
       kind: 'component',
       name: nameTok.text,
       fills,
@@ -220,19 +289,25 @@ class Parser {
       span: { start: nameTok.span.start, end: endPos },
       bodySpan: { start: lbraceTok.span.start, end: endPos },
     };
+    if (leading) comp.leadingComments = leading;
+    if (trailing) comp.trailingComments = trailing;
+    return comp;
   }
 
   parseSlotFill(): SlotFill | null {
+    const leading = this.takePendingLeading();
     const nameTok = this.advance(); // lower_ident
     this.advance(); // colon
     const value = this.parseValue();
     if (!value) return null;
-    return {
+    const fill: SlotFill = {
       kind: 'slot_fill',
       name: nameTok.text,
       value,
       span: { start: nameTok.span.start, end: value.span.end },
     };
+    if (leading) fill.leadingComments = leading;
+    return fill;
   }
 
   parseValue(): Value | null {

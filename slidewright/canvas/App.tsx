@@ -15,6 +15,9 @@ import type { ReactElement } from 'react';
 
 import { loadDeck } from '../runtime/loader.js';
 import type { Diagnostic } from '../runtime/diagnostics.js';
+import { emit } from '../runtime/emitter.js';
+import { parse } from '../runtime/parser.js';
+import type { Node, SourceFile, StringLit, Value } from '../runtime/ast.js';
 import { components, staticTokens } from '../../decks/v0-reference/registry.js';
 import { DeckMetaContext } from '../../src/Slide.jsx';
 
@@ -61,6 +64,50 @@ function readStoredStripWidth(): number {
   } catch {
     return STRIP_WIDTH_DEFAULT;
   }
+}
+
+// Walks the AST looking for a StringLit whose source span exactly
+// matches `(start, end)`. Used by the text-edit commit path to find
+// the node corresponding to the rendered <span data-sw-text-span-*>
+// the user double-clicked. Spans are stable byte offsets — they
+// uniquely identify the literal even when other strings in the
+// source share the same value.
+function findStringAt(
+  root: SourceFile,
+  start: number,
+  end: number,
+): StringLit | null {
+  let found: StringLit | null = null;
+  const visit = (node: Node | Value): void => {
+    if (found) return;
+    if (
+      node.kind === 'string' &&
+      node.span.start.offset === start &&
+      node.span.end.offset === end
+    ) {
+      found = node;
+      return;
+    }
+    switch (node.kind) {
+      case 'source_file':
+        for (const c of node.items) visit(c);
+        return;
+      case 'component':
+        for (const f of node.fills) visit(f);
+        for (const c of node.implicitChildren) visit(c);
+        return;
+      case 'slot_fill':
+        visit(node.value);
+        return;
+      case 'list':
+        for (const v of node.items) visit(v);
+        return;
+      default:
+        return;
+    }
+  };
+  visit(root);
+  return found;
 }
 
 // Inject the props that Presentation.jsx normally adds (active=true so
@@ -246,10 +293,25 @@ export function App({ host }: { host: Host }): ReactElement {
       const newText = node.textContent ?? '';
       node.contentEditable = 'false';
       if (intent === 'commit' && newText !== originalText) {
+        // Re-parse current source, mutate the StringLit at (start,
+        // end), re-emit. Going through the canonical formatter
+        // means we lose adjacent-string concatenation (a single
+        // literal is emitted in place of two), but we preserve
+        // comments — and we know the round-trip is structurally
+        // sound because the property tests cover it.
         const src = sourceRef.current;
-        const next =
-          src.substring(0, start) + JSON.stringify(newText) + src.substring(end);
-        host.setSource?.(next);
+        const result = parse(src, '<edit>');
+        if (result.diagnostics.some((d) => d.severity === 'error')) {
+          // Source is currently broken; bail rather than emit on
+          // top of a partial AST.
+          setEditing(null);
+          return;
+        }
+        const target = findStringAt(result.ast, start, end);
+        if (target) {
+          target.value = newText;
+          host.setSource?.(emit(result.ast));
+        }
       } else if (intent === 'cancel') {
         // Restore the original text — without this, the user-typed
         // content stays in the DOM until the next host re-render.

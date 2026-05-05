@@ -1,9 +1,12 @@
 // Slidewright lexer. Hand-rolled to match grammar.js (spec-of-record).
 //
 // Tokens carry source spans so parser-emitted diagnostics can point at
-// the offending text. Trivia (whitespace, comments) is skipped between
-// tokens but newlines are exposed as their own NEWLINE token, since
-// they are item separators inside `{}` and `[]` bodies.
+// the offending text. Whitespace is skipped between tokens; newlines
+// are exposed as their own NEWLINE token (they're item separators
+// inside `{}` and `[]` bodies). Comments are emitted as
+// `line_comment` / `block_comment` tokens — the parser attaches them
+// to adjacent AST nodes so they round-trip through the canonical
+// emitter (v0.2.d).
 //
 // Adjacent simple-string concatenation is handled by the parser at
 // value-parse time, not the lexer.
@@ -24,6 +27,8 @@ export type TokenKind =
   | 'number'
   | 'upper_ident'
   | 'lower_ident'
+  | 'line_comment'
+  | 'block_comment'
   | 'true'
   | 'false'
   | 'null'
@@ -120,6 +125,7 @@ export function tokenize(
     // Line comment
     if (ch === '/' && source[offset + 1] === '/') {
       while (offset < source.length && source[offset] !== '\n') advance(1);
+      emit('line_comment', start, source.slice(start.offset, offset));
       continue;
     }
 
@@ -137,6 +143,7 @@ export function tokenize(
       } else {
         advance(2);
       }
+      emit('block_comment', start, source.slice(start.offset, offset));
       continue;
     }
 

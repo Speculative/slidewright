@@ -12,13 +12,15 @@
 //     value comes from the lexer post-dedent, so emit + parse is a
 //     fixed point.
 //
-// Comments aren't preserved yet — the parser currently skips them
-// rather than attaching them to AST nodes. That work lands in a
-// follow-up (v0.2.d). Until then, this emitter is exercised by
-// property tests and is NOT used by the text-edit gesture (which
-// continues to splice into the source string to keep comments).
+// Comments (v0.2.d): `leadingComments` are emitted on their own
+// line(s) before the node; `trailingComments` (end-of-block, from
+// the parser's pendingLeading drained at `}` / EOF) are emitted
+// inside the body before the closing brace. Same-line trailing
+// comments aren't yet distinguished from leading-of-next-sibling —
+// cosmetic regression in those cases; structural round-trip holds.
 
 import type {
+  Comment,
   Component,
   ListLit,
   SlotFill,
@@ -32,9 +34,44 @@ function indent(level: number): string {
   return ' '.repeat(level * INDENT_STEP);
 }
 
+function emitCommentLine(comment: Comment, level: number): string {
+  return `${indent(level)}${comment.text}`;
+}
+
+function emitLeadingComments(
+  comments: readonly Comment[] | undefined,
+  level: number,
+): string {
+  if (!comments || comments.length === 0) return '';
+  return comments.map((c) => emitCommentLine(c, level)).join('\n') + '\n';
+}
+
+function emitTrailingComments(
+  comments: readonly Comment[] | undefined,
+  level: number,
+): string {
+  if (!comments || comments.length === 0) return '';
+  // Trailing-of-parent comments live inside the brace body, indented
+  // to the body's level rather than the parent's. Caller (emitComponent
+  // / emitListInline) provides the inner indent level.
+  return comments.map((c) => emitCommentLine(c, level)).join('\n') + '\n';
+}
+
 export function emit(file: SourceFile): string {
-  if (file.items.length === 0) return '';
-  return file.items.map((c) => emitComponent(c, 0)).join('\n\n') + '\n';
+  const parts: string[] = [];
+  if (file.items.length === 0) {
+    // Edge case: comment-only file. Emit comments and nothing else.
+    parts.push(emitLeadingComments(file.leadingComments, 0).trimEnd());
+    parts.push(emitLeadingComments(file.trailingComments, 0).trimEnd());
+    return parts.filter((p) => p.length > 0).join('\n') + (parts.some((p) => p.length > 0) ? '\n' : '');
+  }
+  // Top-level: each component (with its own leading comments) goes
+  // on its own block, separated by blank lines.
+  parts.push(file.items.map((c) => emitComponent(c, 0)).join('\n\n'));
+  if (file.trailingComments && file.trailingComments.length > 0) {
+    parts.push(file.trailingComments.map((c) => emitCommentLine(c, 0)).join('\n'));
+  }
+  return parts.join('\n\n') + '\n';
 }
 
 // `emit*Inline` returns text whose first line carries no leading
@@ -44,11 +81,16 @@ export function emit(file: SourceFile): string {
 // keeps the recursion clean.
 
 function emitComponent(comp: Component, level: number): string {
-  return `${indent(level)}${emitComponentInline(comp, level)}`;
+  const lead = emitLeadingComments(comp.leadingComments, level);
+  return `${lead}${indent(level)}${emitComponentInline(comp, level)}`;
 }
 
 function emitComponentInline(comp: Component, level: number): string {
-  if (comp.fills.length === 0 && comp.implicitChildren.length === 0) {
+  const hasFills = comp.fills.length > 0;
+  const hasChildren = comp.implicitChildren.length > 0;
+  const hasTrailing =
+    comp.trailingComments !== undefined && comp.trailingComments.length > 0;
+  if (!hasFills && !hasChildren && !hasTrailing) {
     return `${comp.name} {}`;
   }
   const lines: string[] = [`${comp.name} {`];
@@ -58,12 +100,18 @@ function emitComponentInline(comp: Component, level: number): string {
   for (const child of comp.implicitChildren) {
     lines.push(emitComponent(child, level + 1));
   }
+  if (comp.trailingComments) {
+    for (const c of comp.trailingComments) {
+      lines.push(emitCommentLine(c, level + 1));
+    }
+  }
   lines.push(`${indent(level)}}`);
   return lines.join('\n');
 }
 
 function emitSlotFill(fill: SlotFill, level: number): string {
-  return `${indent(level)}${fill.name}: ${emitValueInline(fill.value, level)}`;
+  const lead = emitLeadingComments(fill.leadingComments, level);
+  return `${lead}${indent(level)}${fill.name}: ${emitValueInline(fill.value, level)}`;
 }
 
 function emitValueInline(value: Value, level: number): string {
