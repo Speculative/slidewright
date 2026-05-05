@@ -34,14 +34,20 @@ const targets = [
   {
     name: 'webview',
     options: {
-      entryPoints: [resolve(here, 'src/webview/index.ts')],
+      entryPoints: [resolve(here, 'src/webview/index.tsx')],
       bundle: true,
       platform: 'browser',
       target: 'es2022',
       format: 'iife',
+      jsx: 'automatic',
       outfile: resolve(here, 'dist/webview.js'),
       sourcemap: true,
       logLevel: 'info',
+      // Optional: define `process.env.NODE_ENV` so React's bundle is the
+      // production minified path (smaller, no dev warnings).
+      define: {
+        'process.env.NODE_ENV': JSON.stringify('production'),
+      },
     },
   },
 ];

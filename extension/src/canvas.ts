@@ -1,13 +1,12 @@
 // Slidewright canvas — VS Code webview panel that renders the .sw
 // document beside the source editor.
 //
-// v0.1a (this slice): one panel per .sw document, plain text passthrough.
-//   - createOrShow keys panels by document URI so re-running the command
-//     focuses the existing panel rather than creating duplicates.
+// Per-document panel:
+//   - createOrShow keys panels by document URI so re-running the
+//     command focuses the existing panel rather than creating duplicates.
 //   - Source updates are pushed via webview.postMessage; the webview
-//     bundle (extension/src/webview/index.ts) consumes them.
-// v0.1b/c will replace the plain-text body with the slidewright runtime
-// and renderer; v0.1d adds selection-sync messages in both directions.
+//     bundle (extension/src/webview/index.tsx) renders them.
+// v0.1d will add selection-sync messages in both directions.
 
 import * as vscode from 'vscode';
 
@@ -15,6 +14,13 @@ interface SourceUpdatedMessage {
   type: 'source-updated';
   source: string;
   fileName: string;
+  // Asset URIs computed by the extension via webview.asWebviewUri(),
+  // mapped by deck-scope binding name. The webview merges these into
+  // the deck scope so name-references in the DSL (e.g. `headshotImg`)
+  // resolve to webview-loadable URLs. v0.1c hardcodes the v0-reference
+  // deck's asset list (just headshot.jpg); v0.2's on-the-fly deck
+  // loader will discover assets dynamically.
+  assets: Record<string, string>;
 }
 
 interface WebviewReadyMessage {
@@ -42,6 +48,17 @@ export class SlidewrightCanvasPanel {
       return existing;
     }
 
+    const localResourceRoots: vscode.Uri[] = [
+      vscode.Uri.joinPath(context.extensionUri, 'dist'),
+    ];
+    // Allow the webview to load assets from the workspace folder
+    // (deck assets, the existing src/styles.css). Scoped to one folder
+    // for v0.1c; tighten later if multi-root workspaces matter.
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+    if (workspaceFolder) {
+      localResourceRoots.push(workspaceFolder.uri);
+    }
+
     const panel = vscode.window.createWebviewPanel(
       'slidewright.canvas',
       `Slidewright: ${document.fileName.split('/').pop() ?? 'canvas'}`,
@@ -49,13 +66,16 @@ export class SlidewrightCanvasPanel {
       {
         enableScripts: true,
         retainContextWhenHidden: true,
-        localResourceRoots: [
-          vscode.Uri.joinPath(context.extensionUri, 'dist'),
-        ],
+        localResourceRoots,
       },
     );
 
-    const instance = new SlidewrightCanvasPanel(panel, context, document);
+    const instance = new SlidewrightCanvasPanel(
+      panel,
+      context,
+      document,
+      workspaceFolder?.uri,
+    );
     SlidewrightCanvasPanel.panels.set(key, instance);
     return instance;
   }
@@ -69,19 +89,23 @@ export class SlidewrightCanvasPanel {
   // .getText() always reflects current contents — so we don't need to
   // re-pass it on every update.
   private readonly document: vscode.TextDocument;
+  private readonly workspaceUri: vscode.Uri | undefined;
   private webviewReady = false;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
     context: vscode.ExtensionContext,
     document: vscode.TextDocument,
+    workspaceUri: vscode.Uri | undefined,
   ) {
     this.document = document;
-    this.panel.webview.html = renderHtml(this.panel.webview, context.extensionUri);
+    this.workspaceUri = workspaceUri;
+    this.panel.webview.html = renderHtml(
+      this.panel.webview,
+      context.extensionUri,
+      workspaceUri,
+    );
 
-    // Wait for the webview's script to attach its message listener
-    // before pushing the initial source. Without this handshake the
-    // initial postMessage races the script load and gets dropped.
     this.panel.webview.onDidReceiveMessage(
       (message: WebviewToExtension) => {
         if (message?.type === 'ready') {
@@ -109,8 +133,23 @@ export class SlidewrightCanvasPanel {
       type: 'source-updated',
       source: this.document.getText(),
       fileName: this.document.fileName,
+      assets: this.computeAssets(),
     };
     void this.panel.webview.postMessage(message);
+  }
+
+  // v0.1c: hardcoded asset map for the v0-reference deck. The webview
+  // merges these URIs into the deck scope so DSL name-references
+  // resolve to webview-loadable URLs. Generalizing this requires the
+  // on-the-fly deck loader (v0.2).
+  private computeAssets(): Record<string, string> {
+    if (!this.workspaceUri) return {};
+    const headshotUri = this.panel.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.workspaceUri, 'decks/v0-reference/headshot.jpg'),
+    );
+    return {
+      headshotImg: headshotUri.toString(),
+    };
   }
 
   private dispose(): void {
@@ -122,14 +161,21 @@ export class SlidewrightCanvasPanel {
   }
 }
 
-function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
+function renderHtml(
+  webview: vscode.Webview,
+  extensionUri: vscode.Uri,
+  workspaceUri: vscode.Uri | undefined,
+): string {
   const scriptUri = webview.asWebviewUri(
     vscode.Uri.joinPath(extensionUri, 'dist', 'webview.js'),
   );
-  // CSP locks down what the webview can load. We allow only our own
-  // bundle (script-src) and inline styles (style-src 'unsafe-inline'
-  // — VS Code's default theme injects them and the webview gets them
-  // automatically; tighten later if needed).
+  // The deck's slide chrome and typography come from the existing
+  // scaffold's stylesheet at src/styles.css. Loading it here keeps the
+  // canvas visually aligned with the Vite-served preview.
+  const stylesUri = workspaceUri
+    ? webview.asWebviewUri(vscode.Uri.joinPath(workspaceUri, 'src/styles.css'))
+    : null;
+
   const nonce = makeNonce();
   return /* html */ `<!doctype html>
 <html lang="en">
@@ -137,53 +183,58 @@ function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
 <meta charset="utf-8" />
 <meta http-equiv="Content-Security-Policy"
   content="default-src 'none';
-           img-src ${webview.cspSource} data:;
-           style-src ${webview.cspSource} 'unsafe-inline';
+           img-src ${webview.cspSource} data: blob:;
+           font-src ${webview.cspSource} https://fonts.gstatic.com;
+           style-src ${webview.cspSource} https://fonts.googleapis.com 'unsafe-inline';
            script-src 'nonce-${nonce}';" />
 <title>Slidewright canvas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Arvo:wght@400;700&family=Lato:wght@400;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+${stylesUri ? `<link rel="stylesheet" href="${stylesUri}" />` : ''}
 <style>
-  html, body { margin: 0; padding: 0; height: 100%; }
-  body {
-    font-family: var(--vscode-editor-font-family, monospace);
-    color: var(--vscode-editor-foreground);
-    background: var(--vscode-editor-background);
+  html, body, #root {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: #000;
+    color: #fff;
   }
-  #status {
-    padding: 8px 16px;
-    border-bottom: 1px solid var(--vscode-panel-border, transparent);
+  #root { display: flex; flex-direction: column; }
+  .status {
+    padding: 6px 12px;
     font-size: 12px;
     opacity: 0.7;
+    color: #ccc;
+    font-family: var(--vscode-editor-font-family, monospace);
+    border-bottom: 1px solid rgba(255,255,255,0.1);
   }
-  #diagnostics {
+  .diagnostics {
     margin: 0;
-    padding: 12px 16px;
+    padding: 8px 12px;
     white-space: pre-wrap;
-    font-family: var(--vscode-editor-font-family, monospace);
     font-size: 12px;
     line-height: 1.5;
-    border-bottom: 1px solid var(--vscode-panel-border, transparent);
-  }
-  #diagnostics[data-severity="error"] {
+    font-family: var(--vscode-editor-font-family, monospace);
+    background: rgba(255, 80, 80, 0.08);
     color: var(--vscode-errorForeground, #f14c4c);
+    border-bottom: 1px solid rgba(255,255,255,0.1);
   }
-  #diagnostics[data-severity="warning"] {
-    color: var(--vscode-editorWarning-foreground, #cca700);
-  }
-  #ast {
-    margin: 0;
-    padding: 16px;
-    white-space: pre;
-    font-family: var(--vscode-editor-font-family, monospace);
-    font-size: 12px;
-    line-height: 1.5;
-    overflow: auto;
+  /* Override the existing styles.css .presentation positioning. The
+     existing scaffold is fullscreen; our webview layout puts the
+     presentation as a flex child below the status/diagnostics bars. */
+  .presentation {
+    position: relative;
+    inset: auto;
+    flex: 1;
+    width: 100%;
+    height: auto;
+    min-height: 0;
   }
 </style>
 </head>
 <body>
-<div id="status">waiting for source…</div>
-<pre id="diagnostics" hidden></pre>
-<pre id="ast"></pre>
+<div id="root"></div>
 <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
