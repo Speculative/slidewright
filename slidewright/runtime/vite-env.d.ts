@@ -1,23 +1,11 @@
-// Vite-specific module type shims. The reference deck uses `?raw` to
-// import the .sw source as a string and direct image imports for
-// assets; both are Vite built-ins.
+/// <reference types="vite/client" />
 
-declare module '*.sw?raw' {
-  const source: string;
-  export default source;
-}
-
-declare module '*.jpg' {
-  const url: string;
-  export default url;
-}
-
-declare module '*.png' {
-  const url: string;
-  export default url;
-}
-
-declare module '*.svg' {
-  const url: string;
-  export default url;
-}
+// Vite's client types declare:
+//   - `import.meta.hot` for HMR
+//   - CSS / asset module imports (.css side-effects, .jpg → URL string,
+//     etc.)
+//   - `?raw`, `?url`, `?worker` query suffixes
+//
+// We pull them in once here; the root tsconfig's `include` covers
+// slidewright/, src/, and decks/, so the ambient declarations are
+// visible everywhere they're needed.

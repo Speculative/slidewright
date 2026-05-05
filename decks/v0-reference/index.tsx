@@ -1,44 +1,24 @@
-// v0 reference deck — entry point. Imports the .sw source as raw text
-// (Vite built-in `?raw`), wires components and asset scope, runs the
-// Slidewright loader, and exports {meta, slides, notes} for the
-// existing scaffold's <Presentation> runtime.
+// v0 reference deck — entry point for the existing src/App.jsx +
+// Presentation runtime. Imports the .sw source as raw text (Vite
+// `?raw`), wires it through the loader, and exports {meta, slides,
+// notes} for the scaffold to consume.
+//
+// The component registry and static color tokens live in
+// ./registry.ts so they can be shared with the standalone canvas
+// host (which doesn't go through this file's Vite-specific imports).
 
 import deckSource from './deck.sw?raw';
 import headshotImg from './headshot.jpg';
 
 import { loadDeck } from '../../slidewright/runtime/loader.js';
-import { buildRegistry } from '../../slidewright/runtime/contract.js';
 import { formatDiagnostic } from '../../slidewright/runtime/diagnostics.js';
 
-import * as TitleSlide from './components/TitleSlide.js';
-import * as ContentSlide from './components/ContentSlide.js';
-import * as CardRow from './components/CardRow.js';
-import * as VStack from './components/VStack.js';
-
-const components = buildRegistry({
-  TitleSlide,
-  ContentSlide,
-  CardRow,
-  VStack,
-});
+import { components, staticTokens } from './registry.js';
 
 const scope = {
   bindings: {
     headshotImg,
-    // Color-token names — surface in the DSL as bare lowercase identifiers
-    // (e.g., `color: purple`). v0.0 has no theme system; the renderer
-    // converts these to `var(--<name>)` via the existing styles.css palette.
-    accent: 'accent',
-    purple: 'purple',
-    cyan: 'cyan',
-    magenta: 'magenta',
-    amber: 'amber',
-    lime: 'lime',
-    blue: 'blue',
-    red: 'red',
-    mono: 'mono',
-    display: 'display',
-    body: 'body',
+    ...staticTokens,
   },
 };
 

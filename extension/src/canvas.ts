@@ -170,10 +170,17 @@ function renderHtml(
     vscode.Uri.joinPath(extensionUri, 'dist', 'webview.js'),
   );
   // The deck's slide chrome and typography come from the existing
-  // scaffold's stylesheet at src/styles.css. Loading it here keeps the
-  // canvas visually aligned with the Vite-served preview.
+  // scaffold's stylesheet at src/styles.css. The canvas-around-the-
+  // slide UI (status bar, diagnostics, presentation positioning) lives
+  // in slidewright/canvas/canvas.css — shared between this webview
+  // host and the standalone web host.
   const stylesUri = workspaceUri
     ? webview.asWebviewUri(vscode.Uri.joinPath(workspaceUri, 'src/styles.css'))
+    : null;
+  const canvasCssUri = workspaceUri
+    ? webview.asWebviewUri(
+        vscode.Uri.joinPath(workspaceUri, 'slidewright/canvas/canvas.css'),
+      )
     : null;
 
   const nonce = makeNonce();
@@ -192,46 +199,7 @@ function renderHtml(
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Arvo:wght@400;700&family=Lato:wght@400;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
 ${stylesUri ? `<link rel="stylesheet" href="${stylesUri}" />` : ''}
-<style>
-  html, body, #root {
-    margin: 0;
-    padding: 0;
-    height: 100%;
-    background: #000;
-    color: #fff;
-  }
-  #root { display: flex; flex-direction: column; }
-  .status {
-    padding: 6px 12px;
-    font-size: 12px;
-    opacity: 0.7;
-    color: #ccc;
-    font-family: var(--vscode-editor-font-family, monospace);
-    border-bottom: 1px solid rgba(255,255,255,0.1);
-  }
-  .diagnostics {
-    margin: 0;
-    padding: 8px 12px;
-    white-space: pre-wrap;
-    font-size: 12px;
-    line-height: 1.5;
-    font-family: var(--vscode-editor-font-family, monospace);
-    background: rgba(255, 80, 80, 0.08);
-    color: var(--vscode-errorForeground, #f14c4c);
-    border-bottom: 1px solid rgba(255,255,255,0.1);
-  }
-  /* Override the existing styles.css .presentation positioning. The
-     existing scaffold is fullscreen; our webview layout puts the
-     presentation as a flex child below the status/diagnostics bars. */
-  .presentation {
-    position: relative;
-    inset: auto;
-    flex: 1;
-    width: 100%;
-    height: auto;
-    min-height: 0;
-  }
-</style>
+${canvasCssUri ? `<link rel="stylesheet" href="${canvasCssUri}" />` : ''}
 </head>
 <body>
 <div id="root"></div>
