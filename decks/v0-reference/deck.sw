@@ -29,6 +29,21 @@ Deck {
     }
 
     Slide {
+      label: "Freeform demo"
+      notes: """
+        Three colored boxes positioned in a Freeform container.
+        Drag them around in the canvas to test drag-to-move.
+      """
+      content: Freeform {
+        children: [
+          Box { x: 200, y: 220, width: 460, height: 320, fill: amber }
+          Box { x: 760, y: 380, width: 380, height: 240, fill: cyan }
+          Box { x: 1240, y: 580, width: 280, height: 280, fill: magenta }
+        ]
+      }
+    }
+
+    Slide {
       label: "Three obstacles"
       notes: """
         - Behavior isn't a thing you can just look at.

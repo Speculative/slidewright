@@ -16,7 +16,12 @@
 // invocation) and forward the source range to the host.
 
 import { useLayoutEffect, useRef, useState } from 'react';
-import type { MouseEvent, ReactElement, ReactNode } from 'react';
+import type {
+  MouseEvent,
+  PointerEvent as ReactPointerEvent,
+  ReactElement,
+  ReactNode,
+} from 'react';
 
 import type { SourceRange } from './host.js';
 
@@ -38,16 +43,37 @@ export interface TextEditTarget {
   originalText: string;
 }
 
+export interface DragStart {
+  // The DOM node being dragged (the loader-wrapped data-sw-component
+  // div for a positioned shape). Used by the drag handler to apply
+  // imperative style updates during the gesture.
+  node: HTMLElement;
+  start: number;        // AST source span start
+  end: number;          // AST source span end
+  pointerStartX: number;
+  pointerStartY: number;
+  scale: number;        // canvas scale at drag start (constant during gesture)
+}
+
 interface Props {
   children: ReactNode;
   onSelectRange?: (range: SourceRange) => void;
   onTextEdit?: (target: TextEditTarget) => void;
+  // Fired when pointer goes down on a positioned shape (currently
+  // anything matching [data-sw-component="Box"], future shape
+  // primitives will share this dispatch). The handler is responsible
+  // for the rest of the gesture lifecycle — pointermove / pointerup
+  // listeners are typically attached to document.
+  onDragStart?: (target: DragStart) => void;
 }
+
+const DRAGGABLE_SELECTOR = '[data-sw-component="Box"]';
 
 export function ScaledCanvas({
   children,
   onSelectRange,
   onTextEdit,
+  onDragStart,
 }: Props): ReactElement {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
@@ -104,13 +130,41 @@ export function ScaledCanvas({
     }
   };
 
+  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (!onDragStart) return;
+    // Only the primary mouse button initiates a drag; let middle /
+    // right click pass through for browser-default behavior.
+    if (event.button !== 0) return;
+    const target = event.target as Element | null;
+    if (!target?.closest) return;
+    const node = target.closest(DRAGGABLE_SELECTOR);
+    if (!(node instanceof HTMLElement)) return;
+    const start = parseInt(node.getAttribute('data-sw-span-start') ?? '', 10);
+    const end = parseInt(node.getAttribute('data-sw-span-end') ?? '', 10);
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return;
+    event.preventDefault();
+    onDragStart({
+      node,
+      start,
+      end,
+      pointerStartX: event.clientX,
+      pointerStartY: event.clientY,
+      scale,
+    });
+  };
+
   // Outline scales with the CSS transform, so we divide by scale to
   // get a roughly constant 2px-visible border around the slide
   // regardless of the panel size.
   const outlineWidth = scale > 0 ? 2 / scale : 2;
 
   return (
-    <div className="presentation" ref={wrapperRef} onDoubleClick={handleDoubleClick}>
+    <div
+      className="presentation"
+      ref={wrapperRef}
+      onDoubleClick={handleDoubleClick}
+      onPointerDown={handlePointerDown}
+    >
       <div
         className="presentation-canvas"
         style={{

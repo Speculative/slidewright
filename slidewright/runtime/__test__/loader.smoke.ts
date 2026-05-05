@@ -12,11 +12,20 @@ import * as TitleSlide from '../../../decks/v0-reference/components/TitleSlide.j
 import * as ContentSlide from '../../../decks/v0-reference/components/ContentSlide.js';
 import * as CardRow from '../../../decks/v0-reference/components/CardRow.js';
 import * as VStack from '../../../decks/v0-reference/components/VStack.js';
+import * as Freeform from '../../../decks/v0-reference/components/Freeform.js';
+import * as Box from '../../../decks/v0-reference/components/Box.js';
 
 const deckPath = resolve(process.cwd(), 'decks/v0-reference/deck.sw');
 const source = readFileSync(deckPath, 'utf8');
 
-const components = buildRegistry({ TitleSlide, ContentSlide, CardRow, VStack });
+const components = buildRegistry({
+  TitleSlide,
+  ContentSlide,
+  CardRow,
+  VStack,
+  Freeform,
+  Box,
+});
 const scope = {
   bindings: {
     headshotImg: '/decks/v0-reference/headshot.jpg',
@@ -24,6 +33,7 @@ const scope = {
     purple: 'purple',
     cyan: 'cyan',
     magenta: 'magenta',
+    amber: 'amber',
     mono: 'mono',
   },
 };

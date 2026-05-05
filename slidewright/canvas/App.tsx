@@ -17,12 +17,23 @@ import { loadDeck } from '../runtime/loader.js';
 import type { Diagnostic } from '../runtime/diagnostics.js';
 import { emit } from '../runtime/emitter.js';
 import { parse } from '../runtime/parser.js';
-import type { Node, SourceFile, StringLit, Value } from '../runtime/ast.js';
+import type {
+  Component,
+  Node,
+  NumberLit,
+  SourceFile,
+  StringLit,
+  Value,
+} from '../runtime/ast.js';
 import { components, staticTokens } from '../../decks/v0-reference/registry.js';
 import { DeckMetaContext } from '../../src/Slide.jsx';
 
 import type { Host, SourceRange } from './host.js';
-import { ScaledCanvas, type TextEditTarget } from './ScaledCanvas.js';
+import {
+  ScaledCanvas,
+  type DragStart,
+  type TextEditTarget,
+} from './ScaledCanvas.js';
 import { DiagnosticsPanel } from './DiagnosticsPanel.js';
 import { SlideStrip } from './SlideStrip.js';
 import { ResizeHandle } from './ResizeHandle.js';
@@ -110,6 +121,66 @@ function findStringAt(
   return found;
 }
 
+// Same idea as findStringAt, but for whole component invocations —
+// used by the drag-to-move gesture to find the AST node whose x/y
+// slot-fill values need updating.
+function findComponentAtSpan(
+  root: SourceFile,
+  start: number,
+  end: number,
+): Component | null {
+  let found: Component | null = null;
+  const visit = (node: Node | Value): void => {
+    if (found) return;
+    if (
+      node.kind === 'component' &&
+      node.span.start.offset === start &&
+      node.span.end.offset === end
+    ) {
+      found = node;
+      return;
+    }
+    switch (node.kind) {
+      case 'source_file':
+        for (const c of node.items) visit(c);
+        return;
+      case 'component':
+        for (const f of node.fills) visit(f);
+        for (const c of node.implicitChildren) visit(c);
+        return;
+      case 'slot_fill':
+        visit(node.value);
+        return;
+      case 'list':
+        for (const v of node.items) visit(v);
+        return;
+      default:
+        return;
+    }
+  };
+  visit(root);
+  return found;
+}
+
+// Reads a numeric slot fill from a component, returning the AST node
+// (so the drag handler can mutate its `value` in place) and the
+// current numeric value. Returns null if the slot isn't a plain
+// number — a future "computed defaults" world might have a
+// solve.* expression here, in which case dragging would need to
+// promote it to a literal-override; v0.2.e dodges that by skipping
+// non-literal cases.
+function findNumericSlot(
+  comp: Component,
+  name: string,
+): { node: NumberLit; value: number } | null {
+  for (const fill of comp.fills) {
+    if (fill.name === name && fill.value.kind === 'number') {
+      return { node: fill.value, value: fill.value.value };
+    }
+  }
+  return null;
+}
+
 // Inject the props that Presentation.jsx normally adds (active=true so
 // styles.css's .slide.active visibility rule kicks in, actLabel so the
 // chrome's third crumb isn't blank). The slide arrives pre-wrapped by
@@ -134,6 +205,7 @@ export function App({ host }: { host: Host }): ReactElement {
   const [activeIdx, setActiveIdx] = useState(0);
   const [stripWidth, setStripWidth] = useState<number>(readStoredStripWidth);
   const [editing, setEditing] = useState<TextEditTarget | null>(null);
+  const [dragging, setDragging] = useState<DragStart | null>(null);
 
   useEffect(() => {
     try {
@@ -342,6 +414,83 @@ export function App({ host }: { host: Host }): ReactElement {
     };
   }, [editing, host]);
 
+  // Drag-to-move gesture. ScaledCanvas hands us the dragged DOM
+  // node + the AST span + the canvas scale at drag-start. We update
+  // the visual node's CSS imperatively during the gesture (React
+  // doesn't own `style.left` / `style.top` — they're inline-style
+  // properties we wrote, so React will overwrite them on the next
+  // render after we've committed via host.setSource). On pointerup,
+  // re-parse the current source, mutate the targeted Component's
+  // `x` / `y` slot fills, emit, setSource.
+  //
+  // The data-sw-component wrapper is `display: contents` (so it
+  // doesn't disrupt layout), which means it has no layout box of
+  // its own — getComputedStyle(...).left returns "auto" and
+  // imperative style changes have no effect. The actual positioned
+  // element is its first child (the rendered shape's root div), so
+  // we step through to that for both reading the original position
+  // and applying the live drag preview.
+  //
+  // TODO(v0.4): Ctrl+Z on canvas-driven edits doesn't restore — the
+  // textarea sees host.setSource as an external value change, not
+  // typing, so its built-in undo stack doesn't track canvas
+  // gestures. SLIDEWRIGHT.md / Undo/redo commits to a unified
+  // canvas-gesture undo stack at v0.4.
+  useEffect(() => {
+    if (!dragging) return;
+    const { node, start, end, pointerStartX, pointerStartY, scale } = dragging;
+    const visualNode = node.firstElementChild;
+    if (!(visualNode instanceof HTMLElement)) {
+      setDragging(null);
+      return;
+    }
+    const cs = window.getComputedStyle(visualNode);
+    const originalLeft = parseFloat(cs.left) || 0;
+    const originalTop = parseFloat(cs.top) || 0;
+
+    const onMove = (e: PointerEvent) => {
+      const designDx = (e.clientX - pointerStartX) / scale;
+      const designDy = (e.clientY - pointerStartY) / scale;
+      visualNode.style.left = `${originalLeft + designDx}px`;
+      visualNode.style.top = `${originalTop + designDy}px`;
+    };
+
+    const onUp = (e: PointerEvent) => {
+      const designDx = (e.clientX - pointerStartX) / scale;
+      const designDy = (e.clientY - pointerStartY) / scale;
+      // Treat near-zero motion as a click rather than a drag — no
+      // source mutation. Threshold is in design-space pixels so the
+      // result is consistent across canvas zoom levels.
+      if (Math.abs(designDx) < 0.5 && Math.abs(designDy) < 0.5) {
+        setDragging(null);
+        return;
+      }
+      const result = parse(sourceRef.current, '<drag>');
+      if (!result.diagnostics.some((d) => d.severity === 'error')) {
+        const target = findComponentAtSpan(result.ast, start, end);
+        if (target) {
+          const xSlot = findNumericSlot(target, 'x');
+          const ySlot = findNumericSlot(target, 'y');
+          if (xSlot) xSlot.node.value = Math.round(originalLeft + designDx);
+          if (ySlot) ySlot.node.value = Math.round(originalTop + designDy);
+          host.setSource?.(emit(result.ast));
+        }
+      }
+      setDragging(null);
+    };
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.body.style.cursor = 'grabbing';
+    document.body.style.userSelect = 'none';
+    return () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [dragging, host]);
+
   if (!state) {
     return <div className="sw-canvas-status">waiting for source…</div>;
   }
@@ -386,6 +535,7 @@ export function App({ host }: { host: Host }): ReactElement {
           <ScaledCanvas
             onSelectRange={(range: SourceRange) => host.sendSelection(range)}
             onTextEdit={(target) => setEditing(target)}
+            onDragStart={(target) => setDragging(target)}
           >
             {preparedSlide}
           </ScaledCanvas>

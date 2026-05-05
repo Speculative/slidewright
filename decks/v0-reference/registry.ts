@@ -16,12 +16,16 @@ import * as TitleSlide from './components/TitleSlide.js';
 import * as ContentSlide from './components/ContentSlide.js';
 import * as CardRow from './components/CardRow.js';
 import * as VStack from './components/VStack.js';
+import * as Freeform from './components/Freeform.js';
+import * as Box from './components/Box.js';
 
 export const components = buildRegistry({
   TitleSlide,
   ContentSlide,
   CardRow,
   VStack,
+  Freeform,
+  Box,
 });
 
 // Color/font token names that the .sw uses as bare lower-cased

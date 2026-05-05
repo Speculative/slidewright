@@ -165,6 +165,17 @@ html, body, #root {
   pointer-events: none;
 }
 
+/* Affordance for the drag-to-move gesture (v0.2.e). The cursor
+ * changes on the data-sw-component wrapper so the discoverability
+ * doesn't depend on the underlying component's own styling. The
+ * `grabbing` state during drag is set imperatively on document.body
+ * by App's drag handler (consistent across when the pointer briefly
+ * leaves the shape mid-gesture). Currently scoped to Box; future
+ * shape primitives will share the selector. */
+[data-sw-component='Box'] {
+  cursor: grab;
+}
+
 /* ── Standalone layout (canvas + bottom-mounted editor pane) ────── */
 
 /* Editor goes at the bottom — same screen real-estate that speaker

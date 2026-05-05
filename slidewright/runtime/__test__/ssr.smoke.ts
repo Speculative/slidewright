@@ -18,11 +18,20 @@ import * as TitleSlide from '../../../decks/v0-reference/components/TitleSlide.j
 import * as ContentSlide from '../../../decks/v0-reference/components/ContentSlide.js';
 import * as CardRow from '../../../decks/v0-reference/components/CardRow.js';
 import * as VStack from '../../../decks/v0-reference/components/VStack.js';
+import * as Freeform from '../../../decks/v0-reference/components/Freeform.js';
+import * as Box from '../../../decks/v0-reference/components/Box.js';
 
 const deckPath = resolve(process.cwd(), 'decks/v0-reference/deck.sw');
 const source = readFileSync(deckPath, 'utf8');
 
-const components = buildRegistry({ TitleSlide, ContentSlide, CardRow, VStack });
+const components = buildRegistry({
+  TitleSlide,
+  ContentSlide,
+  CardRow,
+  VStack,
+  Freeform,
+  Box,
+});
 const scope = {
   bindings: {
     headshotImg: '/decks/v0-reference/headshot.jpg',
@@ -30,6 +39,7 @@ const scope = {
     purple: 'purple',
     cyan: 'cyan',
     magenta: 'magenta',
+    amber: 'amber',
     mono: 'mono',
   },
 };
@@ -72,7 +82,22 @@ const expected: Array<{ label: string; needles: string[] }> = [
     ],
   },
   {
-    label: 'slide 2: three obstacles',
+    label: 'slide 2: freeform demo',
+    needles: [
+      // Boxes are positioned absolutely; the SSR output should
+      // include their inline styles with the expected coordinates.
+      // React serializes style without spaces around colons.
+      'left:200px',
+      'top:220px',
+      'left:760px',
+      'left:1240px',
+      'var(--amber)',
+      'var(--cyan)',
+      'var(--magenta)',
+    ],
+  },
+  {
+    label: 'slide 3: three obstacles',
     needles: [
       'Three obstacles',
       "Behavior is hidden by default",
