@@ -19,9 +19,13 @@ import { emit } from '../runtime/emitter.js';
 import { parse } from '../runtime/parser.js';
 import type {
   Component,
+  ListLit,
+  NameRef,
   Node,
   NumberLit,
+  SlotFill,
   SourceFile,
+  Span,
   StringLit,
   Value,
 } from '../runtime/ast.js';
@@ -31,12 +35,14 @@ import { DeckMetaContext } from '../../src/Slide.jsx';
 import type { Host, SourceRange } from './host.js';
 import {
   ScaledCanvas,
+  type CreateStart,
   type DragStart,
   type TextEditTarget,
 } from './ScaledCanvas.js';
 import { DiagnosticsPanel } from './DiagnosticsPanel.js';
 import { SlideStrip } from './SlideStrip.js';
 import { ResizeHandle } from './ResizeHandle.js';
+import { ToolPalette, type Tool } from './ToolPalette.js';
 
 interface DeckMeta {
   name: string;
@@ -181,6 +187,96 @@ function findNumericSlot(
   return null;
 }
 
+// Walks a freshly parsed AST to find the Freeform that's the
+// `content` of the active slide. v0.2.f's Box drawing tool only
+// supports slides where content is *directly* a Freeform — the
+// reference deck's Freeform-demo slide. Future generalization
+// (drawing inside Freeforms nested deeper, e.g., inside a ZStack)
+// is straightforward but not in scope.
+function findActiveSlideFreeform(
+  ast: SourceFile,
+  activeIdx: number,
+): Component | null {
+  const deck = ast.items[0];
+  if (!deck || deck.name !== 'Deck') return null;
+  const slidesFill = deck.fills.find((f) => f.name === 'slides');
+  if (!slidesFill || slidesFill.value.kind !== 'list') return null;
+  const slide = slidesFill.value.items[activeIdx];
+  if (!slide || slide.kind !== 'component' || slide.name !== 'Slide') return null;
+  const contentFill = slide.fills.find((f) => f.name === 'content');
+  if (
+    !contentFill ||
+    contentFill.value.kind !== 'component' ||
+    contentFill.value.name !== 'Freeform'
+  ) {
+    return null;
+  }
+  return contentFill.value;
+}
+
+// Constructs synthetic AST nodes for inserting a new shape. Spans
+// are placeholder zeros — the emitter ignores spans, and the next
+// re-parse rebuilds them from the actual source. The placeholder
+// keeps the type system happy without needing a separate "AST
+// without spans" representation.
+const ZERO_SPAN: Span = {
+  start: { offset: 0, line: 0, column: 0 },
+  end: { offset: 0, line: 0, column: 0 },
+};
+
+function makeNumberLit(value: number): NumberLit {
+  return { kind: 'number', value, span: ZERO_SPAN };
+}
+
+function makeNameRef(name: string): NameRef {
+  return { kind: 'name_ref', name, span: ZERO_SPAN };
+}
+
+function makeSlotFill(name: string, value: Value): SlotFill {
+  return { kind: 'slot_fill', name, value, span: ZERO_SPAN };
+}
+
+function makeBoxNode(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  fillToken: string,
+): Component {
+  return {
+    kind: 'component',
+    name: 'Box',
+    fills: [
+      makeSlotFill('x', makeNumberLit(x)),
+      makeSlotFill('y', makeNumberLit(y)),
+      makeSlotFill('width', makeNumberLit(width)),
+      makeSlotFill('height', makeNumberLit(height)),
+      makeSlotFill('fill', makeNameRef(fillToken)),
+    ],
+    implicitChildren: [],
+    span: ZERO_SPAN,
+    bodySpan: ZERO_SPAN,
+  };
+}
+
+function appendBoxToFreeform(
+  freeform: Component,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  fillToken: string,
+): void {
+  let childrenFill = freeform.fills.find((f) => f.name === 'children');
+  if (!childrenFill) {
+    const list: ListLit = { kind: 'list', items: [], span: ZERO_SPAN };
+    childrenFill = makeSlotFill('children', list);
+    freeform.fills.push(childrenFill);
+  }
+  if (childrenFill.value.kind !== 'list') return;
+  childrenFill.value.items.push(makeBoxNode(x, y, width, height, fillToken));
+}
+
 // Inject the props that Presentation.jsx normally adds (active=true so
 // styles.css's .slide.active visibility rule kicks in, actLabel so the
 // chrome's third crumb isn't blank). The slide arrives pre-wrapped by
@@ -206,6 +302,8 @@ export function App({ host }: { host: Host }): ReactElement {
   const [stripWidth, setStripWidth] = useState<number>(readStoredStripWidth);
   const [editing, setEditing] = useState<TextEditTarget | null>(null);
   const [dragging, setDragging] = useState<DragStart | null>(null);
+  const [creating, setCreating] = useState<CreateStart | null>(null);
+  const [activeTool, setActiveTool] = useState<Tool>('select');
 
   useEffect(() => {
     try {
@@ -491,6 +589,127 @@ export function App({ host }: { host: Host }): ReactElement {
     };
   }, [dragging, host]);
 
+  // Box-creation gesture (active when activeTool === 'box' and
+  // pointerdown happens over a Freeform). An imperative preview div
+  // is appended to the Freeform's render element for the duration
+  // of the drag — sized in design-space pixels, which scale
+  // automatically with the canvas's CSS transform. The preview and
+  // the final Box share the Freeform's coordinate system, so the
+  // shape lands exactly where it was drawn.
+  //
+  // After commit, we auto-return to the Select tool — matches the
+  // typical drawing-app convention where each tool fires once.
+  // (Figma stays in tool mode; we may revisit if the auto-return
+  // feels rushed in practice.)
+  const activeIdxRef = useRef(activeIdx);
+  useEffect(() => {
+    activeIdxRef.current = activeIdx;
+  }, [activeIdx]);
+  useEffect(() => {
+    if (!creating) return;
+    const {
+      containerEl,
+      pointerStartX,
+      pointerStartY,
+      designStartX,
+      designStartY,
+      scale,
+    } = creating;
+    void pointerStartX;
+    void pointerStartY;
+
+    const preview = document.createElement('div');
+    preview.style.position = 'absolute';
+    preview.style.left = `${designStartX}px`;
+    preview.style.top = `${designStartY}px`;
+    preview.style.width = '0px';
+    preview.style.height = '0px';
+    preview.style.background = 'rgba(0, 102, 255, 0.15)';
+    preview.style.border = '2px dashed rgba(0, 102, 255, 0.85)';
+    preview.style.boxSizing = 'border-box';
+    preview.style.pointerEvents = 'none';
+    containerEl.appendChild(preview);
+
+    const updateRect = (clientX: number, clientY: number) => {
+      const rect = containerEl.getBoundingClientRect();
+      const cursorX = (clientX - rect.left) / scale;
+      const cursorY = (clientY - rect.top) / scale;
+      const left = Math.min(designStartX, cursorX);
+      const top = Math.min(designStartY, cursorY);
+      const width = Math.abs(cursorX - designStartX);
+      const height = Math.abs(cursorY - designStartY);
+      return { left, top, width, height };
+    };
+
+    const onMove = (e: PointerEvent) => {
+      const { left, top, width, height } = updateRect(e.clientX, e.clientY);
+      preview.style.left = `${left}px`;
+      preview.style.top = `${top}px`;
+      preview.style.width = `${width}px`;
+      preview.style.height = `${height}px`;
+    };
+
+    const onUp = (e: PointerEvent) => {
+      const { left, top, width, height } = updateRect(e.clientX, e.clientY);
+      // Tiny rectangles are treated as accidental clicks; no source
+      // change. 5 design-space pixels is a small enough threshold
+      // that intentional small shapes still go through.
+      if (width < 5 || height < 5) {
+        setCreating(null);
+        return;
+      }
+      const result = parse(sourceRef.current, '<create>');
+      if (!result.diagnostics.some((d) => d.severity === 'error')) {
+        const freeform = findActiveSlideFreeform(
+          result.ast,
+          activeIdxRef.current,
+        );
+        if (freeform) {
+          appendBoxToFreeform(
+            freeform,
+            Math.round(left),
+            Math.round(top),
+            Math.round(width),
+            Math.round(height),
+            'amber',
+          );
+          host.setSource?.(emit(result.ast));
+          setActiveTool('select');
+        }
+      }
+      setCreating(null);
+    };
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.body.style.cursor = 'crosshair';
+    document.body.style.userSelect = 'none';
+    return () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      if (preview.parentElement) {
+        preview.parentElement.removeChild(preview);
+      }
+    };
+  }, [creating, host]);
+
+  // Escape returns to the Select tool. Common modal-tool convention
+  // and avoids the user feeling trapped if they press Box and don't
+  // know how to exit.
+  useEffect(() => {
+    if (activeTool === 'select') return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setActiveTool('select');
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activeTool]);
+
   if (!state) {
     return <div className="sw-canvas-status">waiting for source…</div>;
   }
@@ -532,13 +751,18 @@ export function App({ host }: { host: Host }): ReactElement {
           max={STRIP_WIDTH_MAX}
         />
         {preparedSlide ? (
-          <ScaledCanvas
-            onSelectRange={(range: SourceRange) => host.sendSelection(range)}
-            onTextEdit={(target) => setEditing(target)}
-            onDragStart={(target) => setDragging(target)}
-          >
-            {preparedSlide}
-          </ScaledCanvas>
+          <div className="sw-canvas-stage">
+            <ToolPalette active={activeTool} onSelect={setActiveTool} />
+            <ScaledCanvas
+              onSelectRange={(range: SourceRange) => host.sendSelection(range)}
+              onTextEdit={(target) => setEditing(target)}
+              onDragStart={(target) => setDragging(target)}
+              onCreateStart={(target) => setCreating(target)}
+              activeTool={activeTool}
+            >
+              {preparedSlide}
+            </ScaledCanvas>
+          </div>
         ) : null}
       </div>
     </DeckMetaContext.Provider>

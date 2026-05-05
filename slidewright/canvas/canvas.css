@@ -176,6 +176,70 @@ html, body, #root {
   cursor: grab;
 }
 
+/* Tool-mode cursor on the canvas. ScaledCanvas applies the
+ * `tool-box` class to .presentation when the Box tool is active.
+ * The cursor change overrides the default grab affordance from the
+ * data-sw-component selector above so users in Box mode get the
+ * crosshair even when hovering over an existing shape (since
+ * pointerdown there starts a *new* shape rather than dragging the
+ * existing one). */
+.presentation.tool-box,
+.presentation.tool-box [data-sw-component='Box'] {
+  cursor: crosshair;
+}
+
+/* ── Tool palette (v0.2.f) ──────────────────────────────────────── */
+
+/* The stage wraps ScaledCanvas + ToolPalette so the palette can be
+ * positioned absolutely over the canvas without escaping the flex
+ * layout. */
+.sw-canvas-stage {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.sw-tool-palette {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  border-radius: 4px;
+  padding: 4px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.sw-tool {
+  font: inherit;
+  font-size: 12px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 4px 10px;
+  cursor: pointer;
+  text-align: left;
+  color: #111;
+  transition: background 60ms ease, border-color 60ms ease;
+}
+
+.sw-tool:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.sw-tool.active {
+  background: var(--accent, #0066ff);
+  border-color: var(--accent, #0066ff);
+  color: #fff;
+}
+
 /* ── Standalone layout (canvas + bottom-mounted editor pane) ────── */
 
 /* Editor goes at the bottom — same screen real-estate that speaker

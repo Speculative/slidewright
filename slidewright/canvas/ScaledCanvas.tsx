@@ -55,6 +55,26 @@ export interface DragStart {
   scale: number;        // canvas scale at drag start (constant during gesture)
 }
 
+export interface CreateStart {
+  // The container element new shapes will land inside (in v0.2.f the
+  // Freeform's rendered div). Coordinates are design-space pixels
+  // *relative to this container*, not the outer 1920x1080 canvas —
+  // the Freeform sits inside .slide-inner which has padding from
+  // styles.css, so canvas coords would be offset from the actual
+  // Freeform origin.
+  //
+  // The handler is expected to append the preview overlay to this
+  // element (so both the preview and the final Box render in the
+  // same coordinate system), and to use the same coord system when
+  // emitting source.
+  containerEl: HTMLElement;
+  pointerStartX: number;
+  pointerStartY: number;
+  designStartX: number;
+  designStartY: number;
+  scale: number;
+}
+
 interface Props {
   children: ReactNode;
   onSelectRange?: (range: SourceRange) => void;
@@ -65,6 +85,11 @@ interface Props {
   // for the rest of the gesture lifecycle — pointermove / pointerup
   // listeners are typically attached to document.
   onDragStart?: (target: DragStart) => void;
+  // Fired when pointer goes down anywhere on the canvas while a
+  // creation tool is active (activeTool !== 'select'). Same gesture
+  // lifecycle — handler attaches its own move/up listeners.
+  onCreateStart?: (target: CreateStart) => void;
+  activeTool?: 'select' | 'box';
 }
 
 const DRAGGABLE_SELECTOR = '[data-sw-component="Box"]';
@@ -74,8 +99,11 @@ export function ScaledCanvas({
   onSelectRange,
   onTextEdit,
   onDragStart,
+  onCreateStart,
+  activeTool = 'select',
 }: Props): ReactElement {
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
 
   useLayoutEffect(() => {
@@ -131,12 +159,43 @@ export function ScaledCanvas({
   };
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
-    if (!onDragStart) return;
-    // Only the primary mouse button initiates a drag; let middle /
+    // Only the primary mouse button initiates a gesture; let middle /
     // right click pass through for browser-default behavior.
     if (event.button !== 0) return;
     const target = event.target as Element | null;
     if (!target?.closest) return;
+
+    // Creation tools take precedence over drag-to-move: in 'box'
+    // mode, pointerdown over a Freeform drags out a new shape (even
+    // if the click lands on top of an existing Box inside the
+    // Freeform). The container we hand to the create handler is the
+    // Freeform's rendered div — the same coordinate system the
+    // shapes render in. Without this, preview and final placement
+    // would disagree by the slide-inner padding.
+    if (activeTool === 'box' && onCreateStart) {
+      const freeformWrapper = target.closest('[data-sw-component="Freeform"]');
+      const freeformDiv = freeformWrapper?.firstElementChild;
+      if (freeformDiv instanceof HTMLElement) {
+        const rect = freeformDiv.getBoundingClientRect();
+        const designStartX = (event.clientX - rect.left) / scale;
+        const designStartY = (event.clientY - rect.top) / scale;
+        event.preventDefault();
+        onCreateStart({
+          containerEl: freeformDiv,
+          pointerStartX: event.clientX,
+          pointerStartY: event.clientY,
+          designStartX,
+          designStartY,
+          scale,
+        });
+        return;
+      }
+      // No Freeform under the pointer — fall through; the gesture
+      // becomes a no-op (drag-to-move would also miss since
+      // activeTool !== 'select').
+    }
+
+    if (!onDragStart) return;
     const node = target.closest(DRAGGABLE_SELECTOR);
     if (!(node instanceof HTMLElement)) return;
     const start = parseInt(node.getAttribute('data-sw-span-start') ?? '', 10);
@@ -160,13 +219,14 @@ export function ScaledCanvas({
 
   return (
     <div
-      className="presentation"
+      className={'presentation' + (activeTool === 'box' ? ' tool-box' : '')}
       ref={wrapperRef}
       onDoubleClick={handleDoubleClick}
       onPointerDown={handlePointerDown}
     >
       <div
         className="presentation-canvas"
+        ref={canvasRef}
         style={{
           width: `${DESIGN_W}px`,
           height: `${DESIGN_H}px`,
