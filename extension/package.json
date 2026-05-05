@@ -1,0 +1,35 @@
+{
+  "name": "slidewright",
+  "displayName": "Slidewright",
+  "description": "Projectional editor for code-based slide decks.",
+  "version": "0.0.1",
+  "publisher": "speculative",
+  "private": true,
+  "type": "commonjs",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onLanguage:slidewright"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "slidewright",
+        "extensions": [".sw"],
+        "aliases": ["Slidewright", "slidewright"]
+      }
+    ],
+    "commands": [
+      {
+        "command": "slidewright.openCanvas",
+        "title": "Slidewright: Open Canvas",
+        "category": "Slidewright"
+      }
+    ]
+  }
+}

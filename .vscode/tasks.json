@@ -1,0 +1,34 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build:extension",
+      "type": "npm",
+      "script": "extension:build",
+      "presentation": {
+        "reveal": "silent",
+        "clear": true
+      },
+      "problemMatcher": [
+        "$tsc"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "watch:extension",
+      "type": "npm",
+      "script": "extension:watch",
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": [
+        "$tsc-watch"
+      ]
+    }
+  ]
+}
