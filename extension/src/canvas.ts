@@ -154,19 +154,36 @@ function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
     font-size: 12px;
     opacity: 0.7;
   }
-  #source {
+  #diagnostics {
     margin: 0;
-    padding: 16px;
+    padding: 12px 16px;
     white-space: pre-wrap;
     font-family: var(--vscode-editor-font-family, monospace);
-    font-size: 13px;
+    font-size: 12px;
     line-height: 1.5;
+    border-bottom: 1px solid var(--vscode-panel-border, transparent);
+  }
+  #diagnostics[data-severity="error"] {
+    color: var(--vscode-errorForeground, #f14c4c);
+  }
+  #diagnostics[data-severity="warning"] {
+    color: var(--vscode-editorWarning-foreground, #cca700);
+  }
+  #ast {
+    margin: 0;
+    padding: 16px;
+    white-space: pre;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 12px;
+    line-height: 1.5;
+    overflow: auto;
   }
 </style>
 </head>
 <body>
 <div id="status">waiting for source…</div>
-<pre id="source"></pre>
+<pre id="diagnostics" hidden></pre>
+<pre id="ast"></pre>
 <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
