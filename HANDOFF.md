@@ -1,6 +1,6 @@
 # Slidewright handoff
 
-You're picking up Slidewright development. **v0.0 is implemented** (read-only viewer); v0.1 (VS Code extension with read-only canvas) is the next milestone. This document is your entry point.
+You're picking up Slidewright development. **v0.0 (read-only viewer) and v0.1 (VS Code extension + standalone web app + selection sync) are implemented.** v0.2 (first interactive gesture + round-trip emit) is the next milestone.
 
 ## What Slidewright is
 
@@ -12,19 +12,58 @@ The bet: bidirectional projectional editing of a typed component tree, with stab
 
 - **`SLIDEWRIGHT.md`** (repo root) — design doc. Source of truth for design commitments. Read this first.
 - **`design/sketches/`** — worked DSL examples with commentary.
-- **`decks/ne-agents-day-2026/`** — the existing React+JSX slide deck (NOT Slidewright source). Reference target we want to be able to recreate in Slidewright.
-- **`decks/v0-reference/`** — the v0.0 demo deck, written in Slidewright DSL with custom components. `deck.sw` + `index.tsx` + `components/`.
-- **`src/`** — the existing slide-template scaffold (`Presentation.jsx`, `Slide.jsx`, `CodeBlock.jsx`). Slidewright integrates with this scaffold rather than reinventing slide-runtime concerns. Currently `App.jsx` loads the v0.0 demo deck; swap the import to load a different deck.
-- **`slidewright/`** — the Slidewright package itself.
-  - `grammar/grammar.js` — brace-block grammar in tree-sitter's declarative form. Used as a precise specification of the syntax the runtime parser tracks; tree-sitter itself is not in the build (see "Tree-sitter investigation" below).
-  - `runtime/parser.ts` — hand-rolled recursive-descent parser. The committed approach per `SLIDEWRIGHT.md / Mediation layer / Parser`.
+- **`decks/ne-agents-day-2026/`** — the existing React+JSX slide deck (NOT Slidewright source). Reference target for full-deck v0.5.
+- **`decks/v0-reference/`** — the Slidewright demo deck.
+  - `deck.sw` — DSL source.
+  - `index.tsx` — entry for the Vite-served `Presentation` app at `/` (existing v0.0 demo).
+  - `registry.ts` — host-agnostic component registry + static color tokens; imported by both `index.tsx` and the canvas.
+  - `components/` — `TitleSlide.tsx`, `ContentSlide.tsx`, `CardRow.tsx`, `VStack.tsx`.
+- **`src/`** — Vite-served apps + the existing slide scaffold.
+  - `Presentation.jsx`, `Slide.jsx`, `CodeBlock.jsx` — the existing scaffold (kbd nav, popout notes, scaling, print). Used by the multi-slide presentation app at `/`.
+  - `App.jsx` — wires `decks/v0-reference/index.tsx` into the `Presentation` runtime (the v0.0 demo).
+  - `canvas-standalone.tsx` — entry for the standalone Slidewright canvas at `/canvas.html` (the v0.1+ host-agnostic canvas + bottom-mounted source editor).
+  - `standalone-host.ts` — `Host` adapter for the standalone path. Exposes Vite HMR hooks for `.sw` source changes.
+- **`canvas.html`** — entry HTML for `/canvas.html`.
+- **`extension/`** — VS Code extension package.
+  - `package.json` — manifest. `main` points at `dist/extension.js`. Activation events: `onLanguage:slidewright` + `workspaceContains:**/*.sw`.
+  - `src/extension.ts` — extension host entry point (activate, command registration, doc-change watcher).
+  - `src/canvas.ts` — `SlidewrightCanvasPanel` class (webview lifecycle, message protocol, source/cursor pushes, source-range reveal).
+  - `src/webview/index.tsx` — webview bundle entry; mounts `App` from `slidewright/canvas/` against `VSCodeHost`.
+  - `src/webview/vscode-host.ts` — `Host` adapter for the webview side.
+  - `esbuild.mjs` — two-target build: extension host (CJS, `vscode` external) + webview (browser IIFE, JSX automatic).
+- **`slidewright/`** — the Slidewright package.
+  - `grammar/grammar.js` — brace-block grammar in tree-sitter's declarative form. Spec-only; tree-sitter is not in the build (see "Tree-sitter investigation" below). Treat divergences with `parser.ts` as bugs in either depending on which is "right" for the case.
+  - `runtime/parser.ts` — hand-rolled recursive-descent parser.
   - `runtime/lexer.ts`, `ast.ts`, `diagnostics.ts`, `cells.ts`, `contract.ts`, `scope.ts`, `loader.ts` — supporting modules.
-  - `runtime/__test__/` — smoke tests (parser, loader, SSR).
+  - `runtime/__test__/` — smoke tests (parser, loader, SSR, headless render).
   - `cli/validate.ts` — `slidewright validate` CLI.
+  - **`canvas/`** — host-agnostic canvas UI (v0.1).
+    - `host.ts` — `Host` interface (subscribe, sendSelection, onCursorChange?, plus optional editor-pane methods setSource/onSelection/setCursor).
+    - `App.tsx` — top-level canvas component (state, keyboard nav, layout, click → source via Host).
+    - `ScaledCanvas.tsx` — 1920x1080 design surface auto-fitted to viewport via CSS transform; double-click → host.sendSelection.
+    - `SlideStrip.tsx` — vertical thumbnail column; CSS-driven sizing, ResizeObserver-driven scale.
+    - `EditorPane.tsx` — `<textarea>` source editor (used by standalone host via `App` siblings; not used by the webview, where VS Code IS the editor).
+    - `ResizeHandle.tsx` — generic drag handle for resizing siblings (axis 'x'/'y', invertable).
+    - `DiagnosticsPanel.tsx` — error rendering.
+    - `canvas.css` — chrome around the slide; the slide content itself uses `src/styles.css`.
+
+## How to run
+
+```sh
+# Inside the carthage container:
+npm run dev                # Vite dev server on :5173
+                           #   /              → multi-slide v0.0 demo (Presentation)
+                           #   /canvas.html   → v0.1+ standalone Slidewright canvas
+npm test                   # typecheck + parser + loader + SSR smoke tests
+npm run code-server        # browser VS Code on :8080 (host-only)
+                           #   F5 inside it → Extension Development Host
+                           #   Cmd+Shift+P → "Slidewright: Open Canvas"
+npm run slidewright -- decks/v0-reference/deck.sw   # validate a deck
+npm run extension:build    # build the extension dist/ (run via F5 preLaunchTask too)
+npm run extension:watch    # esbuild watch mode for extension dev
+```
 
 ## v0.0 status: implemented
-
-What works:
 
 - DSL parsing for the brace-block surface syntax (component invocations, slot fills, lists, capitalization disambiguation, triple-quoted strings with dedent, adjacent simple-string concatenation, line+block comments, implicit children).
 - Slide-component contract loading and slot-schema validation.
@@ -33,15 +72,34 @@ What works:
 - The reference deck `decks/v0-reference/deck.sw` renders end-to-end (verified via SSR + smoke tests).
 - `slidewright validate` CLI with `--parse-only`, `--check-refs`, `--json` flags.
 
-How to run:
+## v0.1 status: implemented
 
-```sh
-npm run dev          # vite dev server; v0.0 demo deck is wired into App.jsx
-npm test             # typecheck + parser + loader + SSR smoke tests
-npm run slidewright -- decks/v0-reference/deck.sw     # validate a deck
-```
+- VS Code extension at `extension/`. F5 inside code-server (or desktop VS Code) launches the Extension Development Host with `/workspace` open and the Slidewright extension active. Activation: `onLanguage:slidewright` + `workspaceContains:**/*.sw`.
+- "Slidewright: Open Canvas" command opens a webview panel beside the active `.sw` editor; one panel per document URI, ready-handshake before initial source push, file-watcher → re-render.
+- **Selection sync** (both directions). Each component invocation in the rendered tree is wrapped in a `<div data-sw-span-start data-sw-span-end style="display:contents">` (and `Span` runs get the data attrs directly on their `<span>`); double-click anywhere walks up to the nearest data-sw-span ancestor and posts the range. Extension reveals + selects in editor with focus preserved on the canvas. Reverse direction: extension subscribes to `onDidChangeTextEditorSelection`, posts cursor offset, canvas walks the slide list and updates active slide.
+- **Multi-slide navigation**. Vertical thumbnail strip with all slides rendered at scale (no virtualization yet). Resizable column (drag handle, persists to `localStorage`). Keyboard nav `←/→/PgUp/PgDn/Home/End/digits`.
+- **Standalone web app at `/canvas.html`**. Same canvas UI as the webview, mounted against `StandaloneHost` instead of `VSCodeHost`. Bottom-mounted, height-resizable `<textarea>` source editor pane closes the round-trip loop without VS Code: type → canvas re-renders, double-click rendered element → editor jumps + scrolls (start near top), cursor in editor → canvas active slide tracks. Vite HMR refreshes the canvas when `decks/v0-reference/deck.sw` changes on disk.
 
-### Tree-sitter investigation
+The architectural shape that emerged:
+
+- **Host abstraction** is the integration boundary between canvas and editor surface. v0.1 ships two implementations (`VSCodeHost`, `StandaloneHost`); future hosts (Vim plugin, JetBrains, hosted web) plug in by implementing `Host`. Canvas is editor-agnostic; only the host knows about its environment.
+- **`data-sw-span-*` instrumentation** is the rendered-tree → AST mapping. Click → closest('[data-sw-span-start]') → source range. v0.2's gestures will reuse the same instrumentation; no separate side-channel needed.
+- **`prepareSlide(wrappedSlide)`** unwraps the data-sw-span div, clones the inner SlideFrame with chrome props (active/actLabel), rewraps. Used wherever slides are rendered into the Presentation-style chrome (main canvas, strip thumbnails).
+- **Standalone is a peer integration, not a derivative.** The Vite-served standalone canvas at `/canvas.html` is structurally the same as the VS Code path with a different host adapter. Slidewright is a filesystem-integrated tool; any editor that saves a file is a valid host.
+
+## Where to start: v0.2
+
+v0.2 is the first interactive gesture + round-trip emit. From `SLIDEWRIGHT.md / v0 sequencing`:
+
+- Canonical re-emit pipeline (AST → source via the formatter).
+- VS Code TextEdit API integration for canvas → source writes; `Host.setSource` already exists for standalone.
+- Drag-to-move gesture on `Freeform`-positioned elements (the simplest gesture that exercises the full edit → emit → re-parse loop).
+- Cell model with literal overrides (drag writes a literal x/y).
+- Initial round-trip property test on a small corpus.
+
+The architecture is ready: gestures attach to the data-sw-span wrappers, mutate the AST, run the canonical emitter, and `Host.setSource(newSource)` handles the rest. Both the standalone path (in-memory) and VS Code path (TextEdit API on the document) flow through the same `setSource` API.
+
+## Tree-sitter investigation (deferred)
 
 Slidewright ships a hand-rolled recursive-descent parser. Tree-sitter was investigated as the alternative; the investigation is captured here so the next agent doesn't re-litigate without context.
 
@@ -70,49 +128,19 @@ Triggers for re-opening the question:
 - We want syntax highlighting in environments outside our own editor (Vim, VS Code's TextMate grammars, GitHub) — they ingest tree-sitter grammars natively.
 - We add a second grammar dialect.
 
-Until then: `slidewright/grammar/grammar.js` is preserved as a precise specification of the brace-block grammar in tree-sitter's standard form, useful documentation regardless of the runtime path. Treat divergences between grammar.js and parser.ts as bugs in either, depending on which is more clearly "right" for the case.
+Until then: `slidewright/grammar/grammar.js` is preserved as a precise specification of the brace-block grammar in tree-sitter's standard form, useful documentation regardless of the runtime path.
 
-### Built-in `Slide`
+## Conventions worth knowing
 
-A v0.0-shaped decision: the deck author wraps each slide in a built-in `Slide { content: ... }` invocation that maps to the existing `src/Slide.jsx` React component. This keeps the contract uniform — no hidden "frame slot" magic — and gives the deck author explicit control over `label`, `notes`, `chromeless`. May be revisited if it feels boilerplatey in practice.
+- **Built-in `Slide`**: the deck author wraps each slide in `Slide { content: ... }`, mapped to the existing `src/Slide.jsx`. Keeps the contract uniform — no hidden "frame slot" magic.
+- **Selection sync on double-click**: single click is for navigation (changing active slide). Double-click on rendered content jumps the editor cursor.
+- **Color tokens as scope bindings**: `accent`, `purple`, etc. are mapped to themselves in `decks/v0-reference/registry.ts:staticTokens`; the renderer turns them into `var(--<token>)`. A real theme system replaces this in v1+.
+- **Asset URIs**: per-host. `VSCodeHost` computes them via `webview.asWebviewUri()`; `StandaloneHost` uses Vite's static-asset imports. The DSL author writes `headshotImg` as a name reference; the host injects the resolved URL into the deck scope.
+- **Hardcoded for v0-reference**: the canvas imports `decks/v0-reference/registry` and the extension hardcodes its asset list. v0.2 generalizes via an esbuild-as-a-service pipeline that scans whatever deck the user opens.
 
-## Where to start: v0.1
+## Running tests
 
-v0.1 adds a VS Code extension with a read-only canvas: side-by-side source + rendered view, file-watcher → re-parse → re-render, selection sync between source and canvas. No editing gestures yet.
-
-Concretely (from `SLIDEWRIGHT.md / v0 sequencing`):
-
-1. VS Code extension scaffolding; webview integration.
-2. Side-by-side: source panel + canvas.
-3. Selection sync: click an element in canvas → highlight in source; cursor in source → highlight in canvas.
-4. File-watcher → re-parse → re-render. No editing gestures yet.
-
-The runtime is largely ready — the loader produces React elements with stable cell ids; the canvas just needs to host the existing `Presentation` and add selection sync on top.
-
-## Open implementation decisions surfaced during v0.0
-
-- **Asset import mechanism.** Currently the deck's `index.tsx` imports each asset and registers it in a `scope.bindings` map. Works fine. A future refinement: auto-import via a manifest or filename convention (so the DSL author doesn't have to also add a TS line per asset).
-- **Color tokens as scope bindings.** v0.0 maps token names (`accent`, `purple`, `cyan`) to themselves in the scope, with the renderer turning the resolved string into `var(--<token>)`. This works but is structurally fuzzy: tokens aren't quite name-bindings, and a real theme system would resolve these differently. Captured in SLIDEWRIGHT.md / Styling **OPEN** section.
-- **CLI scope vs. runtime scope.** `slidewright validate` runs without the deck's runtime scope (the deck's `index.tsx` isn't visible to a standalone CLI). Defaulted `--check-refs` off, with the flag to opt in. Long-term: have the CLI optionally `import()` the deck's `index.tsx` to extract the scope.
-- **Notes string round-trip.** Triple-quoted strings dedent via Python rules at the lexer; the result is what the loader passes to `<Slide notes=...>`. Round-trip emit (v0.2) needs to preserve the original trip-quoted form, not re-emit a dedented form, so the lexer should attach the original raw content to the AST node. Reserved.
-
-## What v0.0 does NOT do
-
-Resist temptation to build any of these:
-
-- Computed defaults / `solve.*` forms (v0.2+).
-- Round-trip emit (v0.2 — read-only viewer doesn't need to write).
-- Canvas / direct manipulation gestures (v0.2+).
-- VS Code extension / webview integration (v0.1).
-- External-edit reconciliation, undo stacks (v0.4).
-- Markdown rendering in `text-markdown` slots (v0.5 polish).
-- Animation features (post-v0).
-
-## Key files to update as you go
-
-- **`SLIDEWRIGHT.md`** — promote TENTATIVE → DECIDED as choices get validated by experience. Add new OPEN questions. Don't let it go stale.
-- **`design/sketches/`** — when you validate a sketch by implementing against it, update the sketch's commentary with what you learned.
-- **This file (`HANDOFF.md`)** — keep it terse. Update the "Status" section as phases complete.
+`npm test` runs (in order): `tsc --noEmit` + parser smoke + loader smoke + SSR smoke. The SSR smoke renders the v0-reference deck through `react-dom/server` and asserts on the output structure — catches React-side regressions without needing a browser. A headless chromium smoke test (`slidewright/runtime/__test__/render.smoke.ts`) exists for the canvas; needs `npx playwright install chromium` after each `carthage build` since playwright binaries live outside persistent mounts.
 
 ## Build process
 
@@ -122,8 +150,10 @@ Per `SLIDEWRIGHT.md / Build process and decision-making`:
 2. Test the round-trip property aggressively once v0.2+ lands. Property-based testing.
 3. Document decisions in SLIDEWRIGHT.md as they get made.
 4. Resist scope creep. Animations, AI, structured diagrams are all exciting and tempting. Don't.
-5. Revisit decisions when implementation reveals new information. The DSL syntax, the contract shape, the gesture semantics, and the implicit-children rule are all things that may evolve once v0.0 + v0.1 are real.
+5. Revisit decisions when implementation reveals new information.
 
-## One asymmetry worth holding in mind
+## Asymmetries worth holding in mind
 
-The contract is the only Slidewright architectural piece with external consumers (user-authored components, eventually AI-generated components, eventually shared component libraries across decks). Iterate freely on internal architecture; commit to contract stability only when external consumers exist. v0 has no external consumers yet.
+- **The contract is the only architectural piece with external consumers** (user-authored components, eventually AI-generated components, eventually shared component libraries). Iterate freely on internal architecture; commit to contract stability only when external consumers exist. v0 has no external consumers yet.
+- **Slidewright is an application that ships a bundler** (Vite or equivalent) — the same way Slidev, Astro, SvelteKit do. Deck authors write `.tsx` components; that requires compilation. The standalone `/canvas.html` is the model for what users experience; the bundler runs locally on their machine, no hosting.
+- **VS Code is the primary editor we test against**, but it's not the architectural center. The Host abstraction means selection sync and gestures must work in any editor that saves files. Smoke-test desktop VS Code before any external release; otherwise iterate in code-server or the standalone web app.

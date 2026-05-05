@@ -36,11 +36,14 @@ Five layers, from bottom to top:
 
 1. **DSL and component framework**: a small grammar for slide content, plus a set of primitive components (Text, Box, layout primitives, Slide, Deck) and a contract that custom components implement.
 2. **Mediation layer**: parser, emitter, and edit protocol that translate between source code and the editor's runtime tree, in both directions.
-3. **Editor (VS Code extension + webview)**: renders the live tree, handles selection/manipulation/text editing, surfaces a component library, manages projects.
-4. **AI authoring integration**: invocation, context assembly, output handling, validation against the contract.
-5. **Presentation runtime**: a separate render path for delivering slides without editor chrome.
+3. **Canvas (host-agnostic UI)**: React components that render the live tree, handle selection/manipulation/text editing, surface a component library, manage navigation. Lives in `slidewright/canvas/`. Talks to the world through a `Host` interface — see (4).
+4. **Editor host integrations**: thin adapters that connect the canvas to a particular editor surface. v0.1 ships two — `VSCodeHost` (extension webview) and `StandaloneHost` (Vite-served standalone web app at `/canvas.html`). Future hosts (Vim plugin, JetBrains, hosted web) plug in by implementing `Host`. The canvas is always editor-agnostic; only the host knows about its specific environment.
+5. **AI authoring integration**: invocation, context assembly, output handling, validation against the contract.
+6. **Presentation runtime**: a separate render path for delivering slides without editor chrome.
 
 Each layer should be designed to know as little as possible about the layers above it. The DSL and mediation should be domain-agnostic in principle (general "structured visual document" substrate) even though slide-specific primitives live on top.
+
+The canvas/host split (3 vs 4) is the load-bearing decoupling for editor-portability: Slidewright is fundamentally a *filesystem*-integrated tool, and the canvas should run anywhere the .sw + .tsx source files live. The Host abstraction makes that explicit — any editor with a save-file gesture is a valid Slidewright host.
 
 ---
 
@@ -390,6 +393,14 @@ The diagnostics translator (slot-type mismatches, missing-required hints, "did y
 **Diagnostics layer is ours.** Tree-sitter's built-in error messages are structural ("expected X, got Y"); user-friendly Slidewright-specific diagnostics (slot-type mismatches, missing-required-slot hints, "did you mean …") live in a translator layer over the CST. This is where the polish goes — error quality is one of our priorities and the diagnostics layer is small and fully under our control.
 
 **Slide-level is the error-boundary floor.** Each slide is a top-level construct in source; the parser's recovery anchors on slide boundaries. Damage to one slide never causes loss of a sibling slide. Finer-grained recovery (a malformed slot inside an otherwise-fine slide) is automatic to the extent tree-sitter supports it; we don't have to engineer it specially.
+
+### Rendered-tree → AST mapping (selection sync, gestures) **DECIDED**
+
+The renderer (`slidewright/runtime/loader.ts`) wraps every component invocation in a marker `<div style="display: contents" data-sw-component="..." data-sw-span-start="..." data-sw-span-end="...">` (and `Span` runs get the same data attrs directly on their `<span>`). `display: contents` keeps the wrapper out of the layout tree — children participate in the parent's layout exactly as if the wrapper weren't there — but the wrapper is still in the DOM tree and visible to event bubbling and `Element.closest()`.
+
+This is the load-bearing primitive for the editor → source direction. Click handling walks up via `closest('[data-sw-span-start]')` to find the nearest enclosing component invocation and reads its source range. v0.1's selection sync uses this; v0.2's gestures use the same instrumentation to identify what was acted on (the dragged box, the resized frame, the typed-into text) without needing a separate side-channel from rendered DOM to AST.
+
+The pattern works because Slidewright owns the rendering: every component invocation is created by `loader.ts`, so we control the wrapping. User-authored components (`TitleSlide.tsx` etc.) don't have to forward props or call any API — the wrapping happens above their root element. Built-in components like `Slide` and `Span` are wrapped the same way for uniformity.
 
 ### Round-trip discipline **DECIDED (softened from initial framing)**
 
@@ -744,12 +755,14 @@ v0 is broken into incremental milestones. Each ends in a runnable demo of the su
 - CLI: `slidewright validate <path>` (parse + slot-schema validation; structured diagnostic output; `--json` for agent consumption; `--parse-only` and `--check-refs` flags).
 - **Demo**: author hand-writes a `.sw` file, runs `vite`, sees the slide rendered. Edits to source hot-reload. Verified via SSR smoke test (`npm test`); a chromium-based visual smoke test was attempted but the sandbox lacks the system shared libs to launch headless chromium, so end-user visual validation remains a manual step.
 
-**v0.1 — VS Code extension with read-only canvas.**
-- VS Code extension scaffolding; webview integration.
-- Side-by-side: source panel + canvas.
-- Selection sync: click an element in canvas → highlight in source; cursor in source → highlight in canvas.
-- File-watcher → re-parse → re-render. No editing gestures yet.
-- **Demo**: open a `.sw` file in VS Code, see it rendered live in a side panel; edits in source reflect instantly; selection round-trips between panes.
+**v0.1 — VS Code extension with read-only canvas. Status: implemented.**
+- VS Code extension at `extension/` (manifest + esbuild bundle for both extension host and webview targets). F5 from inside the workspace launches the Extension Development Host with the extension loaded; the in-container code-server flow at `npm run code-server` is the primary dev environment, with desktop VS Code as the cross-check before any external release.
+- Webview integration via `vscode.window.createWebviewPanel`, side-by-side with the source via `ViewColumn.Beside`. CSP-locked HTML; the webview script is bundled separately (browser target).
+- File-watcher → re-parse → re-render via `vscode.workspace.onDidChangeTextDocument`; one panel per document URI keyed in a static map; `webviewReady` handshake so the initial source push doesn't race the bundle load.
+- Selection sync (both directions). Loader instruments every component invocation in the rendered tree with `data-sw-span-{start,end}` data attributes (the wrapper is a `<div style="display: contents">` so it doesn't disturb layout, only the DOM event tree). Canvas double-click → `closest('[data-sw-span-start]')` → host posts the source range upstream → extension `revealRange + setSelection`. Cursor moves in the source editor → extension posts `cursor-changed` offset → canvas walks the slide list, matches by span, updates active slide. Same `data-sw-span` pattern is what v0.2's gestures will use to identify what was acted on.
+- Multi-slide navigation: vertical thumbnail strip with all slides rendered at scale (no virtualization yet — added when deck size demands). Strip is column-resizable via a drag handle; width persists via `localStorage`. Keyboard nav (←/→/PgUp/PgDn/Home/End/digits) mirrors `Presentation.jsx`.
+- Host-agnostic canvas at `slidewright/canvas/` (App, ScaledCanvas, SlideStrip, EditorPane, ResizeHandle, DiagnosticsPanel). Two adapter implementations: `VSCodeHost` (postMessage to extension) and `StandaloneHost` (in-memory state + Vite HMR for `.sw` source). Standalone serves at `/canvas.html` via `npm run dev` — same canvas UI, no VS Code required, complete editing loop with a bottom-mounted source-editor pane. The Host abstraction is the integration boundary: any future editor (Vim plugin, JetBrains, web hosted) plugs in by implementing `Host`.
+- **Demo**: open a `.sw` file in VS Code, run "Slidewright: Open Canvas" → side-by-side canvas with strip + main slide. Edits in source reflect instantly; double-click in canvas reveals the source range; cursor in source moves the canvas active slide. Standalone equivalent at `localhost:5173/canvas.html`.
 
 **v0.2 — First interactive gesture: drag-to-move + round-trip emit.**
 - Canonical re-emit pipeline (AST → source via the formatter).
