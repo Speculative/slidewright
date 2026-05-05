@@ -214,6 +214,51 @@ function findActiveSlideFreeform(
   return contentFill.value;
 }
 
+// Locate the index of a shape (matched by source span) within the
+// active Freeform's `children` list. Used by the selection-
+// preservation logic in drag and resize: spans shift on every emit
+// so we can't carry the old (start, end) across, but the child
+// index is stable as long as the operation only mutates the shape's
+// own slot fills.
+function findShapeChildIdx(
+  ast: SourceFile,
+  slideIdx: number,
+  target: SourceRange,
+): number | null {
+  const freeform = findActiveSlideFreeform(ast, slideIdx);
+  if (!freeform) return null;
+  const childrenFill = freeform.fills.find((f) => f.name === 'children');
+  if (!childrenFill || childrenFill.value.kind !== 'list') return null;
+  for (let i = 0; i < childrenFill.value.items.length; i++) {
+    const item = childrenFill.value.items[i];
+    if (
+      item &&
+      item.kind === 'component' &&
+      item.span.start.offset === target.start &&
+      item.span.end.offset === target.end
+    ) {
+      return i;
+    }
+  }
+  return null;
+}
+
+// Reverse direction: find the Component at a given index in the
+// active Freeform's children list. Used after re-parsing the post-
+// emit source to grab the same shape's new span.
+function findShapeAtChildIdx(
+  ast: SourceFile,
+  slideIdx: number,
+  idx: number,
+): Component | null {
+  const freeform = findActiveSlideFreeform(ast, slideIdx);
+  if (!freeform) return null;
+  const childrenFill = freeform.fills.find((f) => f.name === 'children');
+  if (!childrenFill || childrenFill.value.kind !== 'list') return null;
+  const item = childrenFill.value.items[idx];
+  return item?.kind === 'component' ? item : null;
+}
+
 // Constructs synthetic AST nodes for inserting a new shape. Spans
 // are placeholder zeros — the emitter ignores spans, and the next
 // re-parse rebuilds them from the actual source. The placeholder
@@ -387,6 +432,24 @@ export function prepareSlide(wrappedSlide: ReactElement): ReactElement {
   return cloneElement(wrappedSlide, undefined, preparedInner);
 }
 
+type ResizeDirection = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+
+interface ResizeStart {
+  // The shape's positioned div (the same node we mutate during drag-
+  // to-move — `firstElementChild` of the data-sw-component wrapper,
+  // since that wrapper is `display: contents` and has no layout box).
+  inner: HTMLElement;
+  // The selection outline div, mirrored alongside the shape so the
+  // dashed rectangle resizes with the shape during the gesture.
+  overlay: HTMLElement;
+  direction: ResizeDirection;
+  start: number;
+  end: number;
+  pointerStartX: number;
+  pointerStartY: number;
+  scale: number;
+}
+
 export function App({ host }: { host: Host }): ReactElement {
   const [state, setState] = useState<RenderState | null>(null);
   const [activeIdx, setActiveIdx] = useState(0);
@@ -394,8 +457,18 @@ export function App({ host }: { host: Host }): ReactElement {
   const [editing, setEditing] = useState<TextEditTarget | null>(null);
   const [dragging, setDragging] = useState<DragStart | null>(null);
   const [creating, setCreating] = useState<CreateStart | null>(null);
+  const [resizing, setResizing] = useState<ResizeStart | null>(null);
   const [activeTool, setActiveTool] = useState<Tool>('select');
   const [selected, setSelected] = useState<SourceRange | null>(null);
+
+  // Selection-preservation across host.setSource. Spans shift after
+  // every emit (the canonical formatter rewrites whitespace), so the
+  // currently-selected (start, end) won't match anything in the new
+  // tree. Drag and resize commits stash the new shape's span here
+  // before calling host.setSource; the subscribe handler picks it up
+  // on the round-trip and re-applies it. Without this, gestures
+  // would silently deselect on every commit.
+  const pendingSelectionRef = useRef<SourceRange | null>(null);
 
   useEffect(() => {
     try {
@@ -431,11 +504,19 @@ export function App({ host }: { host: Host }): ReactElement {
         }
         return next;
       });
-      // Clear selection on source updates — span offsets shift when
-      // emit re-canonicalizes, so the previously-selected (start, end)
-      // no longer matches any shape. User re-clicks to re-select. Polish
-      // (preserve selection across drags) is future work.
-      setSelected(null);
+      // Span offsets shift when emit re-canonicalizes, so the old
+      // (start, end) doesn't match any shape in the new tree. Drag and
+      // resize gestures pre-compute the new span and stash it in
+      // pendingSelectionRef before calling setSource; pick it up here
+      // so the selection survives the round-trip. Externally-driven
+      // source changes (typing in the editor, file reload) leave the
+      // ref empty and the selection clears as before.
+      if (pendingSelectionRef.current) {
+        setSelected(pendingSelectionRef.current);
+        pendingSelectionRef.current = null;
+      } else {
+        setSelected(null);
+      }
     });
   }, [host, activeIdx]);
 
@@ -609,6 +690,20 @@ export function App({ host }: { host: Host }): ReactElement {
     };
   }, [editing, host]);
 
+  // Refs for activeIdx and activeTool, read inside long-lived
+  // gesture handlers (drag, create, resize). Refs avoid re-running
+  // the effects on every tool/slide change — the handlers only need
+  // the *current* value at gesture commit time, not the value at
+  // gesture start.
+  const activeIdxRef = useRef(activeIdx);
+  useEffect(() => {
+    activeIdxRef.current = activeIdx;
+  }, [activeIdx]);
+  const activeToolRef = useRef(activeTool);
+  useEffect(() => {
+    activeToolRef.current = activeTool;
+  }, [activeTool]);
+
   // Drag-to-move gesture. ScaledCanvas hands us the dragged DOM
   // node + the AST span + the canvas scale at drag-start. We update
   // the visual node's CSS imperatively during the gesture (React
@@ -695,7 +790,34 @@ export function App({ host }: { host: Host }): ReactElement {
           const ySlot = findNumericSlot(target, 'y');
           if (xSlot) xSlot.node.value = Math.round(originalLeft + designDx);
           if (ySlot) ySlot.node.value = Math.round(originalTop + designDy);
-          host.setSource?.(emit(result.ast));
+          // Capture the dragged shape's child index *before* emit
+          // (spans in result.ast still reflect pre-emit offsets, so
+          // the target span matches).
+          const childIdx = isSelectedDrag
+            ? findShapeChildIdx(result.ast, activeIdxRef.current, { start, end })
+            : null;
+          const newSource = emit(result.ast);
+          if (childIdx !== null) {
+            // Re-parse the post-emit source and find the same shape
+            // by its (stable) child index. Stash the new span so the
+            // subscribe handler re-applies the selection after
+            // setSource flushes through the host.
+            const reparsed = parse(newSource, '<drag-after>');
+            if (!reparsed.diagnostics.some((d) => d.severity === 'error')) {
+              const newShape = findShapeAtChildIdx(
+                reparsed.ast,
+                activeIdxRef.current,
+                childIdx,
+              );
+              if (newShape) {
+                pendingSelectionRef.current = {
+                  start: newShape.span.start.offset,
+                  end: newShape.span.end.offset,
+                };
+              }
+            }
+          }
+          host.setSource?.(newSource);
         }
       }
       setDragging(null);
@@ -713,6 +835,155 @@ export function App({ host }: { host: Host }): ReactElement {
     };
   }, [dragging, host]);
 
+  // Drag-to-resize gesture (Box / TextBox; Arrow's endpoint handles
+  // are deferred to v0.2.i.2). Symmetric with drag-to-move: a corner
+  // or edge handle on the selection overlay catches pointerdown and
+  // sets `resizing`. This effect reads the original geometry, then
+  // attaches document-level pointermove/pointerup listeners that
+  // imperatively update both the shape's positioned div and the
+  // overlay so the dashed outline tracks the new size in real time.
+  // On release we mutate the corresponding x/y/width/height slot
+  // fills, emit, setSource, and stash the new shape's span in
+  // pendingSelectionRef so the round-trip preserves the selection.
+  useEffect(() => {
+    if (!resizing) return;
+    const {
+      inner: visualNode,
+      overlay,
+      direction,
+      start,
+      end,
+      pointerStartX,
+      pointerStartY,
+      scale,
+    } = resizing;
+    const cs = window.getComputedStyle(visualNode);
+    const originalLeft = parseFloat(cs.left) || 0;
+    const originalTop = parseFloat(cs.top) || 0;
+    const originalWidth = visualNode.offsetWidth;
+    const originalHeight = visualNode.offsetHeight;
+
+    const MIN_SIZE = 1;
+    // Compute the new (left, top, width, height) given a pointer
+    // delta and the gesture's anchor edges. Each handle direction
+    // affects up to two edges; opposite edges of the rect stay put.
+    // Clamping at MIN_SIZE prevents negative dimensions when the
+    // user drags past the opposite edge — flipping the shape is
+    // future polish.
+    const computeNew = (
+      designDx: number,
+      designDy: number,
+    ): { left: number; top: number; width: number; height: number } => {
+      let newLeft = originalLeft;
+      let newTop = originalTop;
+      let newWidth = originalWidth;
+      let newHeight = originalHeight;
+      if (direction.includes('w')) {
+        const proposedWidth = originalWidth - designDx;
+        if (proposedWidth < MIN_SIZE) {
+          newLeft = originalLeft + originalWidth - MIN_SIZE;
+          newWidth = MIN_SIZE;
+        } else {
+          newLeft = originalLeft + designDx;
+          newWidth = proposedWidth;
+        }
+      } else if (direction.includes('e')) {
+        newWidth = Math.max(MIN_SIZE, originalWidth + designDx);
+      }
+      if (direction.includes('n')) {
+        const proposedHeight = originalHeight - designDy;
+        if (proposedHeight < MIN_SIZE) {
+          newTop = originalTop + originalHeight - MIN_SIZE;
+          newHeight = MIN_SIZE;
+        } else {
+          newTop = originalTop + designDy;
+          newHeight = proposedHeight;
+        }
+      } else if (direction.includes('s')) {
+        newHeight = Math.max(MIN_SIZE, originalHeight + designDy);
+      }
+      return { left: newLeft, top: newTop, width: newWidth, height: newHeight };
+    };
+
+    const onMove = (e: PointerEvent) => {
+      const designDx = (e.clientX - pointerStartX) / scale;
+      const designDy = (e.clientY - pointerStartY) / scale;
+      const r = computeNew(designDx, designDy);
+      visualNode.style.left = `${r.left}px`;
+      visualNode.style.top = `${r.top}px`;
+      visualNode.style.width = `${r.width}px`;
+      visualNode.style.height = `${r.height}px`;
+      // Overlay sits 4px outside the shape on each side (matches the
+      // initial layout in the selection effect).
+      overlay.style.left = `${r.left - 4}px`;
+      overlay.style.top = `${r.top - 4}px`;
+      overlay.style.width = `${r.width + 8}px`;
+      overlay.style.height = `${r.height + 8}px`;
+    };
+
+    const onUp = (e: PointerEvent) => {
+      const designDx = (e.clientX - pointerStartX) / scale;
+      const designDy = (e.clientY - pointerStartY) / scale;
+      // Treat near-zero motion as an accidental click on a handle —
+      // no source mutation, just exit.
+      if (Math.abs(designDx) < 0.5 && Math.abs(designDy) < 0.5) {
+        setResizing(null);
+        return;
+      }
+      const r = computeNew(designDx, designDy);
+      const result = parse(sourceRef.current, '<resize>');
+      if (!result.diagnostics.some((d) => d.severity === 'error')) {
+        const target = findComponentAtSpan(result.ast, start, end);
+        if (target) {
+          const xSlot = findNumericSlot(target, 'x');
+          const ySlot = findNumericSlot(target, 'y');
+          const wSlot = findNumericSlot(target, 'width');
+          const hSlot = findNumericSlot(target, 'height');
+          if (xSlot) xSlot.node.value = Math.round(r.left);
+          if (ySlot) ySlot.node.value = Math.round(r.top);
+          if (wSlot) wSlot.node.value = Math.round(r.width);
+          if (hSlot) hSlot.node.value = Math.round(r.height);
+          // Capture the resized shape's child index *before* emit,
+          // re-find it post-emit by index, then stash the new span
+          // so the subscribe handler reapplies the selection.
+          const childIdx = findShapeChildIdx(
+            result.ast,
+            activeIdxRef.current,
+            { start, end },
+          );
+          const newSource = emit(result.ast);
+          if (childIdx !== null) {
+            const reparsed = parse(newSource, '<resize-after>');
+            if (!reparsed.diagnostics.some((d) => d.severity === 'error')) {
+              const newShape = findShapeAtChildIdx(
+                reparsed.ast,
+                activeIdxRef.current,
+                childIdx,
+              );
+              if (newShape) {
+                pendingSelectionRef.current = {
+                  start: newShape.span.start.offset,
+                  end: newShape.span.end.offset,
+                };
+              }
+            }
+          }
+          host.setSource?.(newSource);
+        }
+      }
+      setResizing(null);
+    };
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.body.style.userSelect = 'none';
+    return () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.body.style.userSelect = '';
+    };
+  }, [resizing, host]);
+
   // Shape-creation gesture (active when activeTool !== 'select'
   // and pointerdown lands over a Freeform). Two preview flavors:
   //   - Rectangle (Box, TextBox): dashed-blue rectangle following
@@ -723,18 +994,8 @@ export function App({ host }: { host: Host }): ReactElement {
   //
   // Both flavors anchor in the Freeform's coordinate system so
   // preview and final placement match. After commit, auto-return
-  // to Select.
-  const activeIdxRef = useRef(activeIdx);
-  useEffect(() => {
-    activeIdxRef.current = activeIdx;
-  }, [activeIdx]);
-  // Use a ref for activeTool so we don't have to re-run the create
-  // effect when the tool changes mid-gesture (which shouldn't
-  // happen, but prevents a stale closure if it does).
-  const activeToolRef = useRef(activeTool);
-  useEffect(() => {
-    activeToolRef.current = activeTool;
-  }, [activeTool]);
+  // to Select. (activeIdxRef / activeToolRef are declared up
+  // above next to the drag effect — same refs, shared use.)
   useEffect(() => {
     if (!creating) return;
     const { containerEl, designStartX, designStartY, scale } = creating;
@@ -967,12 +1228,71 @@ export function App({ host }: { host: Host }): ReactElement {
     overlay.style.top = `${bounds.top - 4}px`;
     overlay.style.width = `${bounds.width + 8}px`;
     overlay.style.height = `${bounds.height + 8}px`;
+    // Overlay body is event-transparent so the underlying shape
+    // still receives clicks (re-select, drag-to-move). The handles
+    // appended below set their own pointer-events: auto to catch
+    // resize gestures.
     overlay.style.pointerEvents = 'none';
     freeformDiv.appendChild(overlay);
+
+    // Resize handles. Only Box / TextBox get handles in v0.2.i.1 —
+    // Arrow has different geometry (two endpoints, no width/height
+    // slots) and lands separately in v0.2.i.2. Handles render only
+    // in Select mode so creation tools (which take pointerdown over
+    // any visible shape) aren't shadowed.
+    const handleCleanups: Array<() => void> = [];
+    if (
+      activeTool === 'select' &&
+      (componentName === 'Box' || componentName === 'TextBox') &&
+      shapeInner instanceof HTMLElement
+    ) {
+      const directions: ResizeDirection[] = [
+        'nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w',
+      ];
+      for (const dir of directions) {
+        const handle = document.createElement('div');
+        handle.className = `sw-resize-handle-shape sw-resize-${dir}`;
+        const onPointerDown = (event: PointerEvent): void => {
+          if (event.button !== 0) return;
+          // Stop propagation so ScaledCanvas's pointerdown handler
+          // doesn't also fire (which would re-emit selection / start
+          // a drag-to-move on the same gesture).
+          event.stopPropagation();
+          event.preventDefault();
+          // Read scale fresh from the canvas's transform via its
+          // bounding rect — DESIGN_W is the canvas's untransformed
+          // width, getBoundingClientRect's width is post-transform.
+          const canvasEl = document.querySelector(
+            '.sw-canvas-stage .presentation-canvas',
+          );
+          const scale =
+            canvasEl instanceof HTMLElement
+              ? canvasEl.getBoundingClientRect().width / 1920
+              : 1;
+          setResizing({
+            inner: shapeInner,
+            overlay,
+            direction: dir,
+            start: selected.start,
+            end: selected.end,
+            pointerStartX: event.clientX,
+            pointerStartY: event.clientY,
+            scale,
+          });
+        };
+        handle.addEventListener('pointerdown', onPointerDown);
+        handleCleanups.push(() =>
+          handle.removeEventListener('pointerdown', onPointerDown),
+        );
+        overlay.appendChild(handle);
+      }
+    }
+
     return () => {
+      for (const fn of handleCleanups) fn();
       overlay.parentElement?.removeChild(overlay);
     };
-  }, [selected, state]);
+  }, [selected, state, activeTool]);
 
   if (!state) {
     return <div className="sw-canvas-status">waiting for source…</div>;

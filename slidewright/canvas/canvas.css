@@ -243,13 +243,44 @@ html, body, #root {
 /* Selection outline (v0.2.h). Imperative div appended by App's
  * selection effect; positioned in design-space coords inside the
  * Freeform. Dashed accent-colored border — the classic marching-
- * ants affordance, sans animation for now. v0.2.i adds corner /
- * edge handles on top of this for resize. */
+ * ants affordance, sans animation for now. v0.2.i.1 adds 8 handles
+ * (corners + edges) for Box / TextBox resize. */
 .sw-selection-outline {
   border: 2px dashed var(--accent, #0066ff);
   border-radius: 2px;
   box-sizing: border-box;
 }
+
+/* Resize handles (v0.2.i.1). Squares positioned on the corners /
+ * edge midpoints of the selection outline. Sized in design-space
+ * pixels — they scale with the canvas transform, so they shrink
+ * proportionally as the canvas zooms out. 14px in design space
+ * works out to 7px on screen at 0.5 scale, which is borderline-
+ * grabbable; refining this (counter-scale handles, or grow the
+ * handle hit-area beyond its visual size) is future polish.
+ *
+ * The overlay itself is `pointer-events: none` so the underlying
+ * shape still receives clicks. Each handle re-enables pointer
+ * events so it can catch the resize gesture. */
+.sw-resize-handle-shape {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border: 1.5px solid var(--accent, #0066ff);
+  border-radius: 2px;
+  box-sizing: border-box;
+  pointer-events: auto;
+}
+
+.sw-resize-nw { top: -7px;  left: -7px;  cursor: nwse-resize; }
+.sw-resize-ne { top: -7px;  right: -7px; cursor: nesw-resize; }
+.sw-resize-se { bottom: -7px; right: -7px; cursor: nwse-resize; }
+.sw-resize-sw { bottom: -7px; left: -7px;  cursor: nesw-resize; }
+.sw-resize-n  { top: -7px;    left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+.sw-resize-s  { bottom: -7px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+.sw-resize-e  { top: 50%;  right: -7px; transform: translateY(-50%); cursor: ew-resize; }
+.sw-resize-w  { top: 50%;  left: -7px;  transform: translateY(-50%); cursor: ew-resize; }
 
 /* ── Standalone layout (canvas + bottom-mounted editor pane) ────── */
 
