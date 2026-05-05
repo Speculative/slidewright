@@ -84,8 +84,15 @@ html, body, #root {
 .sw-resize-handle {
   flex: 0 0 4px;
   background: rgba(0, 0, 0, 0.18);
-  cursor: col-resize;
   transition: background 80ms ease;
+}
+
+.sw-resize-handle.axis-x {
+  cursor: col-resize;
+}
+
+.sw-resize-handle.axis-y {
+  cursor: row-resize;
 }
 
 .sw-resize-handle:hover,
@@ -156,4 +163,49 @@ html, body, #root {
   color: #fff;
   border-radius: 2px;
   pointer-events: none;
+}
+
+/* ── Standalone layout (canvas + bottom-mounted editor pane) ────── */
+
+/* Editor goes at the bottom — same screen real-estate that speaker
+ * notes would normally occupy in a slide-editor UI. The canvas's
+ * 16:9 aspect makes a horizontal split feel cramped, since it leaves
+ * vertical empty space on the canvas side. Bottom-mounted is the
+ * Keynote/PowerPoint convention for this reason. The bottom pane
+ * may grow into a tabbed surface (source / speaker notes / etc.)
+ * later. */
+.sw-standalone-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* The canvas part — wraps App's status/diagnostics/body in a flex
+ * column, same shape App expects when it's the sole child of #root
+ * in the webview. */
+.sw-standalone-canvas {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sw-editor-pane {
+  /* Height supplied via inline style from React state (resizable
+   * via the ResizeHandle that sits between this and the canvas). */
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 12px 16px;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: #fafafa;
+  color: #111;
+  font-family: var(--vscode-editor-font-family, "JetBrains Mono", ui-monospace, monospace);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre;
+  overflow: auto;
+  tab-size: 2;
 }

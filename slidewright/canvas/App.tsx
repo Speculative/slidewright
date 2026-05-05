@@ -242,8 +242,8 @@ export function App({ host }: { host: Host }): ReactElement {
           width={stripWidth}
         />
         <ResizeHandle
-          width={stripWidth}
-          setWidth={setStripWidth}
+          size={stripWidth}
+          setSize={setStripWidth}
           min={STRIP_WIDTH_MIN}
           max={STRIP_WIDTH_MAX}
         />

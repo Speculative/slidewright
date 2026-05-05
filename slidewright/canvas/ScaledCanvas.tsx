@@ -52,7 +52,11 @@ export function ScaledCanvas({ children, onSelectRange }: Props): ReactElement {
     return () => observer.disconnect();
   }, []);
 
-  const handleClick = (event: MouseEvent<HTMLDivElement>): void => {
+  // Double-click (rather than single) to send selection upstream.
+  // Single clicks happen too easily during navigation; making the
+  // source-jump explicit keeps the user in control of when their
+  // editor caret moves.
+  const handleDoubleClick = (event: MouseEvent<HTMLDivElement>): void => {
     if (!onSelectRange) return;
     const target = event.target as Element | null;
     if (!target?.closest) return;
@@ -71,7 +75,7 @@ export function ScaledCanvas({ children, onSelectRange }: Props): ReactElement {
   const outlineWidth = scale > 0 ? 2 / scale : 2;
 
   return (
-    <div className="presentation" ref={wrapperRef} onClick={handleClick}>
+    <div className="presentation" ref={wrapperRef} onDoubleClick={handleDoubleClick}>
       <div
         className="presentation-canvas"
         style={{

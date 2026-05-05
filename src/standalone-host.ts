@@ -1,13 +1,18 @@
 // StandaloneHost — the Slidewright canvas Host implementation that
 // runs in a normal browser via Vite (not inside a VS Code webview).
 //
-// Source-of-truth lives in this host's internal state. v0.1 reads it
-// once at module load via Vite's `?raw` import and registers an HMR
-// hook so editing decks/v0-reference/deck.sw on disk hot-updates the
-// canvas without a page refresh. v0.2 will gain a writeSource API
-// (gestures emit a new source string) — at that point the in-memory
-// state becomes the authoritative source until a persistence path
-// (FS Access API or a Vite dev-server endpoint) is wired in.
+// Source-of-truth lives in this host's internal state. Edits arrive
+// from two paths:
+//   - Vite HMR fires when decks/v0-reference/deck.sw changes on disk
+//     (so saving the file in any external editor refreshes the
+//     canvas without a page reload).
+//   - The standalone source pane (v0.1f) calls setSource on each
+//     keystroke, which flows back to the canvas via subscribe
+//     callbacks.
+//
+// The host is also the message bus between the canvas and the
+// editor pane — sendSelection (canvas → pane) and setCursor
+// (pane → canvas) wire up bidirectional selection sync.
 //
 // HARDCODED FOR v0-REFERENCE: same as the webview path — the deck
 // imports are baked in. Generalizing to "any deck" is v0.2 territory.
@@ -28,7 +33,9 @@ export class StandaloneHost implements Host {
     fileName: FILE_NAME,
     assets: { headshotImg },
   };
-  private subscribers = new Set<(state: HostState) => void>();
+  private stateSubscribers = new Set<(state: HostState) => void>();
+  private cursorSubscribers = new Set<(offset: number) => void>();
+  private selectionSubscribers = new Set<(range: SourceRange) => void>();
 
   constructor() {
     // Vite HMR: hot-update the canvas when deck.sw changes on disk
@@ -44,27 +51,43 @@ export class StandaloneHost implements Host {
     }
   }
 
+  // ── Canvas-facing ──────────────────────────────────────────────────
+
   subscribe(callback: (state: HostState) => void): () => void {
-    this.subscribers.add(callback);
-    // Fire immediately with current state — synchronous since the
-    // initial source is available from the static import.
+    this.stateSubscribers.add(callback);
     callback(this.state);
     return () => {
-      this.subscribers.delete(callback);
+      this.stateSubscribers.delete(callback);
     };
   }
 
-  // v0.2 hook: gestures will call this with the emitted source string.
-  // For now it's used by the HMR hot-update path.
-  private setSource(source: string): void {
-    this.state = { ...this.state, source };
-    for (const cb of this.subscribers) cb(this.state);
+  sendSelection(range: SourceRange): void {
+    for (const cb of this.selectionSubscribers) cb(range);
   }
 
-  // No-op until v0.1f's standalone source editor lands. Keeps the
-  // Host contract honest; the canvas doesn't have to special-case
-  // standalone vs VS Code.
-  sendSelection(_range: SourceRange): void {
-    void _range;
+  onCursorChange(callback: (offset: number) => void): () => void {
+    this.cursorSubscribers.add(callback);
+    return () => {
+      this.cursorSubscribers.delete(callback);
+    };
+  }
+
+  // ── Editor-pane-facing ─────────────────────────────────────────────
+
+  setSource(source: string): void {
+    if (source === this.state.source) return;
+    this.state = { ...this.state, source };
+    for (const cb of this.stateSubscribers) cb(this.state);
+  }
+
+  onSelection(callback: (range: SourceRange) => void): () => void {
+    this.selectionSubscribers.add(callback);
+    return () => {
+      this.selectionSubscribers.delete(callback);
+    };
+  }
+
+  setCursor(offset: number): void {
+    for (const cb of this.cursorSubscribers) cb(offset);
   }
 }
