@@ -20,6 +20,8 @@ import * as CardRow from '../../../decks/v0-reference/components/CardRow.js';
 import * as VStack from '../../../decks/v0-reference/components/VStack.js';
 import * as Freeform from '../../../decks/v0-reference/components/Freeform.js';
 import * as Box from '../../../decks/v0-reference/components/Box.js';
+import * as TextBox from '../../../decks/v0-reference/components/TextBox.js';
+import * as Arrow from '../../../decks/v0-reference/components/Arrow.js';
 
 const deckPath = resolve(process.cwd(), 'decks/v0-reference/deck.sw');
 const source = readFileSync(deckPath, 'utf8');
@@ -31,6 +33,8 @@ const components = buildRegistry({
   VStack,
   Freeform,
   Box,
+  TextBox,
+  Arrow,
 });
 const scope = {
   bindings: {

@@ -89,10 +89,17 @@ interface Props {
   // creation tool is active (activeTool !== 'select'). Same gesture
   // lifecycle — handler attaches its own move/up listeners.
   onCreateStart?: (target: CreateStart) => void;
-  activeTool?: 'select' | 'box';
+  activeTool?: 'select' | 'box' | 'textbox' | 'arrow';
 }
 
-const DRAGGABLE_SELECTOR = '[data-sw-component="Box"]';
+// Components whose drag-to-move gesture is supported in v0.2.e/g.
+// Box and TextBox both use `x` / `y` slot fills and are handled by
+// the same pointer-delta logic in App. Arrow has `x1/y1/x2/y2`
+// instead — drag-to-move there waits for v0.2.i, where the gesture
+// will move both endpoints together (and resize handles on
+// individual endpoints land at the same time).
+const DRAGGABLE_SELECTOR =
+  '[data-sw-component="Box"], [data-sw-component="TextBox"]';
 
 export function ScaledCanvas({
   children,
@@ -165,14 +172,14 @@ export function ScaledCanvas({
     const target = event.target as Element | null;
     if (!target?.closest) return;
 
-    // Creation tools take precedence over drag-to-move: in 'box'
-    // mode, pointerdown over a Freeform drags out a new shape (even
-    // if the click lands on top of an existing Box inside the
-    // Freeform). The container we hand to the create handler is the
-    // Freeform's rendered div — the same coordinate system the
+    // Creation tools take precedence over drag-to-move: any tool
+    // other than 'select' makes pointerdown over a Freeform drag
+    // out a new shape, even if the click lands on top of an
+    // existing one. The container we hand to the create handler is
+    // the Freeform's rendered div — the same coordinate system the
     // shapes render in. Without this, preview and final placement
     // would disagree by the slide-inner padding.
-    if (activeTool === 'box' && onCreateStart) {
+    if (activeTool !== 'select' && onCreateStart) {
       const freeformWrapper = target.closest('[data-sw-component="Freeform"]');
       const freeformDiv = freeformWrapper?.firstElementChild;
       if (freeformDiv instanceof HTMLElement) {
@@ -219,7 +226,9 @@ export function ScaledCanvas({
 
   return (
     <div
-      className={'presentation' + (activeTool === 'box' ? ' tool-box' : '')}
+      className={
+        'presentation' + (activeTool !== 'select' ? ' tool-drawing' : '')
+      }
       ref={wrapperRef}
       onDoubleClick={handleDoubleClick}
       onPointerDown={handlePointerDown}

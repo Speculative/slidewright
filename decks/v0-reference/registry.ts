@@ -18,6 +18,8 @@ import * as CardRow from './components/CardRow.js';
 import * as VStack from './components/VStack.js';
 import * as Freeform from './components/Freeform.js';
 import * as Box from './components/Box.js';
+import * as TextBox from './components/TextBox.js';
+import * as Arrow from './components/Arrow.js';
 
 export const components = buildRegistry({
   TitleSlide,
@@ -26,6 +28,8 @@ export const components = buildRegistry({
   VStack,
   Freeform,
   Box,
+  TextBox,
+  Arrow,
 });
 
 // Color/font token names that the .sw uses as bare lower-cased
@@ -43,4 +47,7 @@ export const staticTokens: Record<string, string> = {
   mono: 'mono',
   display: 'display',
   body: 'body',
+  fg: 'fg',
+  bg: 'bg',
+  muted: 'muted',
 };

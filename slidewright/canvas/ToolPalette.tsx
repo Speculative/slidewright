@@ -13,7 +13,7 @@
 
 import type { ReactElement } from 'react';
 
-export type Tool = 'select' | 'box';
+export type Tool = 'select' | 'box' | 'textbox' | 'arrow';
 
 interface Props {
   active: Tool;
@@ -23,6 +23,8 @@ interface Props {
 const TOOLS: Array<{ id: Tool; label: string; hint: string }> = [
   { id: 'select', label: 'Select', hint: 'V' },
   { id: 'box', label: 'Box', hint: 'B' },
+  { id: 'textbox', label: 'Text', hint: 'T' },
+  { id: 'arrow', label: 'Arrow', hint: 'A' },
 ];
 
 export function ToolPalette({ active, onSelect }: Props): ReactElement {

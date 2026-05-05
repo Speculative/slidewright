@@ -236,6 +236,10 @@ function makeSlotFill(name: string, value: Value): SlotFill {
   return { kind: 'slot_fill', name, value, span: ZERO_SPAN };
 }
 
+function makeStringLit(value: string): StringLit {
+  return { kind: 'string', value, multiline: false, span: ZERO_SPAN };
+}
+
 function makeBoxNode(
   x: number,
   y: number,
@@ -259,14 +263,53 @@ function makeBoxNode(
   };
 }
 
-function appendBoxToFreeform(
-  freeform: Component,
+function makeTextBoxNode(
   x: number,
   y: number,
   width: number,
   height: number,
-  fillToken: string,
-): void {
+): Component {
+  return {
+    kind: 'component',
+    name: 'TextBox',
+    fills: [
+      makeSlotFill('x', makeNumberLit(x)),
+      makeSlotFill('y', makeNumberLit(y)),
+      makeSlotFill('width', makeNumberLit(width)),
+      makeSlotFill('height', makeNumberLit(height)),
+      // Placeholder content so the user has a visible text region
+      // to double-click into. Auto-enter-edit on creation is
+      // future polish.
+      makeSlotFill('content', makeStringLit('Text')),
+    ],
+    implicitChildren: [],
+    span: ZERO_SPAN,
+    bodySpan: ZERO_SPAN,
+  };
+}
+
+function makeArrowNode(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+): Component {
+  return {
+    kind: 'component',
+    name: 'Arrow',
+    fills: [
+      makeSlotFill('x1', makeNumberLit(x1)),
+      makeSlotFill('y1', makeNumberLit(y1)),
+      makeSlotFill('x2', makeNumberLit(x2)),
+      makeSlotFill('y2', makeNumberLit(y2)),
+    ],
+    implicitChildren: [],
+    span: ZERO_SPAN,
+    bodySpan: ZERO_SPAN,
+  };
+}
+
+function appendShapeToFreeform(freeform: Component, shape: Component): void {
   let childrenFill = freeform.fills.find((f) => f.name === 'children');
   if (!childrenFill) {
     const list: ListLit = { kind: 'list', items: [], span: ZERO_SPAN };
@@ -274,7 +317,7 @@ function appendBoxToFreeform(
     freeform.fills.push(childrenFill);
   }
   if (childrenFill.value.kind !== 'list') return;
-  childrenFill.value.items.push(makeBoxNode(x, y, width, height, fillToken));
+  childrenFill.value.items.push(shape);
 }
 
 // Inject the props that Presentation.jsx normally adds (active=true so
@@ -589,75 +632,98 @@ export function App({ host }: { host: Host }): ReactElement {
     };
   }, [dragging, host]);
 
-  // Box-creation gesture (active when activeTool === 'box' and
-  // pointerdown happens over a Freeform). An imperative preview div
-  // is appended to the Freeform's render element for the duration
-  // of the drag — sized in design-space pixels, which scale
-  // automatically with the canvas's CSS transform. The preview and
-  // the final Box share the Freeform's coordinate system, so the
-  // shape lands exactly where it was drawn.
+  // Shape-creation gesture (active when activeTool !== 'select'
+  // and pointerdown lands over a Freeform). Two preview flavors:
+  //   - Rectangle (Box, TextBox): dashed-blue rectangle following
+  //     the pointer; on release, append a Box or TextBox node sized
+  //     to the dragged rect.
+  //   - Line (Arrow): dashed-blue line from start to cursor; on
+  //     release, append an Arrow with the two endpoints.
   //
-  // After commit, we auto-return to the Select tool — matches the
-  // typical drawing-app convention where each tool fires once.
-  // (Figma stays in tool mode; we may revisit if the auto-return
-  // feels rushed in practice.)
+  // Both flavors anchor in the Freeform's coordinate system so
+  // preview and final placement match. After commit, auto-return
+  // to Select.
   const activeIdxRef = useRef(activeIdx);
   useEffect(() => {
     activeIdxRef.current = activeIdx;
   }, [activeIdx]);
+  // Use a ref for activeTool so we don't have to re-run the create
+  // effect when the tool changes mid-gesture (which shouldn't
+  // happen, but prevents a stale closure if it does).
+  const activeToolRef = useRef(activeTool);
+  useEffect(() => {
+    activeToolRef.current = activeTool;
+  }, [activeTool]);
   useEffect(() => {
     if (!creating) return;
-    const {
-      containerEl,
-      pointerStartX,
-      pointerStartY,
-      designStartX,
-      designStartY,
-      scale,
-    } = creating;
-    void pointerStartX;
-    void pointerStartY;
+    const { containerEl, designStartX, designStartY, scale } = creating;
+    const tool = activeToolRef.current;
+    const isLine = tool === 'arrow';
 
-    const preview = document.createElement('div');
-    preview.style.position = 'absolute';
-    preview.style.left = `${designStartX}px`;
-    preview.style.top = `${designStartY}px`;
-    preview.style.width = '0px';
-    preview.style.height = '0px';
-    preview.style.background = 'rgba(0, 102, 255, 0.15)';
-    preview.style.border = '2px dashed rgba(0, 102, 255, 0.85)';
-    preview.style.boxSizing = 'border-box';
-    preview.style.pointerEvents = 'none';
-    containerEl.appendChild(preview);
+    let rectPreview: HTMLDivElement | null = null;
+    let svgPreview: SVGSVGElement | null = null;
+    let linePreview: SVGLineElement | null = null;
 
-    const updateRect = (clientX: number, clientY: number) => {
+    if (isLine) {
+      const ns = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(ns, 'svg') as SVGSVGElement;
+      svg.setAttribute(
+        'style',
+        'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible',
+      );
+      const line = document.createElementNS(ns, 'line') as SVGLineElement;
+      line.setAttribute('x1', String(designStartX));
+      line.setAttribute('y1', String(designStartY));
+      line.setAttribute('x2', String(designStartX));
+      line.setAttribute('y2', String(designStartY));
+      line.setAttribute('stroke', 'rgba(0, 102, 255, 0.85)');
+      line.setAttribute('stroke-width', '4');
+      line.setAttribute('stroke-dasharray', '6 4');
+      line.setAttribute('stroke-linecap', 'round');
+      svg.appendChild(line);
+      containerEl.appendChild(svg);
+      svgPreview = svg;
+      linePreview = line;
+    } else {
+      const div = document.createElement('div');
+      div.style.position = 'absolute';
+      div.style.left = `${designStartX}px`;
+      div.style.top = `${designStartY}px`;
+      div.style.width = '0px';
+      div.style.height = '0px';
+      div.style.background = 'rgba(0, 102, 255, 0.15)';
+      div.style.border = '2px dashed rgba(0, 102, 255, 0.85)';
+      div.style.boxSizing = 'border-box';
+      div.style.pointerEvents = 'none';
+      containerEl.appendChild(div);
+      rectPreview = div;
+    }
+
+    const cursor = (clientX: number, clientY: number) => {
       const rect = containerEl.getBoundingClientRect();
-      const cursorX = (clientX - rect.left) / scale;
-      const cursorY = (clientY - rect.top) / scale;
-      const left = Math.min(designStartX, cursorX);
-      const top = Math.min(designStartY, cursorY);
-      const width = Math.abs(cursorX - designStartX);
-      const height = Math.abs(cursorY - designStartY);
-      return { left, top, width, height };
+      return {
+        x: (clientX - rect.left) / scale,
+        y: (clientY - rect.top) / scale,
+      };
     };
 
     const onMove = (e: PointerEvent) => {
-      const { left, top, width, height } = updateRect(e.clientX, e.clientY);
-      preview.style.left = `${left}px`;
-      preview.style.top = `${top}px`;
-      preview.style.width = `${width}px`;
-      preview.style.height = `${height}px`;
+      const c = cursor(e.clientX, e.clientY);
+      if (linePreview) {
+        linePreview.setAttribute('x2', String(c.x));
+        linePreview.setAttribute('y2', String(c.y));
+      } else if (rectPreview) {
+        const left = Math.min(designStartX, c.x);
+        const top = Math.min(designStartY, c.y);
+        rectPreview.style.left = `${left}px`;
+        rectPreview.style.top = `${top}px`;
+        rectPreview.style.width = `${Math.abs(c.x - designStartX)}px`;
+        rectPreview.style.height = `${Math.abs(c.y - designStartY)}px`;
+      }
     };
 
     const onUp = (e: PointerEvent) => {
-      const { left, top, width, height } = updateRect(e.clientX, e.clientY);
-      // Tiny rectangles are treated as accidental clicks; no source
-      // change. 5 design-space pixels is a small enough threshold
-      // that intentional small shapes still go through.
-      if (width < 5 || height < 5) {
-        setCreating(null);
-        return;
-      }
+      const c = cursor(e.clientX, e.clientY);
       const result = parse(sourceRef.current, '<create>');
       if (!result.diagnostics.some((d) => d.severity === 'error')) {
         const freeform = findActiveSlideFreeform(
@@ -665,16 +731,42 @@ export function App({ host }: { host: Host }): ReactElement {
           activeIdxRef.current,
         );
         if (freeform) {
-          appendBoxToFreeform(
-            freeform,
-            Math.round(left),
-            Math.round(top),
-            Math.round(width),
-            Math.round(height),
-            'amber',
-          );
-          host.setSource?.(emit(result.ast));
-          setActiveTool('select');
+          let inserted = false;
+          if (tool === 'arrow') {
+            // Treat very short lines as accidental clicks.
+            const dx = c.x - designStartX;
+            const dy = c.y - designStartY;
+            if (Math.hypot(dx, dy) >= 5) {
+              appendShapeToFreeform(
+                freeform,
+                makeArrowNode(
+                  Math.round(designStartX),
+                  Math.round(designStartY),
+                  Math.round(c.x),
+                  Math.round(c.y),
+                ),
+              );
+              inserted = true;
+            }
+          } else {
+            const left = Math.round(Math.min(designStartX, c.x));
+            const top = Math.round(Math.min(designStartY, c.y));
+            const width = Math.round(Math.abs(c.x - designStartX));
+            const height = Math.round(Math.abs(c.y - designStartY));
+            if (width >= 5 && height >= 5) {
+              appendShapeToFreeform(
+                freeform,
+                tool === 'textbox'
+                  ? makeTextBoxNode(left, top, width, height)
+                  : makeBoxNode(left, top, width, height, 'amber'),
+              );
+              inserted = true;
+            }
+          }
+          if (inserted) {
+            host.setSource?.(emit(result.ast));
+            setActiveTool('select');
+          }
         }
       }
       setCreating(null);
@@ -689,8 +781,11 @@ export function App({ host }: { host: Host }): ReactElement {
       document.removeEventListener('pointerup', onUp);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
-      if (preview.parentElement) {
-        preview.parentElement.removeChild(preview);
+      if (rectPreview?.parentElement) {
+        rectPreview.parentElement.removeChild(rectPreview);
+      }
+      if (svgPreview?.parentElement) {
+        svgPreview.parentElement.removeChild(svgPreview);
       }
     };
   }, [creating, host]);
