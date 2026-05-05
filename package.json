@@ -6,7 +6,16 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test:parser": "tsx slidewright/runtime/__test__/parser.smoke.ts",
+    "test:loader": "tsx slidewright/runtime/__test__/loader.smoke.ts",
+    "test:ssr": "tsx slidewright/runtime/__test__/ssr.smoke.ts",
+    "test": "npm run typecheck && npm run test:parser && npm run test:loader && npm run test:ssr",
+    "slidewright": "tsx slidewright/cli/validate.ts"
+  },
+  "bin": {
+    "slidewright": "slidewright/cli/validate.ts"
   },
   "dependencies": {
     "prism-react-renderer": "^2.4.1",
@@ -14,7 +23,15 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@types/node": "^25.6.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.3.4",
-    "vite": "^6.0.0"
+    "playwright": "^1.59.1",
+    "tree-sitter-cli": "^0.26.8",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3",
+    "vite": "^6.0.0",
+    "web-tree-sitter": "^0.26.8"
   }
 }

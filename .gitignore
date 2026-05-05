@@ -5,3 +5,6 @@ dist
 *.swp
 *.swo
 .carthage/last-build-hash
+# Local-only artifacts from runtime smoke tests (e.g., playwright
+# screenshots produced by slidewright/runtime/__test__/render.smoke.ts).
+.tmp/

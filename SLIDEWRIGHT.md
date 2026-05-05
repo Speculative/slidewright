@@ -370,11 +370,22 @@ Translates between source files (the DSL) and the editor's runtime tree, in both
 
 External edits (a human typing in the code panel, an AI rewriting a file) are detected via VS Code's document-change events and re-parsed. The editor keeps selection stable across re-parses by keying on IDs. In-progress gesture state is dropped when an external edit lands; the external edit takes precedence.
 
-### Parser **TENTATIVE (tree-sitter as v0 default)**
+### Parser **DECIDED (hand-rolled recursive descent)**
 
-The parser is **error-recovering**: malformed source produces a partial CST with explicit error nodes rather than a parse failure. The editor renders what's parseable; broken regions show error markers and do not block rendering of their siblings. This is the IDE-grade default, not a special accommodation for AI — humans typing in the source panel get the same recovery.
+The parser is **error-recovering**: malformed source produces a partial AST with explicit error nodes rather than a parse failure. The editor renders what's parseable; broken regions show error markers and do not block rendering of their siblings. This is the IDE-grade default, not a special accommodation for AI — humans typing in the source panel get the same recovery.
 
-**v0 implementation: tree-sitter.** Purpose-built for IDE error recovery; declarative grammar; produces an incremental CST; JS bindings via WASM (`web-tree-sitter`) so the same parser works in the editor and in CLI tooling. The serious alternative is hand-rolled recursive descent (TS compiler / Roslyn / rustc) — higher ceiling on diagnostics quality, much more upfront work, recovery hard to get right. Defer hand-rolled until tree-sitter's diagnostics ceiling becomes painful.
+**Implementation: hand-rolled recursive descent** (`slidewright/runtime/parser.ts`). This is the lineage of every primary language toolchain that prioritizes diagnostics quality (rustc / rust-analyzer, Roslyn for C#, the TypeScript compiler, Clang, the Swift compiler — all hand-rolled). Tree-sitter is the SOTA for syntax highlighting and generic multi-language IDE plumbing across many grammars (atom, zed, neovim, GitHub's highlighter), but its diagnostics ceiling is "expected X, got Y" generic structural errors. Slidewright has one grammar to maintain and a stated diagnostics-quality priority (per AI authoring), so the case for tree-sitter's declarative-grammar economy doesn't apply, and the case for its automatic recovery is outweighed by the diagnostics ceiling.
+
+**The brace-block grammar's recovery points are well-defined**, so error recovery is bounded work rather than open-ended risk:
+- **Slide-level floor.** Items in `slides: [...]` parse independently. A malformed slide → skip to the next `Slide {` or `]`.
+- **Brace-body floor.** Slot fills parse independently. A malformed fill → skip to the next newline / `,` / `}`.
+- **Value-level floor.** An unparseable value emits an `error_value` AST node carrying the source span and an expected-type hint, while keeping the surrounding slot-fill structure intact so the inspector can render "fix me here."
+
+The diagnostics translator (slot-type mismatches, missing-required hints, "did you mean...") lives in the parser and validator with full context, not as a post-hoc CST visitor.
+
+**Tree-sitter is investigated and deferred.** A `grammar.js` file in `slidewright/grammar/` captures the brace-block grammar in tree-sitter's declarative form as a precise specification independent of the runtime parser, and as the entry point if we ever revisit. The investigation that produced this decision is captured in `HANDOFF.md / Tree-sitter investigation`. Triggers for revisiting: (a) the recovery code becomes a maintenance burden, (b) we want syntax highlighting in environments outside our own editor, or (c) we add a second grammar dialect.
+
+**Worked recovery and round-trip emit are v0.2+ work**, not v0.0. The v0.0 bridge does enough recovery to keep simple smoke tests honest; full recovery synchronization at the floors above is deferred until the canvas + emit work needs it.
 
 **Diagnostics layer is ours.** Tree-sitter's built-in error messages are structural ("expected X, got Y"); user-friendly Slidewright-specific diagnostics (slot-type mismatches, missing-required-slot hints, "did you mean …") live in a translator layer over the CST. This is where the polish goes — error quality is one of our priorities and the diagnostics layer is small and fully under our control.
 
@@ -723,15 +734,15 @@ The fundamental bet: **bidirectional projectional editing of a typed component t
 
 v0 is broken into incremental milestones. Each ends in a runnable demo of the substrate at that level — we don't wait for full v0 before exercising the system. The split was made deliberately: direct manipulation is meaningful work that depends on a working parser+renderer, so the first cut (v0.0) defers all canvas/gesture concerns to validate the foundation in isolation.
 
-**v0.0 — Read-only viewer.** Parser + renderer + minimal cell runtime. No canvas, no editing.
-- Tree-sitter grammar for the brace-block DSL.
-- Diagnostics translator over the CST (Slidewright-friendly errors on top of tree-sitter's structural errors).
-- Cell-resolution runtime (`resolve(handle, context): T` interface; `(handle, context)`-keyed cache; v0 context is empty; literals only — no computed defaults yet).
-- Slide-component contract consumer: load `.tsx` files with `slidewright` metadata, validate slot fillings, dispatch to default React export with resolved `{ slots, params }`.
-- Render via the existing slide-template scaffold (`Presentation` runtime in `src/`); Slidewright produces React elements; scaffold handles navigation, scaling, notes, print.
-- Tiny reference deck: title slide + one content slide written in the DSL with one or two custom components.
-- CLI: `slidewright validate` (parse + slot-schema validation; structured diagnostic output).
-- **Demo**: author hand-writes a `.sw` file, runs `vite`, sees the slide rendered. Edits to source hot-reload.
+**v0.0 — Read-only viewer.** Parser + renderer + minimal cell runtime. No canvas, no editing. **Status: implemented (this revision).**
+- Hand-rolled recursive-descent parser (`slidewright/runtime/parser.ts`) tracking the brace-block grammar specification in `slidewright/grammar/grammar.js`. Parser commitment captured in Mediation layer / Parser. Tree-sitter was investigated and deferred (see HANDOFF.md / Tree-sitter investigation); the lineage we're aiming for is rustc / Roslyn / TypeScript-compiler hand-rolled parsers, prioritizing diagnostics ceiling over declarative-grammar economy.
+- Diagnostics translator (`slidewright/runtime/diagnostics.ts`): structured kinds (`parse`, `lex`, `slot-type-mismatch`, `missing-required-slot`, `unknown-slot`, `duplicate-slot`, `unknown-reference`, `unknown-component`, `invalid-implicit-children`, `asset-not-found`, `component-load-error`).
+- Cell-resolution runtime (`slidewright/runtime/cells.ts`): `resolve(handle, context): T` interface, `(handle, context)`-keyed cache, v0 context is empty, literals only — computed defaults reserved for v0.2+.
+- Slide-component contract consumer (`slidewright/runtime/contract.ts` + `loader.ts`): load `.tsx` files with `slidewright` metadata, validate slot fillings, dispatch to default React export with resolved `{ slots, params }`.
+- Render via the existing slide-template scaffold (`Presentation` runtime in `src/`); Slidewright produces React elements; scaffold handles navigation, scaling, notes, print. The DSL exposes `Slide { ... }` as a built-in that maps to `src/Slide.jsx`'s React component.
+- Tiny reference deck (`decks/v0-reference/`): title slide + one content slide with three composed CardRow children, exercising all of: text runs with embedded `Span`, asset references via deck scope, color-token name refs, triple-quoted notes, adjacent-string concatenation, implicit children inside list values, and the typed-slot validator.
+- CLI: `slidewright validate <path>` (parse + slot-schema validation; structured diagnostic output; `--json` for agent consumption; `--parse-only` and `--check-refs` flags).
+- **Demo**: author hand-writes a `.sw` file, runs `vite`, sees the slide rendered. Edits to source hot-reload. Verified via SSR smoke test (`npm test`); a chromium-based visual smoke test was attempted but the sandbox lacks the system shared libs to launch headless chromium, so end-user visual validation remains a manual step.
 
 **v0.1 — VS Code extension with read-only canvas.**
 - VS Code extension scaffolding; webview integration.
@@ -834,7 +845,7 @@ For ease of reference, the major unresolved questions:
 
 **Resolved by recent design pass:**
 - ~~Slide-component contract shape~~ → v0-light shape committed: `{ produces, slots, params, protocols: {} }` plus default React component taking `{ slots, params }` props. See Wrapper / contract design.
-- ~~Round-trip mechanism~~ → canonical re-emit on editor write; structure preserved, comments preserved, formatting normalized; per-slide type-prefixed counter IDs; tree-sitter parser with error recovery. See Mediation layer.
+- ~~Round-trip mechanism~~ → canonical re-emit on editor write; structure preserved, comments preserved, formatting normalized; per-slide type-prefixed counter IDs; hand-rolled recursive-descent parser (rustc/Roslyn lineage) with explicit recovery synchronization points. See Mediation layer.
 - ~~Undo/redo reconciliation between Slidewright and VS Code~~ → canvas gesture stack + VS Code text-buffer stack, each canvas gesture pushes onto both 1:1; external edits are barriers in the canvas stack for v0. Long-term direction (snapshot+fold, no walls in history) noted but not v0. See Mediation layer / Undo/redo.
 - ~~AI authoring posture~~ → dissolved by agent-external framing. No first-party agentic features; instead provide TS types, CLI tooling, structured diagnostics, and `AGENTS.md`-style docs. Parser permissive, validator strict, editor renders permissively. See AI authoring.
 - ~~Animation/build value model~~ → cells gain optional `valuesByState` layer; resolution is `(handle, context)`-keyed throughout, including v0; three categories (enter/exit, cell-value transitions, motion graphics) surfaced; implicit-by-ID-match defaults with explicit customization for non-trivial cases; discrete states as primary, continuous-time motion graphics as future extension. See Animations and builds.
@@ -856,7 +867,7 @@ For ease of reference, the major unresolved questions:
 - Full inventory of CLI query commands beyond the v0 set (`query refs`, etc.)
 - **Long-term: snapshot-and-fold undo model** (post-v0; replaces external-edit barriers with a unified history)
 - **Long-term: hybrid emit** (canonical-on-editor-write, leave-alone on idle regions; replaces pure canonical re-emit if author churn becomes painful)
-- **Long-term: hand-rolled parser** (post-v0; replaces tree-sitter if its diagnostics ceiling becomes painful)
+- **Revisit: tree-sitter** (currently deferred; revisit if recovery becomes a maintenance burden, or we want syntax highlighting outside our own editor, or we add a second grammar dialect)
 
 Most of these should not be answered before v0. Several can only be answered by living with v0 for a while.
 

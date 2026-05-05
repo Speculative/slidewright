@@ -10,5 +10,33 @@
 
 FROM ghcr.io/speculative/carthage-base:v1
 
+# Playwright headless chromium runtime libs. The v0.0 visual smoke test
+# bounced off `libglib-2.0.so.0: cannot open shared object file` against
+# the bare base image — these are the standard libs Playwright's
+# chromium-headless-shell needs on a Debian-flavored host.
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libglib2.0-0 \
+        libnss3 \
+        libnspr4 \
+        libdbus-1-3 \
+        libatk1.0-0 \
+        libatk-bridge2.0-0 \
+        libcups2 \
+        libdrm2 \
+        libxkbcommon0 \
+        libxcomposite1 \
+        libxdamage1 \
+        libxext6 \
+        libxfixes3 \
+        libxrandr2 \
+        libgbm1 \
+        libpango-1.0-0 \
+        libcairo2 \
+        libasound2 \
+        libatspi2.0-0 \
+        fonts-liberation \
+    && rm -rf /var/lib/apt/lists/*
 USER carthage
+
 WORKDIR /workspace
