@@ -89,6 +89,10 @@ services:
     # or `carthage up --port H:C` to override for one run.
     ports:
       - "5173:5173"
+      # code-server, localhost-only by default. The host LAN isn't
+      # firewalled off (see SANDBOX.md), so binding the IDE to all
+      # interfaces would expose it to anyone on the same network.
+      - "127.0.0.1:8080:8080"
 
     networks:
       - carthage-net

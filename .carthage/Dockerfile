@@ -37,6 +37,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libatspi2.0-0 \
         fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
+
+# code-server: browser-based VS Code, used to develop and manually test
+# the Slidewright VS Code extension (v0.1+) inside the sandbox without
+# needing host-side VS Code. Pinned for reproducibility; bump deliberately.
+ARG CODE_SERVER_VERSION=4.117.0
+RUN curl -fsSL https://code-server.dev/install.sh \
+      | sh -s -- --version ${CODE_SERVER_VERSION} \
+    && rm -rf /var/lib/apt/lists/*
 USER carthage
 
 WORKDIR /workspace
