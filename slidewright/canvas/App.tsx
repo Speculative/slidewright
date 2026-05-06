@@ -15,8 +15,6 @@ import type { ReactElement } from 'react';
 
 import { loadDeck } from '../runtime/loader.js';
 import type { Diagnostic } from '../runtime/diagnostics.js';
-import { emit } from '../runtime/emitter.js';
-import { parse } from '../runtime/parser.js';
 import type { Component } from '../runtime/ast.js';
 import { components, staticTokens } from '../../decks/v0-reference/registry.js';
 import { DeckMetaContext } from '../../src/Slide.jsx';
@@ -30,11 +28,11 @@ import {
 } from './ScaledCanvas.js';
 import {
   appendShapeToFreeform,
+  commitSourceEdit,
   computeArrowGeometry,
   findActiveSlideFreeform,
   findComponentAtSpan,
   findNumericSlot,
-  findShapeAtChildIdx,
   findShapeChildIdx,
   findStringAt,
   makeArrowNode,
@@ -355,19 +353,13 @@ export function App({ host }: { host: Host }): ReactElement {
         // literal is emitted in place of two), but we preserve
         // comments — and we know the round-trip is structurally
         // sound because the property tests cover it.
-        const src = sourceRef.current;
-        const result = parse(src, '<edit>');
-        if (result.diagnostics.some((d) => d.severity === 'error')) {
-          // Source is currently broken; bail rather than emit on
-          // top of a partial AST.
-          setEditing(null);
-          return;
-        }
-        const target = findStringAt(result.ast, start, end);
-        if (target) {
+        const result = commitSourceEdit(sourceRef.current, '<edit>', (ast) => {
+          const target = findStringAt(ast, start, end);
+          if (!target) return null;
           target.value = newText;
-          host.setSource?.(emit(result.ast));
-        }
+          return {};
+        });
+        if (result) host.setSource?.(result.newSource);
       } else if (intent === 'cancel') {
         // Restore the original text — without this, the user-typed
         // content stays in the DOM until the next host re-render.
@@ -617,40 +609,20 @@ export function App({ host }: { host: Host }): ReactElement {
         setDragging(null);
         return;
       }
-      const result = parse(sourceRef.current, '<drag>');
-      if (!result.diagnostics.some((d) => d.severity === 'error')) {
-        const target = findComponentAtSpan(result.ast, start, end);
-        if (target) {
-          commit(target, designDx, designDy);
-          // Capture the dragged shape's child index *before* emit
-          // (spans in result.ast still reflect pre-emit offsets, so
-          // the target span matches).
-          const childIdx = isSelectedDrag
-            ? findShapeChildIdx(result.ast, activeIdxRef.current, { start, end })
-            : null;
-          const newSource = emit(result.ast);
-          if (childIdx !== null) {
-            // Re-parse the post-emit source and find the same shape
-            // by its (stable) child index. Stash the new span so the
-            // subscribe handler re-applies the selection after
-            // setSource flushes through the host.
-            const reparsed = parse(newSource, '<drag-after>');
-            if (!reparsed.diagnostics.some((d) => d.severity === 'error')) {
-              const newShape = findShapeAtChildIdx(
-                reparsed.ast,
-                activeIdxRef.current,
-                childIdx,
-              );
-              if (newShape) {
-                pendingSelectionRef.current = {
-                  start: newShape.span.start.offset,
-                  end: newShape.span.end.offset,
-                };
-              }
-            }
-          }
-          host.setSource?.(newSource);
-        }
+      const slideIdx = activeIdxRef.current;
+      const result = commitSourceEdit(sourceRef.current, '<drag>', (ast) => {
+        const target = findComponentAtSpan(ast, start, end);
+        if (!target) return null;
+        commit(target, designDx, designDy);
+        if (!isSelectedDrag) return {};
+        const childIdx = findShapeChildIdx(ast, slideIdx, { start, end });
+        return childIdx !== null
+          ? { preserveSelection: { slideIdx, childIdx } }
+          : {};
+      });
+      if (result) {
+        if (result.newSelection) pendingSelectionRef.current = result.newSelection;
+        host.setSource?.(result.newSource);
       }
       setDragging(null);
     };
@@ -846,38 +818,19 @@ export function App({ host }: { host: Host }): ReactElement {
         setResizing(null);
         return;
       }
-      const result = parse(sourceRef.current, '<resize>');
-      if (!result.diagnostics.some((d) => d.severity === 'error')) {
-        const target = findComponentAtSpan(result.ast, start, end);
-        if (target) {
-          commit(target, designDx, designDy);
-          // Capture the resized shape's child index *before* emit,
-          // re-find it post-emit by index, then stash the new span
-          // so the subscribe handler reapplies the selection.
-          const childIdx = findShapeChildIdx(
-            result.ast,
-            activeIdxRef.current,
-            { start, end },
-          );
-          const newSource = emit(result.ast);
-          if (childIdx !== null) {
-            const reparsed = parse(newSource, '<resize-after>');
-            if (!reparsed.diagnostics.some((d) => d.severity === 'error')) {
-              const newShape = findShapeAtChildIdx(
-                reparsed.ast,
-                activeIdxRef.current,
-                childIdx,
-              );
-              if (newShape) {
-                pendingSelectionRef.current = {
-                  start: newShape.span.start.offset,
-                  end: newShape.span.end.offset,
-                };
-              }
-            }
-          }
-          host.setSource?.(newSource);
-        }
+      const slideIdx = activeIdxRef.current;
+      const result = commitSourceEdit(sourceRef.current, '<resize>', (ast) => {
+        const target = findComponentAtSpan(ast, start, end);
+        if (!target) return null;
+        commit(target, designDx, designDy);
+        const childIdx = findShapeChildIdx(ast, slideIdx, { start, end });
+        return childIdx !== null
+          ? { preserveSelection: { slideIdx, childIdx } }
+          : {};
+      });
+      if (result) {
+        if (result.newSelection) pendingSelectionRef.current = result.newSelection;
+        host.setSource?.(result.newSource);
       }
       setResizing(null);
     };
@@ -974,50 +927,41 @@ export function App({ host }: { host: Host }): ReactElement {
 
     const onUp = (e: PointerEvent) => {
       const c = cursor(e.clientX, e.clientY);
-      const result = parse(sourceRef.current, '<create>');
-      if (!result.diagnostics.some((d) => d.severity === 'error')) {
-        const freeform = findActiveSlideFreeform(
-          result.ast,
-          activeIdxRef.current,
-        );
-        if (freeform) {
-          let inserted = false;
-          if (tool === 'arrow') {
-            // Treat very short lines as accidental clicks.
-            const dx = c.x - designStartX;
-            const dy = c.y - designStartY;
-            if (Math.hypot(dx, dy) >= 5) {
-              appendShapeToFreeform(
-                freeform,
-                makeArrowNode(
-                  Math.round(designStartX),
-                  Math.round(designStartY),
-                  Math.round(c.x),
-                  Math.round(c.y),
-                ),
-              );
-              inserted = true;
-            }
-          } else {
-            const left = Math.round(Math.min(designStartX, c.x));
-            const top = Math.round(Math.min(designStartY, c.y));
-            const width = Math.round(Math.abs(c.x - designStartX));
-            const height = Math.round(Math.abs(c.y - designStartY));
-            if (width >= 5 && height >= 5) {
-              appendShapeToFreeform(
-                freeform,
-                tool === 'textbox'
-                  ? makeTextBoxNode(left, top, width, height)
-                  : makeBoxNode(left, top, width, height, 'amber'),
-              );
-              inserted = true;
-            }
-          }
-          if (inserted) {
-            host.setSource?.(emit(result.ast));
-            setActiveTool('select');
-          }
+      const result = commitSourceEdit(sourceRef.current, '<create>', (ast) => {
+        const freeform = findActiveSlideFreeform(ast, activeIdxRef.current);
+        if (!freeform) return null;
+        if (tool === 'arrow') {
+          // Treat very short lines as accidental clicks.
+          const dx = c.x - designStartX;
+          const dy = c.y - designStartY;
+          if (Math.hypot(dx, dy) < 5) return null;
+          appendShapeToFreeform(
+            freeform,
+            makeArrowNode(
+              Math.round(designStartX),
+              Math.round(designStartY),
+              Math.round(c.x),
+              Math.round(c.y),
+            ),
+          );
+          return {};
         }
+        const left = Math.round(Math.min(designStartX, c.x));
+        const top = Math.round(Math.min(designStartY, c.y));
+        const width = Math.round(Math.abs(c.x - designStartX));
+        const height = Math.round(Math.abs(c.y - designStartY));
+        if (width < 5 || height < 5) return null;
+        appendShapeToFreeform(
+          freeform,
+          tool === 'textbox'
+            ? makeTextBoxNode(left, top, width, height)
+            : makeBoxNode(left, top, width, height, 'amber'),
+        );
+        return {};
+      });
+      if (result) {
+        host.setSource?.(result.newSource);
+        setActiveTool('select');
       }
       setCreating(null);
     };
@@ -1061,12 +1005,12 @@ export function App({ host }: { host: Host }): ReactElement {
         return;
       }
       if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
-        const result = parse(sourceRef.current, '<delete>');
-        if (!result.diagnostics.some((d) => d.severity === 'error')) {
-          if (removeShapeAtSpan(result.ast, selected)) {
-            host.setSource?.(emit(result.ast));
-            setSelected(null);
-          }
+        const result = commitSourceEdit(sourceRef.current, '<delete>', (ast) =>
+          removeShapeAtSpan(ast, selected) ? {} : null,
+        );
+        if (result) {
+          host.setSource?.(result.newSource);
+          setSelected(null);
         }
         e.preventDefault();
       }

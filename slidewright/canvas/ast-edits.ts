@@ -26,6 +26,8 @@
 // the same gesture-commit code, and pulling it out of App keeps
 // the SVG-arithmetic noise out of React state-management code.
 
+import { emit } from '../runtime/emitter.js';
+import { parse } from '../runtime/parser.js';
 import type {
   Component,
   ListLit,
@@ -376,6 +378,71 @@ export function removeShapeAtSpan(
   };
   visit(ast);
   return removed;
+}
+
+// ─── Edit pipeline ───────────────────────────────────────────────
+
+// Position of a shape in its containing Freeform, used by drag and
+// resize to preserve selection across the emit cycle. Spans shift
+// when the canonical formatter rewrites whitespace, so the in-flight
+// (start, end) doesn't match anything in the post-emit tree — but
+// child index *does* survive (the operation only mutates the
+// shape's own slot fills, never reorders siblings).
+export interface PreserveSelection {
+  slideIdx: number;
+  childIdx: number;
+}
+
+export interface CommitResult {
+  newSource: string;
+  // The mutated shape's new (start, end), if `mutate` requested
+  // selection preservation. Callers stash this in
+  // `pendingSelectionRef` so the host's subscribe handler can
+  // re-apply selection after `setSource` flushes through.
+  newSelection: SourceRange | null;
+}
+
+// Source-mutation pipeline shared by every gesture-commit path
+// (drag, resize, create, delete, text-edit). The mutate callback
+// receives a freshly parsed AST and either:
+//   - returns `null` to abort the commit (target not found, no
+//     visible change, etc.)
+//   - returns `{}` to commit without selection preservation
+//   - returns `{ preserveSelection: ... }` to commit AND have
+//     this helper re-find the shape post-emit and report its new
+//     span via `newSelection` on the result
+//
+// On parse error (either before mutation or in the post-emit
+// reparse), the function returns null without calling setSource —
+// the caller stays at the pre-edit source rather than emitting on
+// top of a partial AST.
+export function commitSourceEdit(
+  source: string,
+  label: string,
+  mutate: (
+    ast: SourceFile,
+  ) => { preserveSelection?: PreserveSelection } | null,
+): CommitResult | null {
+  const result = parse(source, label);
+  if (result.diagnostics.some((d) => d.severity === 'error')) return null;
+  const outcome = mutate(result.ast);
+  if (!outcome) return null;
+  const newSource = emit(result.ast);
+  let newSelection: SourceRange | null = null;
+  if (outcome.preserveSelection) {
+    const { slideIdx, childIdx } = outcome.preserveSelection;
+    const reparsed = parse(newSource, `${label}-after`);
+    if (!reparsed.diagnostics.some((d) => d.severity === 'error')) {
+      const newShape = findShapeAtChildIdx(reparsed.ast, slideIdx, childIdx);
+      if (newShape) {
+        newSelection = {
+          start: newShape.span.start.offset,
+          end: newShape.span.end.offset,
+        };
+      }
+    }
+  }
+  return { newSource, newSelection };
 }
 
 // ─── Geometry ────────────────────────────────────────────────────
