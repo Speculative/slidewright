@@ -170,9 +170,14 @@ html, body, #root {
  * doesn't depend on the underlying component's own styling. The
  * `grabbing` state during drag is set imperatively on document.body
  * by App's drag handler (consistent across when the pointer briefly
- * leaves the shape mid-gesture). Currently scoped to Box; future
- * shape primitives will share the selector. */
-[data-sw-component='Box'] {
+ * leaves the shape mid-gesture).
+ *
+ * Arrow is included even though its wrapper is an SVG (whose
+ * pointer-events: none means the cursor only renders on the bits
+ * that actually catch the pointer — the visible line, hit-area
+ * line, and polygon — which is exactly what we want). */
+[data-sw-component='Box'],
+[data-sw-component='Arrow'] {
   cursor: grab;
 }
 
@@ -281,6 +286,16 @@ html, body, #root {
 .sw-resize-s  { bottom: -7px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
 .sw-resize-e  { top: 50%;  right: -7px; transform: translateY(-50%); cursor: ew-resize; }
 .sw-resize-w  { top: 50%;  left: -7px;  transform: translateY(-50%); cursor: ew-resize; }
+
+/* Arrow endpoint handles (v0.2.i.2). Same visual as box-resize
+ * handles but positioned directly inside the freeform at the
+ * arrow's actual endpoint coordinates (not at corners of a
+ * bounding rectangle). The cursor is `move` since dragging
+ * relocates the endpoint in 2D rather than along a constrained
+ * axis. */
+.sw-arrow-endpoint {
+  cursor: move;
+}
 
 /* ── Standalone layout (canvas + bottom-mounted editor pane) ────── */
 

@@ -54,6 +54,10 @@ export default function Arrow({ params }: ComponentRenderProps) {
   const px2 = baseX - lx;
   const py2 = baseY - ly;
 
+  // Hit-area stroke width — keeps thin arrows comfortably
+  // clickable. Matches the visible stroke for already-thick arrows.
+  const hitWidth = Math.max(strokeWidth, 24);
+
   return (
     <svg
       style={{
@@ -65,6 +69,9 @@ export default function Arrow({ params }: ComponentRenderProps) {
         overflow: 'visible',
       }}
     >
+      {/* Visible stroke. Pointer events disabled — the hit-area
+        * line below catches clicks within a wider region so thin
+        * arrows are still grabbable. */}
       <line
         x1={x1}
         y1={y1}
@@ -73,12 +80,25 @@ export default function Arrow({ params }: ComponentRenderProps) {
         stroke={`var(--${color})`}
         strokeWidth={strokeWidth}
         strokeLinecap="round"
-        // Re-enable pointer events on the line itself (the parent
-        // SVG is pointer-events: none so clicks pass through to
-        // shapes underneath when they don't hit the line). v0.2.h's
-        // selection model relies on this — clicking the line
-        // selects the Arrow.
-        style={{ pointerEvents: 'visiblePainted' }}
+        style={{ pointerEvents: 'none' }}
+      />
+      {/* Invisible wider hit area — `pointer-events: stroke` makes
+        * the entire stroked region catchable regardless of color.
+        * Stays transparent so it doesn't dim the visible line. The
+        * canvas's selection / drag dispatch (App.tsx → ScaledCanvas
+        * → DRAGGABLE_SELECTOR) walks the closest data-sw-component
+        * ancestor, which works the same whether the click landed on
+        * the visible or hit-area stroke. */}
+      <line
+        x1={x1}
+        y1={y1}
+        x2={baseX}
+        y2={baseY}
+        stroke="transparent"
+        strokeWidth={hitWidth}
+        strokeLinecap="round"
+        style={{ pointerEvents: 'stroke' }}
+        data-arrow-hit="line"
       />
       <polygon
         points={`${x2},${y2} ${px1},${py1} ${px2},${py2}`}

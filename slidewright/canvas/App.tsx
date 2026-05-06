@@ -243,6 +243,34 @@ function findShapeChildIdx(
   return null;
 }
 
+// Mirrors decks/v0-reference/components/Arrow.tsx's arrowhead
+// computation. Used by drag (body translate) and resize (endpoint
+// move) to keep the line + polygon visually consistent during live
+// gestures — the visible line ends at the arrowhead BASE, not the
+// tip, and the polygon needs three vertices recomputed every
+// frame as the angle changes. Returns the coordinates the SVG
+// elements need to display the final geometry.
+function computeArrowGeometry(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  strokeWidth: number,
+): { baseX: number; baseY: number; points: string } {
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  const head = Math.max(12, strokeWidth * 3);
+  const halfWidth = head * 0.6;
+  const baseX = x2 - head * Math.cos(angle);
+  const baseY = y2 - head * Math.sin(angle);
+  const lx = -Math.sin(angle) * halfWidth;
+  const ly = Math.cos(angle) * halfWidth;
+  return {
+    baseX,
+    baseY,
+    points: `${x2},${y2} ${baseX + lx},${baseY + ly} ${baseX - lx},${baseY - ly}`,
+  };
+}
+
 // Reverse direction: find the Component at a given index in the
 // active Freeform's children list. Used after re-parsing the post-
 // emit source to grab the same shape's new span.
@@ -434,7 +462,11 @@ export function prepareSlide(wrappedSlide: ReactElement): ReactElement {
 
 type ResizeDirection = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
-interface ResizeStart {
+// Box / TextBox: drag a corner or edge handle to resize the
+// rectangle. The opposite edges stay fixed; we mutate x / y /
+// width / height slot fills on commit.
+interface BoxResizeStart {
+  kind: 'box';
   // The shape's positioned div (the same node we mutate during drag-
   // to-move — `firstElementChild` of the data-sw-component wrapper,
   // since that wrapper is `display: contents` and has no layout box).
@@ -449,6 +481,37 @@ interface ResizeStart {
   pointerStartY: number;
   scale: number;
 }
+
+// Arrow endpoint resize: drag one of the two handles at (x1, y1) /
+// (x2, y2) to move just that endpoint. The other endpoint stays
+// put. Live preview updates the SVG line + polygon attributes
+// directly (recomputing the arrowhead each frame so it points the
+// new direction); commit mutates only the moving endpoint's slot
+// fills.
+interface ArrowEndpointResizeStart {
+  kind: 'arrow-endpoint';
+  endpoint: 1 | 2;
+  svgEl: SVGSVGElement;
+  // The polygon is held by reference (rather than re-queried each
+  // frame) since it's the only one of its kind. Lines are queried
+  // off svgEl every gesture-start because Arrow.tsx renders two
+  // (visible + hit-area) — see Arrow.tsx for why.
+  polygonEl: SVGPolygonElement;
+  overlay: HTMLElement;
+  handle: HTMLElement;        // the handle being dragged (live-tracks the moving endpoint)
+  origX: number;              // moving endpoint's original x in design space
+  origY: number;              // moving endpoint's original y
+  fixedX: number;             // other endpoint x (stays put)
+  fixedY: number;
+  strokeWidth: number;
+  start: number;
+  end: number;
+  pointerStartX: number;
+  pointerStartY: number;
+  scale: number;
+}
+
+type ResizeStart = BoxResizeStart | ArrowEndpointResizeStart;
 
 export function App({ host }: { host: Host }): ReactElement {
   const [state, setState] = useState<RenderState | null>(null);
@@ -730,46 +793,173 @@ export function App({ host }: { host: Host }): ReactElement {
     if (!dragging) return;
     const { node, start, end, pointerStartX, pointerStartY, scale } = dragging;
     const visualNode = node.firstElementChild;
-    if (!(visualNode instanceof HTMLElement)) {
+    if (!(visualNode instanceof Element)) {
       setDragging(null);
       return;
     }
-    const cs = window.getComputedStyle(visualNode);
-    const originalLeft = parseFloat(cs.left) || 0;
-    const originalTop = parseFloat(cs.top) || 0;
 
-    // If the dragged shape is currently selected, mirror the
-    // position update onto the selection overlay so the dashed
-    // outline follows in real-time. Lookup is lazy (in onMove
-    // rather than at effect setup) because the selection effect
-    // and the drag effect both fire from the same React batched
-    // update — the overlay element may not exist yet at this
-    // point in the commit.
+    // Two flavors of body-drag, plumbed through the same gesture
+    // lifecycle (pointermove/pointerup, commit on release). They
+    // differ in:
+    //   - Box / TextBox: write style.left/top imperatively; commit
+    //     mutates `x` / `y` slot fills.
+    //   - Arrow: write line + polygon attributes imperatively each
+    //     frame (re-running the arrowhead geometry); commit mutates
+    //     `x1` / `y1` / `x2` / `y2` slot fills by the same delta.
+    //     CSS transform was tempting (one-line preview) but stuck
+    //     on the SVG element across React re-renders, leaving the
+    //     post-commit shape visually offset by the drag delta on
+    //     top of the new coords.
+    const componentName = node.getAttribute('data-sw-component');
+    const isArrow = componentName === 'Arrow';
     const isSelectedDrag =
       selected !== null && selected.start === start && selected.end === end;
-    let overlayEl: HTMLElement | null = null;
-    const findOverlay = (): HTMLElement | null => {
-      if (!isSelectedDrag) return null;
-      if (overlayEl && overlayEl.isConnected) return overlayEl;
-      const el = document.querySelector(
-        '.sw-canvas-stage .presentation .sw-selection-outline',
+
+    type LiveStep = (designDx: number, designDy: number) => void;
+    type Commit = (
+      target: Component,
+      designDx: number,
+      designDy: number,
+    ) => void;
+
+    let live: LiveStep;
+    let commit: Commit;
+
+    if (isArrow) {
+      if (!(visualNode instanceof SVGSVGElement)) {
+        setDragging(null);
+        return;
+      }
+      const lineEls = Array.from(visualNode.querySelectorAll('line'));
+      const polyEl = visualNode.querySelector('polygon');
+      if (lineEls.length === 0 || !polyEl) {
+        setDragging(null);
+        return;
+      }
+      const firstLine = lineEls[0]!;
+      const origX1 = parseFloat(firstLine.getAttribute('x1') ?? '0');
+      const origY1 = parseFloat(firstLine.getAttribute('y1') ?? '0');
+      const origStroke = parseFloat(
+        firstLine.getAttribute('stroke-width') ?? '4',
       );
-      overlayEl = el instanceof HTMLElement ? el : null;
-      return overlayEl;
-    };
+      const polyPoints = polyEl.getAttribute('points') ?? '';
+      const firstVertex = polyPoints.split(/\s+/)[0] ?? '0,0';
+      const [tipXStr, tipYStr] = firstVertex.split(',');
+      const origX2 = parseFloat(tipXStr ?? '0');
+      const origY2 = parseFloat(tipYStr ?? '0');
+
+      // Lazy lookup: the selection effect runs after this drag
+      // effect (declaration order), so the overlay + endpoint
+      // handles aren't in the DOM yet at gesture-start. Defer the
+      // queries to the first onMove call.
+      let lookedUp = false;
+      let overlayEl: HTMLElement | null = null;
+      let endpointEls: HTMLElement[] = [];
+      const ensureSelectionDOM = (): void => {
+        if (!isSelectedDrag || lookedUp) return;
+        lookedUp = true;
+        const presentation = document.querySelector(
+          '.sw-canvas-stage .presentation',
+        );
+        if (!presentation) return;
+        const ov = presentation.querySelector('.sw-selection-outline');
+        if (ov instanceof HTMLElement) overlayEl = ov;
+        presentation.querySelectorAll('.sw-arrow-endpoint').forEach((h) => {
+          if (h instanceof HTMLElement) endpointEls.push(h);
+        });
+      };
+
+      live = (designDx, designDy) => {
+        const newX1 = origX1 + designDx;
+        const newY1 = origY1 + designDy;
+        const newX2 = origX2 + designDx;
+        const newY2 = origY2 + designDy;
+        const head = computeArrowGeometry(newX1, newY1, newX2, newY2, origStroke);
+        for (const l of lineEls) {
+          l.setAttribute('x1', String(newX1));
+          l.setAttribute('y1', String(newY1));
+          l.setAttribute('x2', String(head.baseX));
+          l.setAttribute('y2', String(head.baseY));
+        }
+        polyEl.setAttribute('points', head.points);
+        ensureSelectionDOM();
+        if (overlayEl) {
+          const minX = Math.min(newX1, newX2);
+          const minY = Math.min(newY1, newY2);
+          const maxX = Math.max(newX1, newX2);
+          const maxY = Math.max(newY1, newY2);
+          overlayEl.style.left = `${minX - 4}px`;
+          overlayEl.style.top = `${minY - 4}px`;
+          overlayEl.style.width = `${maxX - minX + 8}px`;
+          overlayEl.style.height = `${maxY - minY + 8}px`;
+        }
+        // Endpoint handles are added in source order [tail (1), tip
+        // (2)] by the selection effect, so handles[0] tracks (x1,
+        // y1) and handles[1] tracks (x2, y2).
+        if (endpointEls.length >= 2) {
+          endpointEls[0]!.style.left = `${newX1 - 7}px`;
+          endpointEls[0]!.style.top = `${newY1 - 7}px`;
+          endpointEls[1]!.style.left = `${newX2 - 7}px`;
+          endpointEls[1]!.style.top = `${newY2 - 7}px`;
+        }
+      };
+
+      commit = (target, designDx, designDy) => {
+        const dxRounded = Math.round(designDx);
+        const dyRounded = Math.round(designDy);
+        for (const slotName of ['x1', 'x2'] as const) {
+          const slot = findNumericSlot(target, slotName);
+          if (slot) slot.node.value = slot.value + dxRounded;
+        }
+        for (const slotName of ['y1', 'y2'] as const) {
+          const slot = findNumericSlot(target, slotName);
+          if (slot) slot.node.value = slot.value + dyRounded;
+        }
+      };
+    } else {
+      if (!(visualNode instanceof HTMLElement)) {
+        setDragging(null);
+        return;
+      }
+      const cs = window.getComputedStyle(visualNode);
+      const originalLeft = parseFloat(cs.left) || 0;
+      const originalTop = parseFloat(cs.top) || 0;
+
+      let lookedUp = false;
+      let overlayEl: HTMLElement | null = null;
+      const ensureOverlay = (): void => {
+        if (!isSelectedDrag || lookedUp) return;
+        lookedUp = true;
+        const ov = document.querySelector(
+          '.sw-canvas-stage .presentation .sw-selection-outline',
+        );
+        if (ov instanceof HTMLElement) overlayEl = ov;
+      };
+
+      live = (designDx, designDy) => {
+        const newLeft = originalLeft + designDx;
+        const newTop = originalTop + designDy;
+        visualNode.style.left = `${newLeft}px`;
+        visualNode.style.top = `${newTop}px`;
+        ensureOverlay();
+        if (overlayEl) {
+          overlayEl.style.left = `${newLeft - 4}px`;
+          overlayEl.style.top = `${newTop - 4}px`;
+        }
+      };
+
+      commit = (target, designDx, designDy) => {
+        const xSlot = findNumericSlot(target, 'x');
+        const ySlot = findNumericSlot(target, 'y');
+        if (xSlot) xSlot.node.value = Math.round(originalLeft + designDx);
+        if (ySlot) ySlot.node.value = Math.round(originalTop + designDy);
+      };
+    }
 
     const onMove = (e: PointerEvent) => {
       const designDx = (e.clientX - pointerStartX) / scale;
       const designDy = (e.clientY - pointerStartY) / scale;
-      const newLeft = originalLeft + designDx;
-      const newTop = originalTop + designDy;
-      visualNode.style.left = `${newLeft}px`;
-      visualNode.style.top = `${newTop}px`;
-      const ov = findOverlay();
-      if (ov) {
-        ov.style.left = `${newLeft - 4}px`;
-        ov.style.top = `${newTop - 4}px`;
-      }
+      live(designDx, designDy);
     };
 
     const onUp = (e: PointerEvent) => {
@@ -786,10 +976,7 @@ export function App({ host }: { host: Host }): ReactElement {
       if (!result.diagnostics.some((d) => d.severity === 'error')) {
         const target = findComponentAtSpan(result.ast, start, end);
         if (target) {
-          const xSlot = findNumericSlot(target, 'x');
-          const ySlot = findNumericSlot(target, 'y');
-          if (xSlot) xSlot.node.value = Math.round(originalLeft + designDx);
-          if (ySlot) ySlot.node.value = Math.round(originalTop + designDy);
+          commit(target, designDx, designDy);
           // Capture the dragged shape's child index *before* emit
           // (spans in result.ast still reflect pre-emit offsets, so
           // the target span matches).
@@ -835,90 +1022,174 @@ export function App({ host }: { host: Host }): ReactElement {
     };
   }, [dragging, host]);
 
-  // Drag-to-resize gesture (Box / TextBox; Arrow's endpoint handles
-  // are deferred to v0.2.i.2). Symmetric with drag-to-move: a corner
-  // or edge handle on the selection overlay catches pointerdown and
-  // sets `resizing`. This effect reads the original geometry, then
-  // attaches document-level pointermove/pointerup listeners that
-  // imperatively update both the shape's positioned div and the
-  // overlay so the dashed outline tracks the new size in real time.
-  // On release we mutate the corresponding x/y/width/height slot
-  // fills, emit, setSource, and stash the new shape's span in
-  // pendingSelectionRef so the round-trip preserves the selection.
+  // Drag-to-resize gesture. Two flavors share the same gesture
+  // lifecycle (pointermove/pointerup, commit on release with
+  // selection preservation) but differ in what they update:
+  //   - kind:'box' — Box / TextBox corner / edge resize. Updates
+  //     style.left/top/width/height + overlay; commits x/y/width/
+  //     height slot fills.
+  //   - kind:'arrow-endpoint' — Arrow endpoint move. Updates the
+  //     SVG line + polygon attributes (recomputes the arrowhead
+  //     each frame so it points the new direction) + the overlay
+  //     bbox + the moving handle's position; commits only the
+  //     moving endpoint's x{1,2}/y{1,2} slot fills.
+  // Both branches use the shared post-commit logic to preserve
+  // selection via pendingSelectionRef.
   useEffect(() => {
     if (!resizing) return;
-    const {
-      inner: visualNode,
-      overlay,
-      direction,
-      start,
-      end,
-      pointerStartX,
-      pointerStartY,
-      scale,
-    } = resizing;
-    const cs = window.getComputedStyle(visualNode);
-    const originalLeft = parseFloat(cs.left) || 0;
-    const originalTop = parseFloat(cs.top) || 0;
-    const originalWidth = visualNode.offsetWidth;
-    const originalHeight = visualNode.offsetHeight;
+    const { start, end, pointerStartX, pointerStartY, scale } = resizing;
 
-    const MIN_SIZE = 1;
-    // Compute the new (left, top, width, height) given a pointer
-    // delta and the gesture's anchor edges. Each handle direction
-    // affects up to two edges; opposite edges of the rect stay put.
-    // Clamping at MIN_SIZE prevents negative dimensions when the
-    // user drags past the opposite edge — flipping the shape is
-    // future polish.
-    const computeNew = (
+    type LiveStep = (designDx: number, designDy: number) => void;
+    type Commit = (
+      target: Component,
       designDx: number,
       designDy: number,
-    ): { left: number; top: number; width: number; height: number } => {
-      let newLeft = originalLeft;
-      let newTop = originalTop;
-      let newWidth = originalWidth;
-      let newHeight = originalHeight;
-      if (direction.includes('w')) {
-        const proposedWidth = originalWidth - designDx;
-        if (proposedWidth < MIN_SIZE) {
-          newLeft = originalLeft + originalWidth - MIN_SIZE;
-          newWidth = MIN_SIZE;
-        } else {
-          newLeft = originalLeft + designDx;
-          newWidth = proposedWidth;
+    ) => void;
+
+    let live: LiveStep;
+    let commit: Commit;
+
+    if (resizing.kind === 'box') {
+      const { inner: visualNode, overlay, direction } = resizing;
+      const cs = window.getComputedStyle(visualNode);
+      const originalLeft = parseFloat(cs.left) || 0;
+      const originalTop = parseFloat(cs.top) || 0;
+      const originalWidth = visualNode.offsetWidth;
+      const originalHeight = visualNode.offsetHeight;
+
+      const MIN_SIZE = 1;
+      // Compute the new (left, top, width, height) given a pointer
+      // delta and the gesture's anchor edges. Each handle direction
+      // affects up to two edges; opposite edges of the rect stay put.
+      // Clamping at MIN_SIZE prevents negative dimensions when the
+      // user drags past the opposite edge — flipping the shape is
+      // future polish.
+      const computeBox = (
+        designDx: number,
+        designDy: number,
+      ): { left: number; top: number; width: number; height: number } => {
+        let newLeft = originalLeft;
+        let newTop = originalTop;
+        let newWidth = originalWidth;
+        let newHeight = originalHeight;
+        if (direction.includes('w')) {
+          const proposedWidth = originalWidth - designDx;
+          if (proposedWidth < MIN_SIZE) {
+            newLeft = originalLeft + originalWidth - MIN_SIZE;
+            newWidth = MIN_SIZE;
+          } else {
+            newLeft = originalLeft + designDx;
+            newWidth = proposedWidth;
+          }
+        } else if (direction.includes('e')) {
+          newWidth = Math.max(MIN_SIZE, originalWidth + designDx);
         }
-      } else if (direction.includes('e')) {
-        newWidth = Math.max(MIN_SIZE, originalWidth + designDx);
-      }
-      if (direction.includes('n')) {
-        const proposedHeight = originalHeight - designDy;
-        if (proposedHeight < MIN_SIZE) {
-          newTop = originalTop + originalHeight - MIN_SIZE;
-          newHeight = MIN_SIZE;
-        } else {
-          newTop = originalTop + designDy;
-          newHeight = proposedHeight;
+        if (direction.includes('n')) {
+          const proposedHeight = originalHeight - designDy;
+          if (proposedHeight < MIN_SIZE) {
+            newTop = originalTop + originalHeight - MIN_SIZE;
+            newHeight = MIN_SIZE;
+          } else {
+            newTop = originalTop + designDy;
+            newHeight = proposedHeight;
+          }
+        } else if (direction.includes('s')) {
+          newHeight = Math.max(MIN_SIZE, originalHeight + designDy);
         }
-      } else if (direction.includes('s')) {
-        newHeight = Math.max(MIN_SIZE, originalHeight + designDy);
-      }
-      return { left: newLeft, top: newTop, width: newWidth, height: newHeight };
-    };
+        return { left: newLeft, top: newTop, width: newWidth, height: newHeight };
+      };
+
+      live = (designDx, designDy) => {
+        const r = computeBox(designDx, designDy);
+        visualNode.style.left = `${r.left}px`;
+        visualNode.style.top = `${r.top}px`;
+        visualNode.style.width = `${r.width}px`;
+        visualNode.style.height = `${r.height}px`;
+        overlay.style.left = `${r.left - 4}px`;
+        overlay.style.top = `${r.top - 4}px`;
+        overlay.style.width = `${r.width + 8}px`;
+        overlay.style.height = `${r.height + 8}px`;
+      };
+
+      commit = (target, designDx, designDy) => {
+        const r = computeBox(designDx, designDy);
+        const xSlot = findNumericSlot(target, 'x');
+        const ySlot = findNumericSlot(target, 'y');
+        const wSlot = findNumericSlot(target, 'width');
+        const hSlot = findNumericSlot(target, 'height');
+        if (xSlot) xSlot.node.value = Math.round(r.left);
+        if (ySlot) ySlot.node.value = Math.round(r.top);
+        if (wSlot) wSlot.node.value = Math.round(r.width);
+        if (hSlot) hSlot.node.value = Math.round(r.height);
+      };
+    } else {
+      // arrow-endpoint
+      const {
+        endpoint,
+        svgEl,
+        polygonEl,
+        overlay,
+        handle,
+        origX,
+        origY,
+        fixedX,
+        fixedY,
+        strokeWidth,
+      } = resizing;
+      // Both the visible stroke and the wider hit-area stroke share
+      // the same coordinates (see Arrow.tsx); update them together
+      // so the click target stays aligned with the line during the
+      // gesture.
+      const allLines = Array.from(svgEl.querySelectorAll('line'));
+
+      live = (designDx, designDy) => {
+        const newX = origX + designDx;
+        const newY = origY + designDy;
+        // Map (moving, fixed) → canonical (x1, y1, x2, y2) so the
+        // arrowhead always renders at (x2, y2).
+        const x1 = endpoint === 1 ? newX : fixedX;
+        const y1 = endpoint === 1 ? newY : fixedY;
+        const x2 = endpoint === 1 ? fixedX : newX;
+        const y2 = endpoint === 1 ? fixedY : newY;
+        const head = computeArrowGeometry(x1, y1, x2, y2, strokeWidth);
+        for (const l of allLines) {
+          l.setAttribute('x1', String(x1));
+          l.setAttribute('y1', String(y1));
+          l.setAttribute('x2', String(head.baseX));
+          l.setAttribute('y2', String(head.baseY));
+        }
+        polygonEl.setAttribute('points', head.points);
+        // Overlay tracks the bbox of the line (same approximation
+        // the selection effect uses — ignores arrowhead extent).
+        const minX = Math.min(x1, x2);
+        const minY = Math.min(y1, y2);
+        const maxX = Math.max(x1, x2);
+        const maxY = Math.max(y1, y2);
+        overlay.style.left = `${minX - 4}px`;
+        overlay.style.top = `${minY - 4}px`;
+        overlay.style.width = `${maxX - minX + 8}px`;
+        overlay.style.height = `${maxY - minY + 8}px`;
+        // Moving handle follows the new endpoint.
+        handle.style.left = `${newX - 7}px`;
+        handle.style.top = `${newY - 7}px`;
+      };
+
+      commit = (target, designDx, designDy) => {
+        const newX = Math.round(origX + designDx);
+        const newY = Math.round(origY + designDy);
+        const xName = endpoint === 1 ? 'x1' : 'x2';
+        const yName = endpoint === 1 ? 'y1' : 'y2';
+        const xSlot = findNumericSlot(target, xName);
+        const ySlot = findNumericSlot(target, yName);
+        if (xSlot) xSlot.node.value = newX;
+        if (ySlot) ySlot.node.value = newY;
+      };
+    }
 
     const onMove = (e: PointerEvent) => {
       const designDx = (e.clientX - pointerStartX) / scale;
       const designDy = (e.clientY - pointerStartY) / scale;
-      const r = computeNew(designDx, designDy);
-      visualNode.style.left = `${r.left}px`;
-      visualNode.style.top = `${r.top}px`;
-      visualNode.style.width = `${r.width}px`;
-      visualNode.style.height = `${r.height}px`;
-      // Overlay sits 4px outside the shape on each side (matches the
-      // initial layout in the selection effect).
-      overlay.style.left = `${r.left - 4}px`;
-      overlay.style.top = `${r.top - 4}px`;
-      overlay.style.width = `${r.width + 8}px`;
-      overlay.style.height = `${r.height + 8}px`;
+      live(designDx, designDy);
     };
 
     const onUp = (e: PointerEvent) => {
@@ -930,19 +1201,11 @@ export function App({ host }: { host: Host }): ReactElement {
         setResizing(null);
         return;
       }
-      const r = computeNew(designDx, designDy);
       const result = parse(sourceRef.current, '<resize>');
       if (!result.diagnostics.some((d) => d.severity === 'error')) {
         const target = findComponentAtSpan(result.ast, start, end);
         if (target) {
-          const xSlot = findNumericSlot(target, 'x');
-          const ySlot = findNumericSlot(target, 'y');
-          const wSlot = findNumericSlot(target, 'width');
-          const hSlot = findNumericSlot(target, 'height');
-          if (xSlot) xSlot.node.value = Math.round(r.left);
-          if (ySlot) ySlot.node.value = Math.round(r.top);
-          if (wSlot) wSlot.node.value = Math.round(r.width);
-          if (hSlot) hSlot.node.value = Math.round(r.height);
+          commit(target, designDx, designDy);
           // Capture the resized shape's child index *before* emit,
           // re-find it post-emit by index, then stash the new span
           // so the subscribe handler reapplies the selection.
@@ -1189,19 +1452,33 @@ export function App({ host }: { host: Host }): ReactElement {
     if (!shapeInner) return;
 
     let bounds: { left: number; top: number; width: number; height: number };
+    // Arrow tip (actual x2, y2) coordinates, captured here for the
+    // endpoint-handle setup below. The line element's `x2`/`y2`
+    // attributes are the BASE of the arrowhead, not the tip — the
+    // tip lives in the polygon's first vertex (see Arrow.tsx).
+    let arrowTipX = 0;
+    let arrowTipY = 0;
+    let arrowTailX = 0;
+    let arrowTailY = 0;
+    let arrowStrokeWidth = 4;
     const componentName = shapeWrapper.getAttribute('data-sw-component');
     if (componentName === 'Arrow') {
       const line = shapeInner.querySelector('line');
-      if (!line) return;
-      const x1 = parseFloat(line.getAttribute('x1') ?? '0');
-      const y1 = parseFloat(line.getAttribute('y1') ?? '0');
-      const x2 = parseFloat(line.getAttribute('x2') ?? '0');
-      const y2 = parseFloat(line.getAttribute('y2') ?? '0');
+      const polygon = shapeInner.querySelector('polygon');
+      if (!line || !polygon) return;
+      arrowTailX = parseFloat(line.getAttribute('x1') ?? '0');
+      arrowTailY = parseFloat(line.getAttribute('y1') ?? '0');
+      arrowStrokeWidth = parseFloat(line.getAttribute('stroke-width') ?? '4');
+      const polyPoints = polygon.getAttribute('points') ?? '';
+      const firstVertex = polyPoints.split(/\s+/)[0] ?? '0,0';
+      const [tipXStr, tipYStr] = firstVertex.split(',');
+      arrowTipX = parseFloat(tipXStr ?? '0');
+      arrowTipY = parseFloat(tipYStr ?? '0');
       bounds = {
-        left: Math.min(x1, x2),
-        top: Math.min(y1, y2),
-        width: Math.abs(x2 - x1),
-        height: Math.abs(y2 - y1),
+        left: Math.min(arrowTailX, arrowTipX),
+        top: Math.min(arrowTailY, arrowTipY),
+        width: Math.abs(arrowTipX - arrowTailX),
+        height: Math.abs(arrowTipY - arrowTailY),
       };
     } else {
       // Box / TextBox: read the absolutely-positioned div's offset
@@ -1270,6 +1547,7 @@ export function App({ host }: { host: Host }): ReactElement {
               ? canvasEl.getBoundingClientRect().width / 1920
               : 1;
           setResizing({
+            kind: 'box',
             inner: shapeInner,
             overlay,
             direction: dir,
@@ -1288,8 +1566,81 @@ export function App({ host }: { host: Host }): ReactElement {
       }
     }
 
+    // Arrow endpoint handles (v0.2.i.2). Two handles, one at
+    // (x1, y1) and one at (x2, y2). They live as direct children of
+    // the freeform (not the overlay) because the overlay is the
+    // shape's bounding rectangle — endpoints can be anywhere within
+    // it, not just at corners. Each handle drag updates only its
+    // endpoint; the other stays fixed.
+    const arrowEndpointHandles: HTMLElement[] = [];
+    if (
+      activeTool === 'select' &&
+      componentName === 'Arrow' &&
+      shapeInner instanceof SVGSVGElement
+    ) {
+      // Guard: SVG must have at least one line + a polygon (the
+      // live closures re-query lines off svgEl since Arrow.tsx
+      // renders both visible and hit-area strokes).
+      const polygonEl = shapeInner.querySelector('polygon');
+      const hasLine = shapeInner.querySelector('line') !== null;
+      if (polygonEl && hasLine) {
+        type Endpoint = 1 | 2;
+        const setupEndpoint = (
+          endpoint: Endpoint,
+          movingX: number,
+          movingY: number,
+          fixedX: number,
+          fixedY: number,
+        ): void => {
+          const handle = document.createElement('div');
+          handle.className = 'sw-resize-handle-shape sw-arrow-endpoint';
+          handle.style.left = `${movingX - 7}px`;
+          handle.style.top = `${movingY - 7}px`;
+          const onPointerDown = (event: PointerEvent): void => {
+            if (event.button !== 0) return;
+            event.stopPropagation();
+            event.preventDefault();
+            const canvasEl = document.querySelector(
+              '.sw-canvas-stage .presentation-canvas',
+            );
+            const scale =
+              canvasEl instanceof HTMLElement
+                ? canvasEl.getBoundingClientRect().width / 1920
+                : 1;
+            setResizing({
+              kind: 'arrow-endpoint',
+              endpoint,
+              svgEl: shapeInner,
+              polygonEl,
+              overlay,
+              handle,
+              origX: movingX,
+              origY: movingY,
+              fixedX,
+              fixedY,
+              strokeWidth: arrowStrokeWidth,
+              start: selected.start,
+              end: selected.end,
+              pointerStartX: event.clientX,
+              pointerStartY: event.clientY,
+              scale,
+            });
+          };
+          handle.addEventListener('pointerdown', onPointerDown);
+          handleCleanups.push(() =>
+            handle.removeEventListener('pointerdown', onPointerDown),
+          );
+          freeformDiv.appendChild(handle);
+          arrowEndpointHandles.push(handle);
+        };
+        setupEndpoint(1, arrowTailX, arrowTailY, arrowTipX, arrowTipY);
+        setupEndpoint(2, arrowTipX, arrowTipY, arrowTailX, arrowTailY);
+      }
+    }
+
     return () => {
       for (const fn of handleCleanups) fn();
+      for (const h of arrowEndpointHandles) h.parentElement?.removeChild(h);
       overlay.parentElement?.removeChild(overlay);
     };
   }, [selected, state, activeTool]);

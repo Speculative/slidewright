@@ -97,14 +97,14 @@ interface Props {
   activeTool?: 'select' | 'box' | 'textbox' | 'arrow';
 }
 
-// Components whose drag-to-move gesture is supported in v0.2.e/g.
-// Box and TextBox both use `x` / `y` slot fills and are handled by
-// the same pointer-delta logic in App. Arrow has `x1/y1/x2/y2`
-// instead — drag-to-move there waits for v0.2.i, where the gesture
-// will move both endpoints together (and resize handles on
-// individual endpoints land at the same time).
+// Components whose drag-to-move gesture is supported. Box and
+// TextBox use `x`/`y` slot fills with width/height; Arrow uses
+// `x1/y1/x2/y2` and gets translated by App's drag effect by
+// applying the same delta to both endpoints. Endpoint handles
+// (resize one endpoint at a time) live on the selection overlay
+// and dispatch their own gesture, separately from this body-drag.
 const DRAGGABLE_SELECTOR =
-  '[data-sw-component="Box"], [data-sw-component="TextBox"]';
+  '[data-sw-component="Box"], [data-sw-component="TextBox"], [data-sw-component="Arrow"]';
 
 // Shapes that respond to Select-mode clicks. Wider than the
 // draggable set since Arrow is selectable (for Delete, future
