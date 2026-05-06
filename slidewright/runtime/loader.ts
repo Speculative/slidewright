@@ -114,6 +114,15 @@ export interface ShapeData {
   // Which slide this shape lives in (0-based). Adapter commits use
   // it for childIdx-based selection preservation.
   slideIdx: number;
+  // Index in the parent freeform's `children` list at load time.
+  // Used by external-edit reconciliation: re-find the same shape
+  // in the new source by (slideIdx + childIdx + componentName)
+  // even though spans have shifted. Falls over for restructuring
+  // edits (insertions / deletions / reorders) — that's a known
+  // limitation for v0.3; proper stable IDs in source are the
+  // long-term answer (per SLIDEWRIGHT.md / IDs in source).
+  // -1 if the shape isn't a direct child of a Freeform.
+  childIdx: number;
 }
 
 const DEFAULT_META: DeckMeta = {
@@ -145,7 +154,56 @@ export function loadDeck(input: LoadDeckInput): LoadDeckResult {
 
   const meta = renderDeckMeta(deck, ctx);
   const slides = renderDeckSlides(deck, ctx);
+  // After rendering, populate each shape's childIdx — its position
+  // in its parent Freeform's `children` list. Computed after
+  // rendering so the registry is fully populated; used by external-
+  // edit reconciliation to re-find the same shape after a source
+  // change has shifted spans. -1 for shapes whose parent isn't a
+  // Freeform (no current shapes hit this; future outside-Freeform
+  // adapters will need a different identity scheme — see
+  // SLIDEWRIGHT.md / Known design concerns).
+  for (const data of ctx.shapes.values()) {
+    data.childIdx = computeChildIdxInFreeform(ast, data);
+  }
   return { meta, slides, diagnostics, shapes: ctx.shapes };
+}
+
+function computeChildIdxInFreeform(
+  ast: SourceFile,
+  data: ShapeData,
+): number {
+  const deck = ast.items[0];
+  if (!deck || deck.name !== 'Deck') return -1;
+  const slidesFill = deck.fills.find((f) => f.name === 'slides');
+  if (!slidesFill || slidesFill.value.kind !== 'list') return -1;
+  const slide = slidesFill.value.items[data.slideIdx];
+  if (!slide || slide.kind !== 'component' || slide.name !== 'Slide') return -1;
+  const contentFill = slide.fills.find((f) => f.name === 'content');
+  if (
+    !contentFill ||
+    contentFill.value.kind !== 'component' ||
+    contentFill.value.name !== 'Freeform'
+  ) {
+    return -1;
+  }
+  const childrenFill = contentFill.value.fills.find(
+    (f) => f.name === 'children',
+  );
+  if (!childrenFill || childrenFill.value.kind !== 'list') return -1;
+  const targetStart = data.comp.span.start.offset;
+  const targetEnd = data.comp.span.end.offset;
+  for (let i = 0; i < childrenFill.value.items.length; i++) {
+    const item = childrenFill.value.items[i];
+    if (
+      item &&
+      item.kind === 'component' &&
+      item.span.start.offset === targetStart &&
+      item.span.end.offset === targetEnd
+    ) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 interface LoadCtx {
@@ -463,6 +521,7 @@ function renderComponent(comp: Component, ctx: LoadCtx): ReactNode {
       canvas: loaded.canvas,
       params,
       slideIdx: ctx.currentSlideIdx,
+      childIdx: -1, // populated post-rendering by computeChildIdxInFreeform
     });
   }
 

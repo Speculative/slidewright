@@ -268,6 +268,15 @@ export function App({ host }: { host: Host }): ReactElement {
         scope,
         wrapShape,
       });
+      // Distinguish internal commits (canvas gestures that just
+      // called host.setSource and stashed the post-emit spans) from
+      // external edits (user typing in the editor pane / file
+      // reload). The pending ref is set right before our setSource
+      // calls inside commitSourceEdit; if it's null at this point
+      // we know this subscribe firing is external.
+      const pending = pendingSelectionRef.current;
+      pendingSelectionRef.current = null;
+      const prevState = stateRef.current;
       setState((prev) => {
         const next: RenderState = {
           slides: result.slides,
@@ -282,12 +291,28 @@ export function App({ host }: { host: Host }): ReactElement {
         }
         return next;
       });
-      if (pendingSelectionRef.current) {
-        setSelected(pendingSelectionRef.current);
-        pendingSelectionRef.current = null;
-      } else {
-        setSelected([]);
+      if (pending) {
+        // Internal commit: spans were re-found post-emit by the
+        // gesture's commit pipeline. Apply them.
+        setSelected(pending);
+        return;
       }
+      // External edit. Cancel any in-progress gesture (its captured
+      // spans / templates point at a stale AST). Preserve selection
+      // by (slideIdx, childIdx, componentName) lookup — works for
+      // benign edits (typing inside strings, modifying params) but
+      // doesn't survive restructuring (insertions / deletions /
+      // reorders). Stable IDs in source are the long-term answer
+      // (per SLIDEWRIGHT.md / IDs in source); not v0.3 scope.
+      setGestureMeta(null);
+      setGestureLive(ZERO_LIVE);
+      setSelected((prevSelected) =>
+        preserveSelectionAcrossExternalEdit(
+          prevSelected,
+          prevState?.shapes,
+          result.shapes,
+        ),
+      );
     });
   }, [host, activeIdx]);
 
@@ -857,6 +882,50 @@ export function App({ host }: { host: Host }): ReactElement {
 }
 
 const EMPTY_DELTAS: ReadonlyMap<string, ShapeDelta> = new Map();
+
+// Re-find each previously-selected shape in the new shapes
+// registry by (slideIdx + childIdx + componentName). Used for
+// external-edit selection preservation. Survives:
+//   - param-only edits (typing inside a string, changing x / y
+//     / width / height — span shifts but identity is intact)
+//   - whitespace / formatting edits (canonical re-emit on save)
+//   - edits to OTHER shapes (only the edited shape's span shifts;
+//     the rest stay at the same childIdx)
+// Doesn't survive (limitations):
+//   - inserting a sibling before the selected shape (childIdx
+//     shifts; identity is misaligned by 1)
+//   - deleting the selected shape (no longer present)
+//   - reordering siblings (childIdx swap)
+// Stable IDs in source would fix these (per SLIDEWRIGHT.md / IDs
+// in source); deferred to a future revision.
+function preserveSelectionAcrossExternalEdit(
+  prevSelected: SourceRange[],
+  prevShapes: ReadonlyMap<string, ShapeData> | undefined,
+  nextShapes: ReadonlyMap<string, ShapeData>,
+): SourceRange[] {
+  if (!prevShapes || prevSelected.length === 0) return [];
+  // Build a (slideIdx + childIdx + componentName) → newSpan index
+  // for the new registry.
+  const positionToSpan = new Map<string, SourceRange>();
+  for (const data of nextShapes.values()) {
+    if (data.childIdx < 0) continue;
+    const positionKey = `${data.slideIdx}-${data.childIdx}-${data.comp.name}`;
+    positionToSpan.set(positionKey, {
+      start: data.comp.span.start.offset,
+      end: data.comp.span.end.offset,
+    });
+  }
+  const out: SourceRange[] = [];
+  for (const span of prevSelected) {
+    const oldKey = spanKey(span);
+    const oldData = prevShapes.get(oldKey);
+    if (!oldData || oldData.childIdx < 0) continue;
+    const positionKey = `${oldData.slideIdx}-${oldData.childIdx}-${oldData.comp.name}`;
+    const newSpan = positionToSpan.get(positionKey);
+    if (newSpan) out.push(newSpan);
+  }
+  return out;
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────
 

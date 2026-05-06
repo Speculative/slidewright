@@ -226,3 +226,48 @@ test('clicking a thumbnail in the slide strip changes the active slide', async (
   await page.locator('.sw-thumb').nth(1).click();
   expect(await getActiveSlideOneBased(page)).toBe(2);
 });
+
+// ─── External-edit reconciliation ────────────────────────────────
+
+test('external param edit preserves selection on the same shape', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-box');
+  // Select the Box. Outline appears.
+  await page
+    .locator('.sw-canvas-stage [data-sw-component="Box"] > div')
+    .first()
+    .click();
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
+  // Externally edit the source — change x: 400 → x: 600. Same
+  // shape, different param. (slideIdx, childIdx, componentName)
+  // identity is intact, so selection should survive.
+  const original = await getSource(page);
+  await setSource(page, original.replace(/x:\s*400/, 'x: 600'));
+  // Outline still on screen, now at the new position.
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
+});
+
+test('external edit that deletes the selected shape clears selection', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-box');
+  await page
+    .locator('.sw-canvas-stage [data-sw-component="Box"] > div')
+    .first()
+    .click();
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
+  // Strip the Box from source.
+  const stripped = `Deck {
+  name: "Test"
+  subtitle: "single-box (stripped)"
+  width: 1920
+  height: 1080
+  slides: [
+    Slide {
+      label: "Test"
+      notes: ""
+      content: Freeform { children: [] }
+    }
+  ]
+}
+`;
+  await setSource(page, stripped);
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(0);
+});
