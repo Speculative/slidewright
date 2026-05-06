@@ -256,6 +256,18 @@ html, body, #root {
   box-sizing: border-box;
 }
 
+/* Group selection bounding box (v0.2.j). Rendered when 2+ shapes
+ * are selected — the outermost frame around all the per-shape
+ * outlines. Solid border + thinner stroke distinguishes it from
+ * the dashed per-shape outlines so the user can read "this is the
+ * group as a whole" vs. "this is one of the members." */
+.sw-selection-group {
+  border: 1px solid var(--accent, #0066ff);
+  border-radius: 3px;
+  box-sizing: border-box;
+  opacity: 0.7;
+}
+
 /* Resize handles (v0.2.i.1). Squares positioned on the corners /
  * edge midpoints of the selection outline. Sized in design-space
  * pixels — they scale with the canvas transform, so they shrink

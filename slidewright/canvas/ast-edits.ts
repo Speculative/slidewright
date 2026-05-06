@@ -395,22 +395,28 @@ export interface PreserveSelection {
 
 export interface CommitResult {
   newSource: string;
-  // The mutated shape's new (start, end), if `mutate` requested
-  // selection preservation. Callers stash this in
-  // `pendingSelectionRef` so the host's subscribe handler can
-  // re-apply selection after `setSource` flushes through.
-  newSelection: SourceRange | null;
+  // Each preserved shape's new (start, end). Empty array if the
+  // mutate callback didn't request preservation, or if the post-
+  // emit reparse failed and we couldn't recover any spans.
+  // Callers stash this in `pendingSelectionRef` so the host's
+  // subscribe handler can re-apply selection after `setSource`
+  // flushes through.
+  newSelections: SourceRange[];
 }
 
 // Source-mutation pipeline shared by every gesture-commit path
-// (drag, resize, create, delete, text-edit). The mutate callback
-// receives a freshly parsed AST and either:
+// (drag, resize, create, delete, text-edit, group operations).
+// The mutate callback receives a freshly parsed AST and either:
 //   - returns `null` to abort the commit (target not found, no
 //     visible change, etc.)
 //   - returns `{}` to commit without selection preservation
-//   - returns `{ preserveSelection: ... }` to commit AND have
-//     this helper re-find the shape post-emit and report its new
-//     span via `newSelection` on the result
+//   - returns `{ preserveSelections: [...] }` to commit AND have
+//     this helper re-find each shape post-emit and report their
+//     new spans via `newSelections` on the result
+//
+// preserveSelections (plural) supports group gestures naturally —
+// each selected shape's onCommit contributes one PreserveSelection
+// to the list. Single-shape gestures pass a one-element array.
 //
 // On parse error (either before mutation or in the post-emit
 // reparse), the function returns null without calling setSource —
@@ -421,28 +427,29 @@ export function commitSourceEdit(
   label: string,
   mutate: (
     ast: SourceFile,
-  ) => { preserveSelection?: PreserveSelection } | null,
+  ) => { preserveSelections?: PreserveSelection[] } | null,
 ): CommitResult | null {
   const result = parse(source, label);
   if (result.diagnostics.some((d) => d.severity === 'error')) return null;
   const outcome = mutate(result.ast);
   if (!outcome) return null;
   const newSource = emit(result.ast);
-  let newSelection: SourceRange | null = null;
-  if (outcome.preserveSelection) {
-    const { slideIdx, childIdx } = outcome.preserveSelection;
+  let newSelections: SourceRange[] = [];
+  if (outcome.preserveSelections && outcome.preserveSelections.length > 0) {
     const reparsed = parse(newSource, `${label}-after`);
     if (!reparsed.diagnostics.some((d) => d.severity === 'error')) {
-      const newShape = findShapeAtChildIdx(reparsed.ast, slideIdx, childIdx);
-      if (newShape) {
-        newSelection = {
-          start: newShape.span.start.offset,
-          end: newShape.span.end.offset,
-        };
+      for (const { slideIdx, childIdx } of outcome.preserveSelections) {
+        const newShape = findShapeAtChildIdx(reparsed.ast, slideIdx, childIdx);
+        if (newShape) {
+          newSelections.push({
+            start: newShape.span.start.offset,
+            end: newShape.span.end.offset,
+          });
+        }
       }
     }
   }
-  return { newSource, newSelection };
+  return { newSource, newSelections };
 }
 
 // ─── Geometry ────────────────────────────────────────────────────

@@ -23,6 +23,7 @@ import {
   ScaledCanvas,
   type CreateStart,
   type DragStart,
+  type MarqueeStart,
   type TextEditTarget,
 } from './ScaledCanvas.js';
 import {
@@ -34,6 +35,7 @@ import {
   makeBoxNode,
   makeTextBoxNode,
   removeShapeAtSpan,
+  type PreserveSelection,
 } from './ast-edits.js';
 import type {
   GestureHandle,
@@ -102,18 +104,22 @@ export function prepareSlide(wrappedSlide: ReactElement): ReactElement {
   return cloneElement(wrappedSlide, undefined, preparedInner);
 }
 
-// Active pointer gesture — body drag or handle drag. Both have the
-// same shape: an adapter-supplied GestureHandle plus the framework's
-// pointer / scale captures. Body drag also sets `cursor: grabbing`
-// on document.body for the duration of the gesture; handle drags
-// rely on each handle's CSS cursor (resize, move, etc.) instead.
+// Active pointer gesture — body drag or handle drag. Carries an
+// array of GestureHandles so multi-shape body drags (group drag)
+// fit the same lifecycle: each frame iterates the handles and
+// dispatches the same delta to each. Single-shape gestures use a
+// one-element array.
+//
+// Body drag sets `cursor: grabbing` on document.body for the
+// duration of the gesture; handle drags rely on each handle's CSS
+// cursor (resize, move, etc.) instead.
 //
 // The mutex of "only one pointer gesture at a time" is enforced by
 // having a single state slot — body-drag pointerdown and handle
 // pointerdown both stopPropagation, so the dispatch can only land
 // in one of them per gesture.
 interface ActiveGesture {
-  handle: GestureHandle;
+  handles: GestureHandle[];
   label: string;          // identifier for parser-error logs
   pointerStartX: number;
   pointerStartY: number;
@@ -131,13 +137,17 @@ function getAdapter(componentName: string): ShapeAdapter | null {
   return (loaded.canvas as ShapeAdapter | undefined) ?? null;
 }
 
-// Find the active canvas's selection-outline div, if one exists.
-// Used by adapters' body-drag onMove to keep the dashed outline
-// tracking the moving shape, and by other gesture commits that
-// need to know whether the shape was selected at gesture start.
-function getSelectionOverlay(): HTMLElement | null {
+// Find the selection-outline div for a specific shape's span. The
+// selection effect tags each overlay with `data-sw-overlay-for-*`
+// attrs at creation time. With multi-select there are N overlays
+// in the DOM; this lookup picks the one that belongs to a given
+// shape so adapters' body-drag onMove updates the right outline.
+// Returns null if the shape isn't currently selected (e.g., the
+// user is body-dragging an unselected shape — single-shape drag,
+// no overlay to track).
+function getOverlayFor(span: { start: number; end: number }): HTMLElement | null {
   const el = document.querySelector(
-    '.sw-canvas-stage .presentation .sw-selection-outline',
+    `.sw-canvas-stage .sw-selection-outline[data-sw-overlay-for-start="${span.start}"][data-sw-overlay-for-end="${span.end}"]`,
   );
   return el instanceof HTMLElement ? el : null;
 }
@@ -160,21 +170,26 @@ export function App({ host }: { host: Host }): ReactElement {
   const [stripWidth, setStripWidth] = useState<number>(readStoredStripWidth);
   const [editing, setEditing] = useState<TextEditTarget | null>(null);
   const [creating, setCreating] = useState<CreateStart | null>(null);
+  const [marquee, setMarquee] = useState<MarqueeStart | null>(null);
   // Pointer gesture state — body drag and handle drag share this
   // single slot. ScaledCanvas's body-drag dispatch and the handle
   // pointerdowns (in adapter renderHandles) both feed it.
   const [activeGesture, setActiveGesture] = useState<ActiveGesture | null>(null);
   const [activeTool, setActiveTool] = useState<Tool>('select');
-  const [selected, setSelected] = useState<SourceRange | null>(null);
+  // Selection is always an array. Single-select works as length === 1;
+  // empty array means nothing selected. Multi-select (v0.2.j) is
+  // bounded to one layout context — currently the active slide's
+  // Freeform.
+  const [selected, setSelected] = useState<SourceRange[]>([]);
 
   // Selection-preservation across host.setSource. Spans shift after
   // every emit (the canonical formatter rewrites whitespace), so the
   // currently-selected (start, end) won't match anything in the new
-  // tree. Drag and resize commits stash the new shape's span here
-  // before calling host.setSource; the subscribe handler picks it up
-  // on the round-trip and re-applies it. Without this, gestures
+  // tree. Drag, resize, and group commits stash the new spans here
+  // before calling host.setSource; the subscribe handler picks them
+  // up on the round-trip and re-applies. Without this, gestures
   // would silently deselect on every commit.
-  const pendingSelectionRef = useRef<SourceRange | null>(null);
+  const pendingSelectionRef = useRef<SourceRange[] | null>(null);
 
   useEffect(() => {
     try {
@@ -221,7 +236,7 @@ export function App({ host }: { host: Host }): ReactElement {
         setSelected(pendingSelectionRef.current);
         pendingSelectionRef.current = null;
       } else {
-        setSelected(null);
+        setSelected([]);
       }
     });
   }, [host, activeIdx]);
@@ -418,14 +433,13 @@ export function App({ host }: { host: Host }): ReactElement {
   // grab doesn't also start a body drag on the same pointerdown).
   useEffect(() => {
     if (!activeGesture) return;
-    const { handle, label, pointerStartX, pointerStartY, scale, cursor } =
+    const { handles, label, pointerStartX, pointerStartY, scale, cursor } =
       activeGesture;
-    const slideIdx = activeIdxRef.current;
 
     const onMove = (e: PointerEvent) => {
       const designDx = (e.clientX - pointerStartX) / scale;
       const designDy = (e.clientY - pointerStartY) / scale;
-      handle.onMove(designDx, designDy);
+      for (const h of handles) h.onMove(designDx, designDy);
     };
 
     const onUp = (e: PointerEvent) => {
@@ -440,17 +454,31 @@ export function App({ host }: { host: Host }): ReactElement {
         setActiveGesture(null);
         return;
       }
-      const result = commitSourceEdit(sourceRef.current, label, (ast) =>
-        handle.onCommit(ast, designDx, designDy),
-      );
+      const result = commitSourceEdit(sourceRef.current, label, (ast) => {
+        // Iterate every handle's onCommit. Each returns at most
+        // one PreserveSelection; collect the lot for the multi-
+        // preservation pipeline. If every handle returns null the
+        // commit aborts (gesture had no effect on any target).
+        const preserveSelections: PreserveSelection[] = [];
+        let anyCommitted = false;
+        for (const h of handles) {
+          const out = h.onCommit(ast, designDx, designDy);
+          if (!out) continue;
+          anyCommitted = true;
+          if (out.preserveSelection) {
+            preserveSelections.push(out.preserveSelection);
+          }
+        }
+        if (!anyCommitted) return null;
+        return { preserveSelections };
+      });
       if (result) {
-        if (result.newSelection) pendingSelectionRef.current = result.newSelection;
+        if (result.newSelections.length > 0) {
+          pendingSelectionRef.current = result.newSelections;
+        }
         host.setSource?.(result.newSource);
       }
       setActiveGesture(null);
-      // slideIdx is captured but not currently used here — gesture
-      // handlers stash their own slideIdx via their closure.
-      void slideIdx;
     };
 
     document.addEventListener('pointermove', onMove);
@@ -604,6 +632,140 @@ export function App({ host }: { host: Host }): ReactElement {
     };
   }, [creating, host]);
 
+  // Marquee selection (v0.2.j). Pointerdown on empty Freeform
+  // space starts this; on pointerup, every shape whose adapter-
+  // computed bounds intersects the marquee rect joins the
+  // selection. Click-without-drag (zero motion) collapses to the
+  // older "click clears selection" behavior so empty-area clicks
+  // still feel snappy. Shift held during the gesture additively
+  // unions the result onto the current selection rather than
+  // replacing it.
+  useEffect(() => {
+    if (!marquee) return;
+    const {
+      freeformDiv,
+      designStartX,
+      designStartY,
+      pointerStartX,
+      pointerStartY,
+      scale,
+      shift,
+    } = marquee;
+
+    const preview = document.createElement('div');
+    preview.className = 'sw-marquee';
+    preview.style.position = 'absolute';
+    preview.style.left = `${designStartX}px`;
+    preview.style.top = `${designStartY}px`;
+    preview.style.width = '0px';
+    preview.style.height = '0px';
+    preview.style.pointerEvents = 'none';
+    preview.style.background = 'rgba(0, 102, 255, 0.08)';
+    preview.style.border = '1px dashed rgba(0, 102, 255, 0.85)';
+    preview.style.boxSizing = 'border-box';
+    freeformDiv.appendChild(preview);
+
+    const designAt = (clientX: number, clientY: number) => ({
+      x: (clientX - pointerStartX) / scale + designStartX,
+      y: (clientY - pointerStartY) / scale + designStartY,
+    });
+
+    const onMove = (e: PointerEvent) => {
+      const { x, y } = designAt(e.clientX, e.clientY);
+      const left = Math.min(designStartX, x);
+      const top = Math.min(designStartY, y);
+      preview.style.left = `${left}px`;
+      preview.style.top = `${top}px`;
+      preview.style.width = `${Math.abs(x - designStartX)}px`;
+      preview.style.height = `${Math.abs(y - designStartY)}px`;
+    };
+
+    const onUp = (e: PointerEvent) => {
+      const { x, y } = designAt(e.clientX, e.clientY);
+      const dx = x - designStartX;
+      const dy = y - designStartY;
+      // Click without meaningful drag — treat as the old "click on
+      // background clears selection" gesture (or no-op if shift,
+      // since shift-click on background is meaningless).
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) {
+        if (!shift) setSelected([]);
+        setMarquee(null);
+        return;
+      }
+      const left = Math.min(designStartX, x);
+      const top = Math.min(designStartY, y);
+      const right = Math.max(designStartX, x);
+      const bottom = Math.max(designStartY, y);
+      // Walk every shape wrapper inside this freeform; pick the
+      // ones whose adapter-computed bounds intersect the marquee.
+      // (`getAdapter` filtering is what restricts to gesture-able
+      // shapes — Freeform itself doesn't have an adapter, so its
+      // own wrapper is naturally skipped.)
+      const intersected: SourceRange[] = [];
+      const wrappers = freeformDiv.querySelectorAll<HTMLElement>(
+        '[data-sw-span-start]',
+      );
+      wrappers.forEach((wrapper) => {
+        const componentName = wrapper.getAttribute('data-sw-component');
+        if (!componentName) return;
+        const adapter = getAdapter(componentName);
+        if (!adapter) return;
+        const visualNode = wrapper.firstElementChild;
+        if (!visualNode) return;
+        const b = adapter.bounds(visualNode);
+        if (!b) return;
+        const shapeRight = b.left + b.width;
+        const shapeBottom = b.top + b.height;
+        // Standard rect-rect intersection (overlap, not strict
+        // containment) — Figma / Sketch convention.
+        if (
+          b.left < right &&
+          shapeRight > left &&
+          b.top < bottom &&
+          shapeBottom > top
+        ) {
+          const start = parseInt(
+            wrapper.getAttribute('data-sw-span-start') ?? '',
+            10,
+          );
+          const end = parseInt(
+            wrapper.getAttribute('data-sw-span-end') ?? '',
+            10,
+          );
+          if (Number.isFinite(start) && Number.isFinite(end)) {
+            intersected.push({ start, end });
+          }
+        }
+      });
+      if (shift) {
+        // Additive: union with current selection, deduping by
+        // (start, end). Order: existing first, then new.
+        setSelected((current) => {
+          const out = [...current];
+          for (const r of intersected) {
+            if (
+              !out.some((s) => s.start === r.start && s.end === r.end)
+            ) {
+              out.push(r);
+            }
+          }
+          return out;
+        });
+      } else {
+        setSelected(intersected);
+      }
+      setMarquee(null);
+    };
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    return () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      preview.parentElement?.removeChild(preview);
+    };
+  }, [marquee]);
+
   // Escape returns to the Select tool *and* clears any active
   // selection. Common modal-tool convention. Also wires Delete /
   // Backspace to remove the selected shape from its parent list.
@@ -620,17 +782,26 @@ export function App({ host }: { host: Host }): ReactElement {
 
       if (e.key === 'Escape') {
         if (activeTool !== 'select') setActiveTool('select');
-        if (selected) setSelected(null);
+        if (selected.length > 0) setSelected([]);
         e.preventDefault();
         return;
       }
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
-        const result = commitSourceEdit(sourceRef.current, '<delete>', (ast) =>
-          removeShapeAtSpan(ast, selected) ? {} : null,
-        );
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selected.length > 0) {
+        // Iterate the selection and remove each shape inside one
+        // commitSourceEdit call so the AST mutates atomically.
+        // Selection clears on commit (selected children no longer
+        // exist; pendingSelectionRef stays empty).
+        const targets = selected;
+        const result = commitSourceEdit(sourceRef.current, '<delete>', (ast) => {
+          let any = false;
+          for (const target of targets) {
+            if (removeShapeAtSpan(ast, target)) any = true;
+          }
+          return any ? {} : null;
+        });
         if (result) {
           host.setSource?.(result.newSource);
-          setSelected(null);
+          setSelected([]);
         }
         e.preventDefault();
       }
@@ -639,83 +810,130 @@ export function App({ host }: { host: Host }): ReactElement {
     return () => window.removeEventListener('keydown', onKey);
   }, [activeTool, selected, host]);
 
-  // Selection overlay. Looks up the shape's adapter, asks it for
-  // bounds, mounts the dashed outline div in the Freeform, then
-  // delegates handle rendering to the adapter. Re-runs on source
-  // change since wrapper element identities change after each
-  // emit + re-render.
+  // Selection overlays. Iterates the selected list, looks up each
+  // shape's adapter, mounts a dashed outline per shape. Adapter-
+  // supplied resize handles render only when exactly one shape is
+  // selected (group resize is a separate gesture model — deferred).
+  // When 2+ shapes are selected, an additional "group bounding
+  // box" outline is drawn around the union of the per-shape
+  // bounds, giving the multi-selection a single visual identity.
+  // Re-runs on source change since wrapper element identities
+  // change after each emit + re-render.
   useEffect(() => {
-    if (!selected || !state) return;
-    // Find the active slide's selected wrapper. Scope the query to
-    // .presentation so thumbnails (which contain their own copies
-    // of the same shapes) aren't accidentally targeted.
+    if (selected.length === 0 || !state) return;
     const presentation = document.querySelector(
       '.sw-canvas-stage .presentation',
     );
     if (!presentation) return;
-    const shapeWrapper = presentation.querySelector(
-      `[data-sw-span-start="${selected.start}"][data-sw-span-end="${selected.end}"]`,
-    );
-    if (!shapeWrapper) return;
-    const shapeInner = shapeWrapper.firstElementChild;
-    if (!shapeInner) return;
-    const componentName = shapeWrapper.getAttribute('data-sw-component');
-    if (!componentName) return;
-    const adapter = getAdapter(componentName);
-    if (!adapter) return;
 
-    const bounds = adapter.bounds(shapeInner);
-    if (!bounds) return;
+    const cleanups: Array<() => void> = [];
+    const renderHandlesFor = selected.length === 1;
 
-    // Anchor the overlay on the Freeform that contains the shape.
-    // (Generalizing to "any positioned ancestor" is deferred until
-    // outside-Freeform shapes need adapters — see SLIDEWRIGHT.md.)
-    const freeformWrapper = shapeWrapper.closest(
-      '[data-sw-component="Freeform"]',
-    );
-    const freeformDiv = freeformWrapper?.firstElementChild;
-    if (!(freeformDiv instanceof HTMLElement)) return;
+    // Track per-shape bounds + the freeform anchor so we can render
+    // the group bounding box at the end without re-walking the DOM.
+    let groupFreeform: HTMLElement | null = null;
+    const allBounds: Array<{
+      left: number;
+      top: number;
+      width: number;
+      height: number;
+    }> = [];
 
-    const overlay = document.createElement('div');
-    overlay.className = 'sw-selection-outline';
-    overlay.style.position = 'absolute';
-    overlay.style.left = `${bounds.left - 4}px`;
-    overlay.style.top = `${bounds.top - 4}px`;
-    overlay.style.width = `${bounds.width + 8}px`;
-    overlay.style.height = `${bounds.height + 8}px`;
-    // Overlay body is event-transparent so the underlying shape
-    // still receives clicks. Adapters render handles into it (or
-    // elsewhere) and set pointer-events: auto on those individually.
-    overlay.style.pointerEvents = 'none';
-    freeformDiv.appendChild(overlay);
+    for (const span of selected) {
+      const shapeWrapper = presentation.querySelector(
+        `[data-sw-span-start="${span.start}"][data-sw-span-end="${span.end}"]`,
+      );
+      if (!shapeWrapper) continue;
+      const shapeInner = shapeWrapper.firstElementChild;
+      if (!shapeInner) continue;
+      const componentName = shapeWrapper.getAttribute('data-sw-component');
+      if (!componentName) continue;
+      const adapter = getAdapter(componentName);
+      if (!adapter) continue;
 
-    // Handle rendering only in Select mode — creation tools take
-    // pointerdown precedence and selection visuals shouldn't shadow
-    // them.
-    let handleCleanup: (() => void) | null = null;
-    if (activeTool === 'select') {
-      handleCleanup = adapter.renderHandles({
-        overlay,
-        visualNode: shapeInner,
-        span: { start: selected.start, end: selected.end },
-        slideIdx: activeIdxRef.current,
-        getScale: getCurrentScale,
-        startHandleDrag: (handle, event) => {
-          setActiveGesture({
-            handle,
-            label: '<resize>',
-            pointerStartX: event.clientX,
-            pointerStartY: event.clientY,
-            scale: getCurrentScale(),
-            cursor: null,
-          });
-        },
-      });
+      const bounds = adapter.bounds(shapeInner);
+      if (!bounds) continue;
+
+      // Anchor each overlay on the Freeform that contains the
+      // shape. (Generalizing to "any positioned ancestor" is
+      // deferred until outside-Freeform shapes need adapters.)
+      const freeformWrapper = shapeWrapper.closest(
+        '[data-sw-component="Freeform"]',
+      );
+      const freeformDiv = freeformWrapper?.firstElementChild;
+      if (!(freeformDiv instanceof HTMLElement)) continue;
+      groupFreeform = freeformDiv;
+      allBounds.push(bounds);
+
+      const overlay = document.createElement('div');
+      overlay.className = 'sw-selection-outline';
+      overlay.setAttribute('data-sw-overlay-for-start', String(span.start));
+      overlay.setAttribute('data-sw-overlay-for-end', String(span.end));
+      overlay.style.position = 'absolute';
+      overlay.style.left = `${bounds.left - 4}px`;
+      overlay.style.top = `${bounds.top - 4}px`;
+      overlay.style.width = `${bounds.width + 8}px`;
+      overlay.style.height = `${bounds.height + 8}px`;
+      overlay.style.pointerEvents = 'none';
+      freeformDiv.appendChild(overlay);
+      cleanups.push(() => overlay.parentElement?.removeChild(overlay));
+
+      // Handles only on single-shape selection (the simpler-by-
+      // far-most-common case). Multi-select shows outlines so the
+      // user can disambiguate which shapes are in the group, but
+      // group resize via aggregate handles is its own milestone
+      // (deferred — needs the applyTransform adapter method).
+      if (renderHandlesFor && activeTool === 'select') {
+        const handleCleanup = adapter.renderHandles({
+          overlay,
+          visualNode: shapeInner,
+          span,
+          slideIdx: activeIdxRef.current,
+          getScale: getCurrentScale,
+          startHandleDrag: (handle, event) => {
+            setActiveGesture({
+              handles: [handle],
+              label: '<resize>',
+              pointerStartX: event.clientX,
+              pointerStartY: event.clientY,
+              scale: getCurrentScale(),
+              cursor: null,
+            });
+          },
+        });
+        cleanups.push(handleCleanup);
+      }
+    }
+
+    // Group bounding box — rendered when 2+ shapes contributed.
+    // The box is the union of per-shape bounds with a small outset
+    // so it visually contains the inner outlines. Solid border
+    // distinguishes it from the dashed per-shape outlines.
+    if (allBounds.length > 1 && groupFreeform) {
+      let left = Infinity;
+      let top = Infinity;
+      let right = -Infinity;
+      let bottom = -Infinity;
+      for (const b of allBounds) {
+        if (b.left < left) left = b.left;
+        if (b.top < top) top = b.top;
+        if (b.left + b.width > right) right = b.left + b.width;
+        if (b.top + b.height > bottom) bottom = b.top + b.height;
+      }
+      const groupBox = document.createElement('div');
+      groupBox.className = 'sw-selection-group';
+      groupBox.style.position = 'absolute';
+      groupBox.style.left = `${left - 8}px`;
+      groupBox.style.top = `${top - 8}px`;
+      groupBox.style.width = `${right - left + 16}px`;
+      groupBox.style.height = `${bottom - top + 16}px`;
+      groupBox.style.pointerEvents = 'none';
+      groupFreeform.appendChild(groupBox);
+      cleanups.push(() => groupBox.parentElement?.removeChild(groupBox));
     }
 
     return () => {
-      handleCleanup?.();
-      overlay.parentElement?.removeChild(overlay);
+      for (const fn of cleanups) fn();
     };
   }, [selected, state, activeTool]);
 
@@ -766,24 +984,55 @@ export function App({ host }: { host: Host }): ReactElement {
               onSelectRange={(range: SourceRange) => host.sendSelection(range)}
               onTextEdit={(target) => setEditing(target)}
               onDragStart={(target) => {
-                // Look up the shape adapter via the wrapper's
-                // data-sw-component attr, build the BodyDragContext,
-                // and feed the resulting handle into the gesture
-                // lifecycle effect via activeGesture state.
-                const componentName = target.node.getAttribute('data-sw-component');
-                if (!componentName) return;
-                const adapter = getAdapter(componentName);
-                if (!adapter) return;
-                const visualNode = target.node.firstElementChild;
-                if (!visualNode) return;
-                const handle = adapter.startBodyDrag({
-                  visualNode,
-                  getOverlay: getSelectionOverlay,
-                  span: { start: target.start, end: target.end },
-                  slideIdx: activeIdxRef.current,
-                });
+                // Decide which shapes are being dragged. If the
+                // clicked shape is part of the current selection
+                // AND the selection has multiple items, drag the
+                // whole group together. Otherwise drag just the
+                // clicked shape — selection itself was already
+                // updated by onSelectShape on the same pointerdown.
+                const targetSpan = { start: target.start, end: target.end };
+                const isInSelection = selected.some(
+                  (s) =>
+                    s.start === targetSpan.start && s.end === targetSpan.end,
+                );
+                const dragSpans =
+                  isInSelection && selected.length > 1 ? selected : [targetSpan];
+
+                // Look up each shape's wrapper, adapter, and visual
+                // node. Build a GestureHandle per shape via the
+                // adapter's startBodyDrag. Skip any that don't
+                // resolve (shape went away, missing adapter, etc.).
+                const presentation = document.querySelector(
+                  '.sw-canvas-stage .presentation',
+                );
+                if (!presentation) return;
+                const handles: GestureHandle[] = [];
+                for (const span of dragSpans) {
+                  const wrapper = presentation.querySelector(
+                    `[data-sw-span-start="${span.start}"][data-sw-span-end="${span.end}"]`,
+                  );
+                  if (!wrapper) continue;
+                  const componentName = wrapper.getAttribute('data-sw-component');
+                  if (!componentName) continue;
+                  const adapter = getAdapter(componentName);
+                  if (!adapter) continue;
+                  const visualNode = wrapper.firstElementChild;
+                  if (!visualNode) continue;
+                  // Each shape's getOverlay returns ITS OWN overlay
+                  // (matched by data-sw-overlay-for-* attrs), so a
+                  // group drag updates each dashed outline rather
+                  // than the first one.
+                  const handle = adapter.startBodyDrag({
+                    visualNode,
+                    getOverlay: () => getOverlayFor(span),
+                    span,
+                    slideIdx: activeIdxRef.current,
+                  });
+                  handles.push(handle);
+                }
+                if (handles.length === 0) return;
                 setActiveGesture({
-                  handle,
+                  handles,
                   label: '<drag>',
                   pointerStartX: target.pointerStartX,
                   pointerStartY: target.pointerStartY,
@@ -792,7 +1041,37 @@ export function App({ host }: { host: Host }): ReactElement {
                 });
               }}
               onCreateStart={(target) => setCreating(target)}
-              onSelectShape={(range) => setSelected(range)}
+              onMarqueeStart={(target) => setMarquee(target)}
+              onSelectShape={(range, modifiers) => {
+                if (!range) {
+                  // Background click — clears selection unless
+                  // shift held (shift-click on background is a
+                  // no-op, not a clear).
+                  if (!modifiers.shift) setSelected([]);
+                  return;
+                }
+                setSelected((current) => {
+                  const alreadySelected = current.some(
+                    (s) => s.start === range.start && s.end === range.end,
+                  );
+                  if (modifiers.shift) {
+                    // Shift-click toggles: remove if present,
+                    // append if absent. Order is preserved (new
+                    // shapes go to the end).
+                    return alreadySelected
+                      ? current.filter(
+                          (s) =>
+                            !(s.start === range.start && s.end === range.end),
+                        )
+                      : [...current, range];
+                  }
+                  // No-shift click: keep selection if the clicked
+                  // shape is already in it (so the user can start
+                  // a group drag without losing the rest), otherwise
+                  // replace with just that shape.
+                  return alreadySelected ? current : [range];
+                });
+              }}
               activeTool={activeTool}
             >
               {preparedSlide}

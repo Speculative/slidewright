@@ -239,3 +239,86 @@ test('Delete key removes the selected shape', async ({ page }) => {
   // Children list now empty; no Box anywhere in the source.
   expect(source).not.toMatch(/Box\s*\{/);
 });
+
+// ─── Multi-select ────────────────────────────────────────────────
+
+test('shift-click adds a second shape to the selection', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=two-boxes');
+  const boxes = page.locator('.sw-canvas-stage [data-sw-component="Box"] > div');
+  await boxes.nth(0).click();
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
+  // Shift-click extends. Two outlines should render — one per
+  // selected shape — so the user can disambiguate the group.
+  await boxes.nth(1).click({ modifiers: ['Shift'] });
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(2);
+});
+
+test('shift-click again removes a shape from the selection', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=two-boxes');
+  const boxes = page.locator('.sw-canvas-stage [data-sw-component="Box"] > div');
+  await boxes.nth(0).click();
+  await boxes.nth(1).click({ modifiers: ['Shift'] });
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(2);
+  // Shift-click an already-selected shape toggles it off.
+  await boxes.nth(0).click({ modifiers: ['Shift'] });
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
+});
+
+test('group drag moves all selected shapes by the same delta', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=two-boxes');
+  const boxes = page.locator('.sw-canvas-stage [data-sw-component="Box"] > div');
+  await boxes.nth(0).click();
+  await boxes.nth(1).click({ modifiers: ['Shift'] });
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(2);
+  // Drag from the first box's body — the whole group should move.
+  await dragByDesign(page, boxes.nth(0), 50, 30);
+  const source = await getSource(page);
+  // Box 1: x 200→250, y 200→230. Box 2: x 800→850, y 500→530.
+  expect(source).toMatch(/x:\s*250\b/);
+  expect(source).toMatch(/y:\s*230\b/);
+  expect(source).toMatch(/x:\s*850\b/);
+  expect(source).toMatch(/y:\s*530\b/);
+});
+
+test('Delete key removes every selected shape', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=two-boxes');
+  const boxes = page.locator('.sw-canvas-stage [data-sw-component="Box"] > div');
+  await boxes.nth(0).click();
+  await boxes.nth(1).click({ modifiers: ['Shift'] });
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(2);
+  await page.keyboard.press('Delete');
+  const source = await getSource(page);
+  expect(source).not.toMatch(/Box\s*\{/);
+});
+
+test('marquee drag selects every intersecting shape', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=two-boxes');
+  // Both Boxes are at known positions: amber at (200, 200) with
+  // size 200x150, cyan at (800, 500) with size 200x150. Dragging
+  // a marquee from (100, 100) to (1100, 700) covers the full
+  // freeform extent both boxes occupy. Start in empty space (so
+  // we don't grab a shape) and release past both.
+  await dragDesignPoints(page, 100, 100, 1100, 700);
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(2);
+});
+
+test('marquee drag missing all shapes leaves selection empty', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=two-boxes');
+  // Drag a small marquee in an empty corner of the freeform.
+  // Neither shape's bounds reach into (1500, 50)–(1700, 150).
+  await dragDesignPoints(page, 1500, 50, 1700, 150);
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(0);
+});
+
+test('group bounding box renders only when 2+ shapes are selected', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=two-boxes');
+  const boxes = page.locator('.sw-canvas-stage [data-sw-component="Box"] > div');
+  // Single-select: per-shape outline but no group box.
+  await boxes.nth(0).click();
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
+  await expect(page.locator('.sw-selection-group')).toHaveCount(0);
+  // Multi-select: per-shape outlines + a single group bbox.
+  await boxes.nth(1).click({ modifiers: ['Shift'] });
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(2);
+  await expect(page.locator('.sw-selection-group')).toHaveCount(1);
+});

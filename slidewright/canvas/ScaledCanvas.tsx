@@ -75,6 +75,20 @@ export interface CreateStart {
   scale: number;
 }
 
+// Marquee-selection gesture (v0.2.j). Pointerdown on empty
+// Freeform space in select mode kicks one off. Same coordinate
+// rules as CreateStart — design-space pixels are *relative to the
+// Freeform's positioned div*, not the outer canvas.
+export interface MarqueeStart {
+  freeformDiv: HTMLElement;
+  pointerStartX: number;
+  pointerStartY: number;
+  designStartX: number;
+  designStartY: number;
+  scale: number;
+  shift: boolean;
+}
+
 interface Props {
   children: ReactNode;
   onSelectRange?: (range: SourceRange) => void;
@@ -90,10 +104,19 @@ interface Props {
   // lifecycle — handler attaches its own move/up listeners.
   onCreateStart?: (target: CreateStart) => void;
   // Fired when pointer goes down in Select mode. Argument is the
-  // selectable shape's source range, or null if the click landed on
-  // the canvas background (in which case the host typically clears
-  // its selection state).
-  onSelectShape?: (range: SourceRange | null) => void;
+  // selectable shape's source range (or null if the click landed
+  // on the canvas background — clear selection there) plus
+  // modifier state. The host decides what to do with the click —
+  // replace, toggle (shift), or keep (drag of existing selection).
+  onSelectShape?: (
+    range: SourceRange | null,
+    modifiers: { shift: boolean },
+  ) => void;
+  // Fired when pointer goes down on empty Freeform space in select
+  // mode (v0.2.j). The handler renders a marquee preview during
+  // pointermove and, on release, sets selection to all shapes
+  // intersecting the rectangle.
+  onMarqueeStart?: (target: MarqueeStart) => void;
   activeTool?: 'select' | 'box' | 'textbox' | 'arrow';
 }
 
@@ -119,6 +142,7 @@ export function ScaledCanvas({
   onDragStart,
   onCreateStart,
   onSelectShape,
+  onMarqueeStart,
   activeTool = 'select',
 }: Props): ReactElement {
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -218,12 +242,21 @@ export function ScaledCanvas({
     // whether the shape is draggable, then start a drag if it is.
     // Box/TextBox: select + drag. Arrow: select only.
     // Click on background (no shape ancestor): clear selection.
+    const modifiers = { shift: event.shiftKey };
     const selectable = target.closest(SELECTABLE_SELECTOR);
     if (selectable instanceof HTMLElement) {
       const start = parseInt(selectable.getAttribute('data-sw-span-start') ?? '', 10);
       const end = parseInt(selectable.getAttribute('data-sw-span-end') ?? '', 10);
       if (Number.isFinite(start) && Number.isFinite(end)) {
-        onSelectShape?.({ start, end });
+        onSelectShape?.({ start, end }, modifiers);
+      }
+      // Shift-click is a selection-modifier gesture (toggle), not a
+      // drag-initiating click. Skip the drag dispatch so a shift-
+      // click on a draggable shape doesn't kick off a body drag of
+      // the post-toggle selection on the same pointerdown.
+      if (modifiers.shift) {
+        event.preventDefault();
+        return;
       }
       const draggable = target.closest(DRAGGABLE_SELECTOR);
       if (
@@ -246,11 +279,36 @@ export function ScaledCanvas({
       return;
     }
 
-    // Click on background (anywhere over the canvas that isn't a
-    // shape) clears the selection. Don't preventDefault — the host
-    // may want browser-default click semantics for things outside
-    // shapes (e.g., toolbar focus management).
-    onSelectShape?.(null);
+    // Background click — pointer landed somewhere that isn't a
+    // shape. If we're inside a Freeform in select mode, start a
+    // marquee gesture (the host figures out on pointerup whether
+    // it was a click-to-clear or a drag-to-select). Outside any
+    // Freeform (e.g., margin around the slide), fall through to
+    // the older clear-selection dispatch.
+    if (activeTool === 'select' && onMarqueeStart) {
+      const freeformWrapper = target.closest('[data-sw-component="Freeform"]');
+      const freeformDiv = freeformWrapper?.firstElementChild;
+      if (freeformDiv instanceof HTMLElement) {
+        const rect = freeformDiv.getBoundingClientRect();
+        const designStartX = (event.clientX - rect.left) / scale;
+        const designStartY = (event.clientY - rect.top) / scale;
+        event.preventDefault();
+        onMarqueeStart({
+          freeformDiv,
+          pointerStartX: event.clientX,
+          pointerStartY: event.clientY,
+          designStartX,
+          designStartY,
+          scale,
+          shift: modifiers.shift,
+        });
+        return;
+      }
+    }
+
+    // Don't preventDefault — the host may want browser-default
+    // click semantics for things outside shapes.
+    onSelectShape?.(null, modifiers);
   };
 
   // Outline scales with the CSS transform, so we divide by scale to
