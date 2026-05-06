@@ -402,6 +402,101 @@ test('external edit clears the undo stack (barrier)', async ({ page }) => {
   expect(after).not.toBe(afterDrag);
 });
 
+test('navigating slides preserves the undo stack', async ({ page }) => {
+  // Regression: subscribe was registered with `activeIdx` in deps,
+  // so each nav re-subscribed and the host's immediate-fire-on-
+  // subscribe was indistinguishable from an external edit, silently
+  // clearing the canvas-side undo stack.
+  await page.goto('/canvas.html?fixture=two-slides');
+  // Drag the box on slide 1.
+  const box = page
+    .locator('.sw-canvas-stage [data-sw-component="Box"] > div')
+    .first();
+  await expect(box).toBeVisible();
+  const beforeDrag = await page.evaluate(
+    () =>
+      (
+        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
+      ).value,
+  );
+  const eb = await box.boundingBox();
+  if (!eb) throw new Error('box not found');
+  await page.mouse.move(eb.x + eb.width / 2, eb.y + eb.height / 2);
+  await page.mouse.down();
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  await page.mouse.move(eb.x + eb.width / 2 + 50, eb.y + eb.height / 2, {
+    steps: 5,
+  });
+  await page.mouse.up();
+  // Navigate to slide 2 and back. Each nav is a state change but
+  // not a source change — undo stack should survive.
+  await page.locator('.sw-thumb').nth(1).click();
+  await page.locator('.sw-thumb').nth(0).click();
+  // Cmd-Z. Should revert to pre-drag.
+  await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press('ControlOrMeta+Z');
+  const afterUndo = await page.evaluate(
+    () =>
+      (
+        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
+      ).value,
+  );
+  expect(afterUndo).toBe(beforeDrag);
+});
+
+test('focusing the editor pane without changes preserves the undo stack', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-box');
+  const box = page
+    .locator('.sw-canvas-stage [data-sw-component="Box"] > div')
+    .first();
+  await expect(box).toBeVisible();
+  const beforeDrag = await page.evaluate(
+    () =>
+      (
+        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
+      ).value,
+  );
+  // Commit a drag.
+  const eb = await box.boundingBox();
+  if (!eb) throw new Error('box not found');
+  await page.mouse.move(eb.x + eb.width / 2, eb.y + eb.height / 2);
+  await page.mouse.down();
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  await page.mouse.move(eb.x + eb.width / 2 + 50, eb.y + eb.height / 2, {
+    steps: 5,
+  });
+  await page.mouse.up();
+  // Focus the editor pane (e.g., user clicks into it to read source)
+  // without typing anything.
+  await page.locator('.sw-editor-pane').focus();
+  // Move focus back to the canvas so Cmd-Z routes to the canvas
+  // handler (textarea's native undo would otherwise intercept).
+  await page.evaluate(() => {
+    const el = document.activeElement as HTMLElement | null;
+    if (el && el !== document.body) el.blur();
+  });
+  await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press('ControlOrMeta+Z');
+  // Should revert to the pre-drag source.
+  const afterUndo = await page.evaluate(
+    () =>
+      (
+        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
+      ).value,
+  );
+  expect(afterUndo).toBe(beforeDrag);
+});
+
 test('external edit that deletes the selected shape clears selection', async ({ page }) => {
   await page.goto('/canvas.html?fixture=single-box');
   await page

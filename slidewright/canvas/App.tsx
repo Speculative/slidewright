@@ -299,6 +299,17 @@ export function App({ host }: { host: Host }): ReactElement {
     }
   }, [stripWidth]);
 
+  // activeIdx mirror — read inside long-lived closures (notably
+  // the host.subscribe callback) so the effect's deps don't have
+  // to include `activeIdx`. Every slide change would otherwise
+  // re-subscribe, triggering the host's immediate-fire-on-subscribe,
+  // which was indistinguishable from an external edit and silently
+  // cleared the undo stack on every nav.
+  const activeIdxRef = useRef(activeIdx);
+  useEffect(() => {
+    activeIdxRef.current = activeIdx;
+  }, [activeIdx]);
+
   useEffect(() => {
     return host.subscribe(({ source, fileName, assets }) => {
       const scope = {
@@ -330,7 +341,15 @@ export function App({ host }: { host: Host }): ReactElement {
           source,
           shapes: result.shapes,
         };
-        if (prev && next.slides.length > 0 && activeIdx >= next.slides.length) {
+        // Read activeIdx via ref (not closure) so this effect's
+        // deps don't include `activeIdx` — every slide-change
+        // would otherwise tear down + re-subscribe, which fires
+        // the host callback again with the current source. That
+        // synchronous re-fire was indistinguishable from an
+        // external edit and silently cleared the undo stack on
+        // every slide nav / cursor move.
+        const idx = activeIdxRef.current;
+        if (prev && next.slides.length > 0 && idx >= next.slides.length) {
           queueMicrotask(() => setActiveIdx(next.slides.length - 1));
         }
         return next;
@@ -366,7 +385,7 @@ export function App({ host }: { host: Host }): ReactElement {
         ),
       );
     });
-  }, [host, activeIdx]);
+  }, [host]);
 
   const total = state?.slides.length ?? 0;
   const select = useCallback(
@@ -509,12 +528,6 @@ export function App({ host }: { host: Host }): ReactElement {
       if (exited === null) node.contentEditable = 'false';
     };
   }, [editing, host]);
-
-  // Refs for activeIdx, accessed inside long-lived gesture handlers.
-  const activeIdxRef = useRef(activeIdx);
-  useEffect(() => {
-    activeIdxRef.current = activeIdx;
-  }, [activeIdx]);
 
   // ─── Gesture lifecycle ──────────────────────────────────────────
   //
