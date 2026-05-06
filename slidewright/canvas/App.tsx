@@ -126,10 +126,19 @@ export function prepareSlide(wrappedSlide: ReactElement): ReactElement {
 
 // ─── Gesture state ────────────────────────────────────────────────
 //
-// One slot for active body drag and active handle drag. setGesture
-// per pointermove drives React re-renders; `deltas` is rebuilt
-// from `templates + dx/dy` for context distribution to shape
-// projections and selection layer.
+// Split into two pieces:
+//   - `gestureMeta` — set once at gesture-start, cleared at end.
+//     Carries pointer captures, the per-shape delta templates, and
+//     metadata commit needs.
+//   - `gestureLive` — pointer-derived `dx, dy`. Updated per
+//     pointermove via `setGestureLive`.
+//
+// Why split: the gesture-lifecycle effect's deps are `gestureMeta`
+// only — listeners attach on gesture-start, detach on gesture-end,
+// nothing in between. setGestureLive triggers React re-render
+// (which propagates new deltas to shapes / selection visuals) but
+// does NOT cause the effect to re-run, avoiding per-frame
+// remove/add of document listeners.
 
 type DeltaTemplate =
   | { kind: 'translate' }
@@ -147,7 +156,7 @@ type DeltaTemplate =
       fixedY: number;
     };
 
-interface GestureState {
+interface GestureMeta {
   templates: ReadonlyMap<string, DeltaTemplate>;
   spans: ReadonlyArray<SourceRange>;
   pointerStartX: number;
@@ -156,10 +165,14 @@ interface GestureState {
   slideIdx: number;
   label: string;
   cursor: 'grabbing' | null;
-  // Live design-space delta. Updated per pointermove via setGesture.
+}
+
+interface GestureLive {
   dx: number;
   dy: number;
 }
+
+const ZERO_LIVE: GestureLive = { dx: 0, dy: 0 };
 
 // ─── Create gesture (drawing tools) ───────────────────────────────
 //
@@ -222,7 +235,8 @@ export function App({ host }: { host: Host }): ReactElement {
   const [editing, setEditing] = useState<TextEditTarget | null>(null);
   const [createPreview, setCreatePreview] = useState<CreatePreview | null>(null);
   const [marquee, setMarquee] = useState<MarqueeState | null>(null);
-  const [gesture, setGesture] = useState<GestureState | null>(null);
+  const [gestureMeta, setGestureMeta] = useState<GestureMeta | null>(null);
+  const [gestureLive, setGestureLive] = useState<GestureLive>(ZERO_LIVE);
   const [activeTool, setActiveTool] = useState<Tool>('select');
   // Selection is always an array. Single-select is length === 1.
   // Multi-select is bounded to one layout context (one Freeform).
@@ -434,7 +448,7 @@ export function App({ host }: { host: Host }): ReactElement {
   // pointerup, dispatch each shape's adapter.commit through
   // commitSourceEdit and forward to host.setSource.
   useEffect(() => {
-    if (!gesture) return;
+    if (!gestureMeta) return;
     const {
       pointerStartX,
       pointerStartY,
@@ -444,12 +458,12 @@ export function App({ host }: { host: Host }): ReactElement {
       spans,
       slideIdx,
       templates,
-    } = gesture;
+    } = gestureMeta;
 
     const onMove = (e: PointerEvent) => {
       const dx = (e.clientX - pointerStartX) / scale;
       const dy = (e.clientY - pointerStartY) / scale;
-      setGesture((prev) => (prev ? { ...prev, dx, dy } : null));
+      setGestureLive({ dx, dy });
     };
 
     const onUp = (e: PointerEvent) => {
@@ -460,7 +474,8 @@ export function App({ host }: { host: Host }): ReactElement {
       // without committing; for handle drag, an accidental click
       // on a corner does nothing.)
       if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
-        setGesture(null);
+        setGestureMeta(null);
+        setGestureLive(ZERO_LIVE);
         return;
       }
       const result = commitSourceEdit(sourceRef.current, label, (ast) => {
@@ -493,7 +508,8 @@ export function App({ host }: { host: Host }): ReactElement {
         }
         host.setSource?.(result.newSource);
       }
-      setGesture(null);
+      setGestureMeta(null);
+      setGestureLive(ZERO_LIVE);
     };
 
     document.addEventListener('pointermove', onMove);
@@ -506,7 +522,7 @@ export function App({ host }: { host: Host }): ReactElement {
       if (cursor) document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
-  }, [gesture, host]);
+  }, [gestureMeta, host]);
 
   // ─── Create-tool gesture lifecycle ──────────────────────────────
   //
@@ -707,13 +723,13 @@ export function App({ host }: { host: Host }): ReactElement {
   // ShapeDelta> that the GestureProvider hands down to every
   // ShapeProjection wrapper and to the SelectionLayer.
   const gestureDeltas = useMemo<ReadonlyMap<string, ShapeDelta>>(() => {
-    if (!gesture) return EMPTY_DELTAS;
+    if (!gestureMeta) return EMPTY_DELTAS;
     const out = new Map<string, ShapeDelta>();
-    for (const [key, template] of gesture.templates) {
-      out.set(key, templateToDelta(template, gesture.dx, gesture.dy));
+    for (const [key, template] of gestureMeta.templates) {
+      out.set(key, templateToDelta(template, gestureLive.dx, gestureLive.dy));
     }
     return out;
-  }, [gesture]);
+  }, [gestureMeta, gestureLive]);
 
   // ─── startGesture callback for adapter handles ──────────────────
   //
@@ -742,7 +758,7 @@ export function App({ host }: { host: Host }): ReactElement {
               fixedX: init.fixedX,
               fixedY: init.fixedY,
             };
-      setGesture({
+      setGestureMeta({
         templates: new Map([[key, template]]),
         spans: [span],
         pointerStartX: event.clientX,
@@ -751,9 +767,8 @@ export function App({ host }: { host: Host }): ReactElement {
         slideIdx,
         label: '<resize>',
         cursor: null,
-        dx: 0,
-        dy: 0,
       });
+      setGestureLive(ZERO_LIVE);
     },
     [selected],
   );
@@ -799,7 +814,7 @@ export function App({ host }: { host: Host }): ReactElement {
                 onSelectRange={(range: SourceRange) => host.sendSelection(range)}
                 onTextEdit={(target) => setEditing(target)}
                 onDragStart={(target) =>
-                  startBodyDrag(target, selected, state.shapes, setGesture)
+                  startBodyDrag(target, selected, state.shapes, setGestureMeta, setGestureLive)
                 }
                 onCreateStart={(target) =>
                   startCreate(target, activeTool, setCreatePreview)
@@ -828,7 +843,7 @@ export function App({ host }: { host: Host }): ReactElement {
                 selected={selected}
                 shapes={state.shapes}
                 gestureDeltas={gestureDeltas}
-                renderHandles={activeTool === 'select' && !gesture}
+                renderHandles={activeTool === 'select' && !gestureMeta}
                 startGesture={startGesture}
               />
               <MarqueePreviewOverlay marquee={marquee} />
@@ -882,7 +897,8 @@ function startBodyDrag(
   target: DragStart,
   selected: ReadonlyArray<SourceRange>,
   shapes: ReadonlyMap<string, ShapeData>,
-  setGesture: (g: GestureState) => void,
+  setGestureMeta: (g: GestureMeta) => void,
+  setGestureLive: (l: GestureLive) => void,
 ): void {
   const targetSpan = { start: target.start, end: target.end };
   const isInSelection = selected.some(
@@ -907,7 +923,7 @@ function startBodyDrag(
     slideIdx = data.slideIdx;
   }
   if (templates.size === 0) return;
-  setGesture({
+  setGestureMeta({
     templates,
     spans,
     pointerStartX: target.pointerStartX,
@@ -916,9 +932,8 @@ function startBodyDrag(
     slideIdx,
     label: '<drag>',
     cursor: 'grabbing',
-    dx: 0,
-    dy: 0,
   });
+  setGestureLive(ZERO_LIVE);
 }
 
 // Create-gesture dispatch. ScaledCanvas dispatches CreateStart with
