@@ -60,6 +60,7 @@ import { SelectionLayer } from './selection-layer.js';
 import { DiagnosticsPanel } from './DiagnosticsPanel.js';
 import { SlideStrip } from './SlideStrip.js';
 import { ResizeHandle } from './ResizeHandle.js';
+import { HierarchyPanel, PropertiesPanel } from './InspectorPanels.js';
 import { ToolPalette, type Tool } from './ToolPalette.js';
 
 interface DeckMeta {
@@ -92,19 +93,41 @@ const STRIP_WIDTH_DEFAULT = 280;
 const STRIP_WIDTH_MIN = 200;
 const STRIP_WIDTH_MAX = 600;
 
-const DESIGN_W = 1920;
+// Bottom strip — vertical extent of [hierarchy | properties |
+// bottomExtra]. Resizing drags the boundary between canvas and strip.
+const BOTTOM_HEIGHT_KEY = 'slidewright.canvas.bottomStripHeight';
+const BOTTOM_HEIGHT_DEFAULT = 280;
+const BOTTOM_HEIGHT_MIN = 80;
+const BOTTOM_HEIGHT_MAX = 800;
 
-function readStoredStripWidth(): number {
+const HIERARCHY_WIDTH_KEY = 'slidewright.canvas.hierarchyWidth';
+const HIERARCHY_WIDTH_DEFAULT = 260;
+const HIERARCHY_WIDTH_MIN = 160;
+const HIERARCHY_WIDTH_MAX = 600;
+
+const PROPERTIES_WIDTH_KEY = 'slidewright.canvas.propertiesWidth';
+const PROPERTIES_WIDTH_DEFAULT = 300;
+const PROPERTIES_WIDTH_MIN = 160;
+const PROPERTIES_WIDTH_MAX = 600;
+
+function readStoredSize(
+  key: string,
+  def: number,
+  min: number,
+  max: number,
+): number {
   try {
-    const raw = localStorage.getItem(STRIP_WIDTH_KEY);
-    if (raw == null) return STRIP_WIDTH_DEFAULT;
+    const raw = localStorage.getItem(key);
+    if (raw == null) return def;
     const n = parseFloat(raw);
-    if (!Number.isFinite(n)) return STRIP_WIDTH_DEFAULT;
-    return Math.max(STRIP_WIDTH_MIN, Math.min(STRIP_WIDTH_MAX, n));
+    if (!Number.isFinite(n)) return def;
+    return Math.max(min, Math.min(max, n));
   } catch {
-    return STRIP_WIDTH_DEFAULT;
+    return def;
   }
 }
+
+const DESIGN_W = 1920;
 
 // Inject the props that Presentation.jsx normally adds (active=true
 // so styles.css's .slide.active visibility rule kicks in, actLabel
@@ -238,10 +261,46 @@ function getCurrentScale(): number {
   return canvas.getBoundingClientRect().width / DESIGN_W;
 }
 
-export function App({ host }: { host: Host }): ReactElement {
+export function App({
+  host,
+  bottomExtra,
+}: {
+  host: Host;
+  // Optional slot rendered as the rightmost column of the bottom
+  // strip, alongside the inspector. The standalone passes its
+  // EditorPane here; the VS Code webview leaves it empty (VS Code's
+  // own editor is the source surface).
+  bottomExtra?: ReactElement | null;
+}): ReactElement {
   const [state, setState] = useState<RenderState | null>(null);
   const [activeIdx, setActiveIdx] = useState(0);
-  const [stripWidth, setStripWidth] = useState<number>(readStoredStripWidth);
+  const [stripWidth, setStripWidth] = useState<number>(() =>
+    readStoredSize(STRIP_WIDTH_KEY, STRIP_WIDTH_DEFAULT, STRIP_WIDTH_MIN, STRIP_WIDTH_MAX),
+  );
+  const [bottomHeight, setBottomHeight] = useState<number>(() =>
+    readStoredSize(
+      BOTTOM_HEIGHT_KEY,
+      BOTTOM_HEIGHT_DEFAULT,
+      BOTTOM_HEIGHT_MIN,
+      BOTTOM_HEIGHT_MAX,
+    ),
+  );
+  const [hierarchyWidth, setHierarchyWidth] = useState<number>(() =>
+    readStoredSize(
+      HIERARCHY_WIDTH_KEY,
+      HIERARCHY_WIDTH_DEFAULT,
+      HIERARCHY_WIDTH_MIN,
+      HIERARCHY_WIDTH_MAX,
+    ),
+  );
+  const [propertiesWidth, setPropertiesWidth] = useState<number>(() =>
+    readStoredSize(
+      PROPERTIES_WIDTH_KEY,
+      PROPERTIES_WIDTH_DEFAULT,
+      PROPERTIES_WIDTH_MIN,
+      PROPERTIES_WIDTH_MAX,
+    ),
+  );
   const [editing, setEditing] = useState<TextEditTarget | null>(null);
   const [createPreview, setCreatePreview] = useState<CreatePreview | null>(null);
   const [marquee, setMarquee] = useState<MarqueeState | null>(null);
@@ -327,6 +386,27 @@ export function App({ host }: { host: Host }): ReactElement {
       // Storage unavailable; fine to lose.
     }
   }, [stripWidth]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(BOTTOM_HEIGHT_KEY, String(bottomHeight));
+    } catch {
+      // Storage unavailable; fine to lose.
+    }
+  }, [bottomHeight]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(HIERARCHY_WIDTH_KEY, String(hierarchyWidth));
+    } catch {
+      // Storage unavailable; fine to lose.
+    }
+  }, [hierarchyWidth]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(PROPERTIES_WIDTH_KEY, String(propertiesWidth));
+    } catch {
+      // Storage unavailable; fine to lose.
+    }
+  }, [propertiesWidth]);
 
   useEffect(() => {
     return host.subscribe(({ source, fileName, assets }) => {
@@ -1006,6 +1086,60 @@ export function App({ host }: { host: Host }): ReactElement {
           </div>
         ) : null}
       </div>
+      {bottomExtra ? (
+        <>
+          <ResizeHandle
+            axis="y"
+            invert
+            size={bottomHeight}
+            setSize={setBottomHeight}
+            min={BOTTOM_HEIGHT_MIN}
+            max={BOTTOM_HEIGHT_MAX}
+          />
+          <div
+            className="sw-canvas-bottom-strip"
+            style={{ height: `${bottomHeight}px` }}
+          >
+            <div
+              className="sw-bottom-col"
+              style={{ width: `${hierarchyWidth}px` }}
+            >
+              <HierarchyPanel
+                shapes={state.shapes}
+                activeIdx={activeIdx}
+                selected={selected}
+                onSelect={(range, modifiers) =>
+                  applySelectionClick(range, modifiers, setSelected)
+                }
+                onJumpToSource={(range) => host.sendSelection(range)}
+              />
+            </div>
+            <ResizeHandle
+              axis="x"
+              size={hierarchyWidth}
+              setSize={setHierarchyWidth}
+              min={HIERARCHY_WIDTH_MIN}
+              max={HIERARCHY_WIDTH_MAX}
+            />
+            <div
+              className="sw-bottom-col"
+              style={{ width: `${propertiesWidth}px` }}
+            >
+              <PropertiesPanel />
+            </div>
+            <ResizeHandle
+              axis="x"
+              size={propertiesWidth}
+              setSize={setPropertiesWidth}
+              min={PROPERTIES_WIDTH_MIN}
+              max={PROPERTIES_WIDTH_MAX}
+            />
+            <div className="sw-bottom-col sw-bottom-col-flex">
+              {bottomExtra}
+            </div>
+          </div>
+        </>
+      ) : null}
     </DeckMetaContext.Provider>
   );
 }

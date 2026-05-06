@@ -313,36 +313,114 @@ html, body, #root {
   cursor: move;
 }
 
-/* ── Standalone layout (canvas + bottom-mounted editor pane) ────── */
+/* ── Bottom strip ─────────────────────────────────────────────────
+ *
+ * Three-column layout: [hierarchy | properties | bottomExtra]. The
+ * bottomExtra slot is filled by the standalone (its EditorPane);
+ * VS Code leaves it empty, in which case the strip itself doesn't
+ * render. Height comes from the parent's inline style (driven by
+ * the canvas-vs-strip ResizeHandle); each column is its own flex
+ * item so width changes don't interact with editor scroll.
+ *
+ * Bottom-mounted (rather than side-mounted) since the canvas's 16:9
+ * aspect makes a horizontal split leave vertical empty space on the
+ * canvas side. Keynote / PowerPoint use the bottom strip for
+ * speaker notes for the same reason. */
+.sw-canvas-bottom-strip {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  min-height: 0;
+  border-top: 1px solid #ddd;
+  background: #fafafa;
+}
 
-/* Editor goes at the bottom — same screen real-estate that speaker
- * notes would normally occupy in a slide-editor UI. The canvas's
- * 16:9 aspect makes a horizontal split feel cramped, since it leaves
- * vertical empty space on the canvas side. Bottom-mounted is the
- * Keynote/PowerPoint convention for this reason. The bottom pane
- * may grow into a tabbed surface (source / speaker notes / etc.)
- * later. */
-.sw-standalone-layout {
+.sw-bottom-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.sw-bottom-col-flex {
+  flex: 1 1 0;
+}
+
+.sw-inspector-panel {
   display: flex;
   flex-direction: column;
   height: 100%;
-  min-height: 0;
+  background: #fafafa;
+  font-family: var(--font-body, -apple-system, "Segoe UI", sans-serif);
+  font-size: 12px;
+  color: #333;
 }
-
-/* The canvas part — wraps App's status/diagnostics/body in a flex
- * column, same shape App expects when it's the sole child of #root
- * in the webview. */
-.sw-standalone-canvas {
+.sw-inspector-panel-header {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  background: #f0f0f0;
+  border-bottom: 1px solid #ddd;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #666;
+}
+.sw-inspector-panel-body {
   flex: 1 1 0;
   min-height: 0;
+  overflow: auto;
+  padding: 8px 12px;
+}
+.sw-inspector-panel-empty {
+  color: #999;
+  font-style: italic;
+}
+
+.sw-hierarchy-tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sw-hierarchy-node {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 3px;
+  cursor: default;
+  user-select: none;
+}
+.sw-hierarchy-node:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+.sw-hierarchy-node.selected {
+  background: rgba(0, 0, 255, 0.12);
+}
+.sw-hierarchy-node.selected:hover {
+  background: rgba(0, 0, 255, 0.18);
+}
+
+.sw-hierarchy-node-name {
+  font-family: var(--vscode-editor-font-family, "JetBrains Mono", ui-monospace, monospace);
+  font-size: 12px;
+  color: #222;
+}
+.sw-hierarchy-node-meta {
+  font-family: var(--vscode-editor-font-family, "JetBrains Mono", ui-monospace, monospace);
+  font-size: 11px;
+  color: #888;
 }
 
 .sw-editor-pane {
-  /* Height supplied via inline style from React state (resizable
-   * via the ResizeHandle that sits between this and the canvas). */
-  flex: 0 0 auto;
+  /* Height comes from the bottom-strip flex parent; width comes from
+   * the bottom-col-flex wrapper. The pane itself just fills its slot. */
+  flex: 1 1 0;
+  width: 100%;
+  height: 100%;
   margin: 0;
   padding: 12px 16px;
   border: 0;
@@ -356,4 +434,5 @@ html, body, #root {
   white-space: pre;
   overflow: auto;
   tab-size: 2;
+  box-sizing: border-box;
 }
