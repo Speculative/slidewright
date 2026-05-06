@@ -15,7 +15,6 @@
 
 import {
   cloneElement,
-  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -35,7 +34,6 @@ import {
   ScaledCanvas,
   type CreateStart,
   type DragStart,
-  type MarqueeStart,
   type TextEditTarget,
 } from './ScaledCanvas.js';
 import {
@@ -50,6 +48,7 @@ import {
   type PreserveSelection,
 } from './ast-edits.js';
 import type {
+  BoxResizeDirection,
   HandleGestureInit,
   ShapeAdapter,
   ShapeDelta,
@@ -136,11 +135,7 @@ type DeltaTemplate =
   | { kind: 'translate' }
   | {
       kind: 'box-resize';
-      direction: HandleGestureInit & { kind: 'box-resize' } extends infer D
-        ? D extends { direction: infer Dir }
-          ? Dir
-          : never
-        : never;
+      direction: BoxResizeDirection;
       original: { x: number; y: number; width: number; height: number };
     }
   | {
@@ -617,31 +612,33 @@ export function App({ host }: { host: Host }): ReactElement {
       const top = Math.min(designStartY, designCurrentY);
       const right = Math.max(designStartX, designCurrentX);
       const bottom = Math.max(designStartY, designCurrentY);
-      // Walk every shape wrapper inside this freeform; pick the
-      // ones whose adapter-computed bounds intersect the marquee.
+      // Iterate the shapes registry rather than walking the DOM.
+      // Every shape with an adapter goes through the loader's
+      // ShapeProjection, so the registry has them all. Filter by
+      // active slide so multi-slide decks don't pull selectables
+      // from inactive slides.
       const intersected: SourceRange[] = [];
-      const wrappers = freeformDiv.querySelectorAll<HTMLElement>(
-        '[data-sw-span-start]',
-      );
       const shapes = stateRef.current?.shapes;
-      wrappers.forEach((wrapper) => {
-        const start = parseInt(wrapper.getAttribute('data-sw-span-start') ?? '', 10);
-        const end = parseInt(wrapper.getAttribute('data-sw-span-end') ?? '', 10);
-        if (!Number.isFinite(start) || !Number.isFinite(end)) return;
-        const data = shapes?.get(`${start}-${end}`);
-        if (!data) return;
-        const adapter = data.canvas as ShapeAdapter;
-        const b = adapter.boundsFromParams(data.params);
-        if (!b) return;
-        if (
-          b.left < right &&
-          b.left + b.width > left &&
-          b.top < bottom &&
-          b.top + b.height > top
-        ) {
-          intersected.push({ start, end });
+      const slideIdx = activeIdxRef.current;
+      if (shapes) {
+        for (const data of shapes.values()) {
+          if (data.slideIdx !== slideIdx) continue;
+          const adapter = data.canvas as ShapeAdapter;
+          const b = adapter.boundsFromParams(data.params);
+          if (!b) continue;
+          if (
+            b.left < right &&
+            b.left + b.width > left &&
+            b.top < bottom &&
+            b.top + b.height > top
+          ) {
+            intersected.push({
+              start: data.comp.span.start.offset,
+              end: data.comp.span.end.offset,
+            });
+          }
         }
-      });
+      }
       if (shift) {
         setSelected((current) => {
           const out = [...current];
@@ -1061,6 +1058,3 @@ function CreatePreviewOverlay({
   );
 }
 
-// silence unused-import warnings in stripped JSX (Fragment used by
-// SelectionLayer only).
-void Fragment;
