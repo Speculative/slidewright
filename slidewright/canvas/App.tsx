@@ -436,10 +436,34 @@ export function App({ host }: { host: Host }): ReactElement {
     const { handles, label, pointerStartX, pointerStartY, scale, cursor } =
       activeGesture;
 
+    // The group bounding box is framework-managed (rendered by the
+    // selection effect when 2+ shapes are selected) — no adapter
+    // touches it. During a multi-shape body drag the per-shape
+    // outlines follow because each adapter updates its own overlay,
+    // but we have to translate the group bbox here ourselves.
+    // Single-shape drags and handle drags don't render a group bbox,
+    // so the lookup is null and the per-frame update is a no-op.
+    let groupBox: HTMLElement | null = null;
+    let groupOriginLeft = 0;
+    let groupOriginTop = 0;
+    if (handles.length > 1) {
+      const el = document.querySelector('.sw-canvas-stage .sw-selection-group');
+      if (el instanceof HTMLElement) {
+        groupBox = el;
+        const cs = window.getComputedStyle(el);
+        groupOriginLeft = parseFloat(cs.left) || 0;
+        groupOriginTop = parseFloat(cs.top) || 0;
+      }
+    }
+
     const onMove = (e: PointerEvent) => {
       const designDx = (e.clientX - pointerStartX) / scale;
       const designDy = (e.clientY - pointerStartY) / scale;
       for (const h of handles) h.onMove(designDx, designDy);
+      if (groupBox) {
+        groupBox.style.left = `${groupOriginLeft + designDx}px`;
+        groupBox.style.top = `${groupOriginTop + designDy}px`;
+      }
     };
 
     const onUp = (e: PointerEvent) => {
