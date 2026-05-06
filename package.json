@@ -13,6 +13,7 @@
     "test:ssr": "tsx slidewright/runtime/__test__/ssr.smoke.ts",
     "test:roundtrip": "tsx slidewright/runtime/__test__/round-trip.smoke.ts",
     "test": "npm run typecheck && npm run test:parser && npm run test:loader && npm run test:ssr && npm run test:roundtrip",
+    "test:e2e": "playwright test",
     "slidewright": "tsx slidewright/cli/validate.ts",
     "code-server": "code-server --auth none --bind-addr 0.0.0.0:8080 /workspace",
     "extension:typecheck": "tsc -p extension/tsconfig.json --noEmit && tsc -p extension/src/webview/tsconfig.json --noEmit",
@@ -28,6 +29,7 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
