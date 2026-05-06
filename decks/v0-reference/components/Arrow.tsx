@@ -121,7 +121,7 @@ function paramsToEndpoints(params: Record<string, unknown>): ArrowEndpoints {
 }
 
 export const canvas: ShapeAdapter = {
-  boundsFromParams(params) {
+  calculateBounds(params) {
     const e = paramsToEndpoints(params);
     return {
       left: Math.min(e.x1, e.x2),

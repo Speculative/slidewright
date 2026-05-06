@@ -139,7 +139,7 @@ function RectHandles({
 
 export function makeRectAdapter(defaults: { width: number; height: number }): ShapeAdapter {
   return {
-    boundsFromParams(params) {
+    calculateBounds(params) {
       const r = paramsToRect(params, defaults);
       return { left: r.x, top: r.y, width: r.width, height: r.height };
     },

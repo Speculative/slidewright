@@ -137,6 +137,12 @@ Pick from the v0.3-still-open list above. Probably in this order:
 4. External-edit reconciliation + gesture undo stack.
 5. Group resize via `applyTransform`.
 
+## Watch for: opaque-delta refactor trigger
+
+The ShapeAdapter contract uses a typed `ShapeDelta` discriminated union (`translate | box-resize | arrow-endpoint`). App.tsx imports it; adding a new gesture kind requires App-side changes (a new HandleGestureInit variant, a new DeltaTemplate variant, a `templateToDelta` branch). See `SLIDEWRIGHT.md / Editor / App's awareness of gesture types` for the trade-off and the planned refactor when growth warrants.
+
+**Trigger to refactor:** the *third* time a new gesture kind requires an App.tsx edit. Two is a coincidence; three is a pattern. The mechanical refactor (per `SLIDEWRIGHT.md`) makes deltas opaque, moves gesture-type logic out of App into the adapters, and leaves `applyGesture` / `calculateBounds` signatures unchanged in `SelectionLayer` and `ShapeProjection`.
+
 
 ## Tree-sitter investigation (deferred)
 

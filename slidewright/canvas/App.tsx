@@ -640,7 +640,7 @@ export function App({ host }: { host: Host }): ReactElement {
         for (const data of shapes.values()) {
           if (data.slideIdx !== slideIdx) continue;
           const adapter = data.canvas as ShapeAdapter;
-          const b = adapter.boundsFromParams(data.params);
+          const b = adapter.calculateBounds(data.params);
           if (!b) continue;
           if (
             b.left < right &&

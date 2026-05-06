@@ -21,7 +21,7 @@
 //     gesture's effect. Deltas are typed by gesture kind; the
 //     adapter handles only the kinds that apply to its shape and
 //     returns params unchanged for the rest.
-//   - `boundsFromParams(params)` — pure function. Compute the
+//   - `calculateBounds(params)` — pure function. Compute the
 //     shape's selection-bounds rectangle from its params. Used by
 //     framework's selection-outline / group-bbox renderers (which
 //     are now React components, not DOM-walking effects).
@@ -144,7 +144,7 @@ export interface ShapeAdapter {
   // (gesture-adjusted if applicable). Used by selection
   // rendering. Returns null if the shape doesn't have a meaningful
   // bounding box (shouldn't happen for current shapes).
-  boundsFromParams(params: Record<string, unknown>): Bounds | null;
+  calculateBounds(params: Record<string, unknown>): Bounds | null;
 
   // Apply a per-shape gesture delta to the shape's params.
   // Returns adjusted params. For deltas the shape doesn't recognize

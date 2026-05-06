@@ -568,6 +568,24 @@ The shared rect-adapter (`slidewright/canvas/rect-adapter.ts`) factors Box / Tex
 
 The current contract treats all gestures via typed `ShapeDelta` variants. When group operations land, proportional gestures (body translate, corner-handle resize) may share an `applyTransform(origin, newBox)` formulation; bespoke handles (Arrow endpoint move, future shadow-offset, future bezier control points) keep their own typed delta because they aren't proportional. **OPEN: whether to introduce `applyTransform` as a named generalization or just keep adding ShapeDelta variants — likely the latter unless a specific simplification emerges.**
 
+**App's awareness of gesture types — bounded coupling, with an opaque-delta refactor signaled in advance.**
+
+`ShapeDelta` is a discriminated union of all known gesture kinds (`translate | box-resize | arrow-endpoint`). App imports it. App's `startGesture` callback knows how to convert each `HandleGestureInit` variant into the corresponding `DeltaTemplate`; `templateToDelta` knows how to combine templates with `dx, dy` per frame. App doesn't dispatch on the delta's kind — adapters do — but the type machinery is canvas-wide.
+
+The cost: adding a *new gesture kind* (e.g., bezier control point drag for a future Polyline) requires touching `shape-adapter.ts` and `App.tsx` (recognize the new `HandleGestureInit` variant, build the matching template). Adding a *new shape that uses existing gesture kinds* requires no App changes — the adapter implements `applyGesture` / `commit` against the union variants it cares about.
+
+Why we chose typed-union despite App-awareness: the gesture-kind list is bounded by what the canvas as a *whole* supports (roughly: translate, box-resize, arrow-endpoint, plus a handful of future variants), not by what a *single shape* supports. Typed deltas let `gestureDeltas` memo, `SelectionLayer`'s bounds computation, and the framework's commit dispatch all be type-checked against one canonical list. The opaque-delta alternative (each adapter declares its own delta type, exposes `combineTemplate` / `applyOpaque` methods, etc.) decouples App from gesture kinds at the cost of more adapter surface and types that TS can't help across the boundary.
+
+**When to flip to opaque deltas — instructions for a future agent:** if the gesture-kind list grows past ~5–6 variants, OR shape-specific gestures start requiring new ShapeDelta variants in App.tsx every time a shape lands, refactor to opaque-delta. The mechanical change:
+
+  - Drop `ShapeDelta` and `HandleGestureInit` unions from `shape-adapter.ts`.
+  - Each adapter declares its own `Template` and `Delta` types (or treats both as `unknown`).
+  - Add adapter methods: `buildTemplate(handleInit)`, `combineTemplate(template, dx, dy)`. Body-drag's translate stays universal — give it a dedicated `translateBy(params, dx, dy)` adapter method.
+  - App's `startGesture` callback hands the handleInit blob back to the same adapter that emitted it (via the Handles component); the adapter builds its own template. App stores templates as `unknown`. Per-frame, App calls each affected adapter's `combineTemplate(template, dx, dy)` to get the delta, then `applyGesture(params, delta)` for rendering.
+  - `SelectionLayer` calls `adapter.applyGesture` and `adapter.calculateBounds` exactly as today — neither method's signature changes (delta is opaque to it).
+
+Trigger: the *third* time a new gesture kind requires an App.tsx edit. Two is a coincidence; three is a pattern.
+
 **Multi-select scope:**
 
 Selection is bounded to *one layout context* — two Boxes on the same Freeform can be multi-selected; a Box on Freeform plus a Card in CardRow cannot. Cross-context multi-select is forbidden because the shapes live in different coordinate systems and group operations would be ill-defined.

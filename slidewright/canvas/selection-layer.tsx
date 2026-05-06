@@ -9,7 +9,7 @@
 //     adapter, slideIdx) from the loader-built registry.
 //   - Apply the active gesture's per-shape delta via
 //     adapter.applyGesture, then compute bounds via
-//     adapter.boundsFromParams. The result tracks the shape's
+//     adapter.calculateBounds. The result tracks the shape's
 //     gesture-adjusted position automatically — no separate
 //     "update outline during drag" logic.
 //   - Render visuals via a React portal into the active slide's
@@ -77,7 +77,7 @@ export function SelectionLayer({
     const adapter = data.canvas as ShapeAdapter;
     const delta = gestureDeltas.get(key);
     const params = delta ? adapter.applyGesture(data.params, delta) : data.params;
-    const bounds = adapter.boundsFromParams(params);
+    const bounds = adapter.calculateBounds(params);
     if (!bounds) continue;
     items.push({ span, key, adapter, params, bounds });
   }
