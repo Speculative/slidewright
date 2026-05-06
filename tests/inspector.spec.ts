@@ -93,6 +93,118 @@ test('double-clicking a tree row moves the editor caret to the source span', asy
   expect(sel.end).toBe(span.end);
 });
 
+// ─── Property panel ──────────────────────────────────────────────
+
+test('property panel shows placeholder when nothing is selected', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-box');
+  await expect(
+    page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
+  ).toBeVisible();
+  await expect(
+    page.locator('.sw-properties-panel .sw-inspector-panel-empty'),
+  ).toContainText('no selection');
+});
+
+test('property panel renders rows for the selected shape', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-box');
+  await expect(
+    page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
+  ).toBeVisible();
+  await page.locator('.sw-hierarchy-node').first().click();
+  // single-box has x, y, width, height, fill — five rows.
+  await expect(page.locator('.sw-property-row')).toHaveCount(5);
+  await expect(page.locator('.sw-property-row').nth(0)).toContainText('x');
+});
+
+test('editing a numeric param and pressing Enter commits to source', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-box');
+  await expect(
+    page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
+  ).toBeVisible();
+  await page.locator('.sw-hierarchy-node').first().click();
+  const xRow = page.locator('.sw-property-row', { hasText: /^x/ }).first();
+  const xInput = xRow.locator('input.sw-property-value');
+  await xInput.fill('500');
+  await xInput.press('Enter');
+  const src = await page.locator('.sw-editor-pane').inputValue();
+  expect(src).toMatch(/x:\s*500/);
+});
+
+test('Escape cancels the edit without committing', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-box');
+  await expect(
+    page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
+  ).toBeVisible();
+  const before = await page.locator('.sw-editor-pane').inputValue();
+  await page.locator('.sw-hierarchy-node').first().click();
+  const xRow = page.locator('.sw-property-row', { hasText: /^x/ }).first();
+  const xInput = xRow.locator('input.sw-property-value');
+  await xInput.fill('999');
+  await xInput.press('Escape');
+  const after = await page.locator('.sw-editor-pane').inputValue();
+  expect(after).toBe(before);
+});
+
+test('editing a name_ref param commits the new name', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-box');
+  await expect(
+    page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
+  ).toBeVisible();
+  await page.locator('.sw-hierarchy-node').first().click();
+  const fillRow = page.locator('.sw-property-row', { hasText: /^fill/ }).first();
+  const fillInput = fillRow.locator('input.sw-property-value');
+  await fillInput.fill('cyan');
+  await fillInput.press('Enter');
+  const src = await page.locator('.sw-editor-pane').inputValue();
+  expect(src).toMatch(/fill:\s*cyan/);
+});
+
+test('property edits preserve selection on the same shape', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-box');
+  await expect(
+    page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
+  ).toBeVisible();
+  await page.locator('.sw-hierarchy-node').first().click();
+  await expect(page.locator('.sw-hierarchy-node.selected')).toHaveCount(1);
+  const xRow = page.locator('.sw-property-row', { hasText: /^x/ }).first();
+  const xInput = xRow.locator('input.sw-property-value');
+  await xInput.fill('500');
+  await xInput.press('Enter');
+  // Selection should still highlight the same Box (the property
+  // panel passes the post-edit shape range as newSelections so the
+  // subscribe handler doesn't fall through to the empty path).
+  await expect(page.locator('.sw-hierarchy-node.selected')).toHaveCount(1);
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
+});
+
+test('property edits enter the undo stack', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-box');
+  await expect(
+    page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
+  ).toBeVisible();
+  const before = await page.locator('.sw-editor-pane').inputValue();
+  await page.locator('.sw-hierarchy-node').first().click();
+  const xRow = page.locator('.sw-property-row', { hasText: /^x/ }).first();
+  const xInput = xRow.locator('input.sw-property-value');
+  await xInput.fill('500');
+  await xInput.press('Enter');
+  // Move focus to the canvas so Cmd-Z routes to the canvas handler.
+  await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press('ControlOrMeta+Z');
+  const after = await page.locator('.sw-editor-pane').inputValue();
+  expect(after).toBe(before);
+});
+
+test('multi-selection shows the multi-edit hint', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=two-boxes');
+  await expect(page.locator('.sw-hierarchy-node')).toHaveCount(2);
+  await page.locator('.sw-hierarchy-node').nth(0).click();
+  await page.locator('.sw-hierarchy-node').nth(1).click({ modifiers: ['Shift'] });
+  await expect(
+    page.locator('.sw-properties-panel .sw-inspector-panel-empty'),
+  ).toContainText('multi-edit not supported');
+});
+
 test('switching slides updates the hierarchy tree', async ({ page }) => {
   await page.goto('/canvas.html?fixture=two-slides');
   await expect(page.locator('.sw-hierarchy-node')).toHaveCount(1);

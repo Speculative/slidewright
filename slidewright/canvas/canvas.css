@@ -415,6 +415,54 @@ html, body, #root {
   color: #888;
 }
 
+/* Properties panel — key/value rows. Two-column grid keeps keys
+ * aligned and values flexible. */
+.sw-properties-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sw-property-row {
+  display: grid;
+  grid-template-columns: minmax(80px, 35%) 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.sw-property-key {
+  font-family: var(--vscode-editor-font-family, "JetBrains Mono", ui-monospace, monospace);
+  font-size: 12px;
+  color: #555;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sw-property-value {
+  font-family: var(--vscode-editor-font-family, "JetBrains Mono", ui-monospace, monospace);
+  font-size: 12px;
+  color: #111;
+  min-width: 0;
+}
+
+input.sw-property-value {
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 2px;
+  padding: 2px 6px;
+}
+input.sw-property-value:focus {
+  outline: 1px solid var(--accent, #0066ff);
+  border-color: var(--accent, #0066ff);
+}
+
+.sw-property-value-readonly {
+  color: #888;
+  font-style: italic;
+}
+
 .sw-editor-pane {
   /* Height comes from the bottom-strip flex parent; width comes from
    * the bottom-col-flex wrapper. The pane itself just fills its slot. */

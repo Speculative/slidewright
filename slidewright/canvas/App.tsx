@@ -1014,6 +1014,11 @@ export function App({
   const errors = state.diagnostics.filter((d) => d.severity === 'error');
   const slide = state.slides[activeIdx];
   const preparedSlide = slide ? prepareSlide(slide) : null;
+  // Single-selected shape for the property panel. Multi-select is
+  // signaled separately via selected.length so the panel can hint
+  // rather than render rows for an arbitrary member.
+  const selectedShape: ShapeData | null =
+    selected.length === 1 ? findShapeForRange(state.shapes, selected[0]!) : null;
 
   return (
     <DeckMetaContext.Provider
@@ -1125,7 +1130,14 @@ export function App({
               className="sw-bottom-col"
               style={{ width: `${propertiesWidth}px` }}
             >
-              <PropertiesPanel />
+              <PropertiesPanel
+                shape={selectedShape}
+                multiCount={selected.length}
+                source={state.source}
+                onCommit={(newSource, newSelections) =>
+                  commitToHost(newSource, newSelections)
+                }
+              />
             </div>
             <ResizeHandle
               axis="x"
@@ -1292,6 +1304,21 @@ function startCreate(
 
 // Selection-click handler. Replace / toggle / keep based on whether
 // the clicked shape is already selected and whether shift is held.
+function findShapeForRange(
+  shapes: ReadonlyMap<string, ShapeData>,
+  range: SourceRange,
+): ShapeData | null {
+  for (const data of shapes.values()) {
+    if (
+      data.comp.span.start.offset === range.start &&
+      data.comp.span.end.offset === range.end
+    ) {
+      return data;
+    }
+  }
+  return null;
+}
+
 function applySelectionClick(
   range: SourceRange | null,
   modifiers: { shift: boolean },
