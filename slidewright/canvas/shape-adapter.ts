@@ -106,7 +106,24 @@ export interface ArrowEndpointDelta {
   dy: number;
 }
 
-export type ShapeDelta = TranslateDelta | BoxResizeDelta | ArrowEndpointDelta;
+// Generic axis-aligned 2D transform: x' = sx*x + tx, y' = sy*y + ty.
+// Width / height of axis-aligned shapes scale by sx / sy. Used by
+// group resize today; eventually translate / box-resize may collapse
+// onto this so adapters have one transform path. (No rotation /
+// shear yet; orientation isn't a user-facing knob in v0.)
+export interface TransformDelta {
+  kind: 'transform';
+  sx: number;
+  sy: number;
+  tx: number;
+  ty: number;
+}
+
+export type ShapeDelta =
+  | TranslateDelta
+  | BoxResizeDelta
+  | ArrowEndpointDelta
+  | TransformDelta;
 
 // ─── Handles component contract ──────────────────────────────────
 
@@ -125,7 +142,20 @@ export type StartGesture = (
 
 export type HandleGestureInit =
   | { kind: 'box-resize'; direction: BoxResizeDirection; original: { x: number; y: number; width: number; height: number } }
-  | { kind: 'arrow-endpoint'; endpoint: 1 | 2; originalX: number; originalY: number; fixedX: number; fixedY: number };
+  | { kind: 'arrow-endpoint'; endpoint: 1 | 2; originalX: number; originalY: number; fixedX: number; fixedY: number }
+  | {
+      // Group resize. Captured at gesture-start: the union bbox of
+      // every selected shape and which corner / edge the user
+      // grabbed. The framework derives a transform per frame from
+      // this + pointer delta and dispatches the same transform to
+      // every member.
+      kind: 'group-resize';
+      direction: BoxResizeDirection;
+      originalBox: { x: number; y: number; width: number; height: number };
+      // Spans of the shapes participating. The framework uses this
+      // to seed per-shape templates without re-deriving membership.
+      members: ReadonlyArray<{ start: number; end: number }>;
+    };
 
 export interface HandlesProps {
   // Shape's CURRENT params (gesture-adjusted if applicable, so

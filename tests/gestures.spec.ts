@@ -322,3 +322,87 @@ test('group bounding box renders only when 2+ shapes are selected', async ({ pag
   await expect(page.locator('.sw-selection-outline')).toHaveCount(2);
   await expect(page.locator('.sw-selection-group')).toHaveCount(1);
 });
+
+// ─── Group resize ────────────────────────────────────────────────
+
+// two-boxes fixture group bbox (in design coords): NW = (200, 200),
+// SE = (1000, 650), so width = 800, height = 450. Tests pick drags
+// that produce clean integer post-transform coords.
+
+test('group SE-corner resize scales every selected shape proportionally', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=two-boxes');
+  const boxes = page.locator('.sw-canvas-stage [data-sw-component="Box"] > div');
+  await boxes.nth(0).click();
+  await boxes.nth(1).click({ modifiers: ['Shift'] });
+  await expect(page.locator('.sw-selection-group')).toHaveCount(1);
+  // Drag SE handle by (+80, +45) design pixels: sx = 880/800 = 1.1,
+  // sy = 495/450 = 1.1, anchor (NW) stays at (200, 200).
+  // Box 1 (200, 200, 200, 150) → (200, 200, 220, 165).
+  // Box 2 (800, 500, 200, 150) → (860, 530, 220, 165).
+  await dragByDesign(page, page.locator('.sw-resize-se'), 80, 45);
+  const source = await getSource(page);
+  expect(source).toMatch(/Box\s*\{[^}]*x:\s*200[^}]*y:\s*200[^}]*width:\s*220[^}]*height:\s*165/s);
+  expect(source).toMatch(/Box\s*\{[^}]*x:\s*860[^}]*y:\s*530[^}]*width:\s*220[^}]*height:\s*165/s);
+});
+
+test('group NW-corner resize shifts origins and scales', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=two-boxes');
+  const boxes = page.locator('.sw-canvas-stage [data-sw-component="Box"] > div');
+  await boxes.nth(0).click();
+  await boxes.nth(1).click({ modifiers: ['Shift'] });
+  await expect(page.locator('.sw-selection-group')).toHaveCount(1);
+  // Drag NW handle inward by (+80, +45): sx = 720/800 = 0.9,
+  // sy = 405/450 = 0.9, anchor (SE) stays at (1000, 650).
+  // tx = 1000*(1-0.9) = 100, ty = 650*0.1 = 65.
+  // Box 1 (200, 200, 200, 150): x = 0.9*200 + 100 = 280, y = 0.9*200 + 65 = 245, w = 180, h = 135.
+  // Box 2 (800, 500, 200, 150): x = 0.9*800 + 100 = 820, y = 0.9*500 + 65 = 515, w = 180, h = 135.
+  await dragByDesign(page, page.locator('.sw-resize-nw'), 80, 45);
+  const source = await getSource(page);
+  expect(source).toMatch(/Box\s*\{[^}]*x:\s*280[^}]*y:\s*245[^}]*width:\s*180[^}]*height:\s*135/s);
+  expect(source).toMatch(/Box\s*\{[^}]*x:\s*820[^}]*y:\s*515[^}]*width:\s*180[^}]*height:\s*135/s);
+});
+
+test('group east-edge resize scales width only', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=two-boxes');
+  const boxes = page.locator('.sw-canvas-stage [data-sw-component="Box"] > div');
+  await boxes.nth(0).click();
+  await boxes.nth(1).click({ modifiers: ['Shift'] });
+  // Drag east edge by (+80, 0): sx = 880/800 = 1.1, sy = 1, anchor
+  // (west edge x=200). Box 1 (200, ...) → x = 1.1*200 - 20 = 200,
+  // unchanged. Box 2 (800, ...) → x = 1.1*800 - 20 = 860. Heights /
+  // y unchanged (no vertical scale).
+  await dragByDesign(page, page.locator('.sw-resize-e'), 80, 0);
+  const source = await getSource(page);
+  // Box 1's width grew but its x stayed put.
+  expect(source).toMatch(/Box\s*\{[^}]*x:\s*200[^}]*y:\s*200[^}]*width:\s*220[^}]*height:\s*150/s);
+  // Box 2 shifted east + grew, kept y / height.
+  expect(source).toMatch(/Box\s*\{[^}]*x:\s*860[^}]*y:\s*500[^}]*width:\s*220[^}]*height:\s*150/s);
+});
+
+test('group resize commit enters the undo stack', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=two-boxes');
+  const boxes = page.locator('.sw-canvas-stage [data-sw-component="Box"] > div');
+  await boxes.nth(0).click();
+  await boxes.nth(1).click({ modifiers: ['Shift'] });
+  const before = await getSource(page);
+  await dragByDesign(page, page.locator('.sw-resize-se'), 80, 45);
+  const after = await getSource(page);
+  expect(after).not.toBe(before);
+  // Move focus to the canvas so Cmd-Z routes to our handler.
+  await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press('ControlOrMeta+Z');
+  const restored = await getSource(page);
+  expect(restored).toBe(before);
+});
+
+test('group resize preserves multi-selection after commit', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=two-boxes');
+  const boxes = page.locator('.sw-canvas-stage [data-sw-component="Box"] > div');
+  await boxes.nth(0).click();
+  await boxes.nth(1).click({ modifiers: ['Shift'] });
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(2);
+  await dragByDesign(page, page.locator('.sw-resize-se'), 80, 45);
+  // Both shapes should still be selected on the post-emit source.
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(2);
+  await expect(page.locator('.sw-selection-group')).toHaveCount(1);
+});

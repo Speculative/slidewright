@@ -27,14 +27,31 @@ const RESIZE_DIRECTIONS: BoxResizeDirection[] = [
 
 const MIN_SIZE = 1;
 
-interface Rect {
+export interface Rect {
   x: number;
   y: number;
   width: number;
   height: number;
 }
 
-function resizeRect(
+// Apply an axis-aligned transform to a rect: x' = sx*x + tx,
+// y' = sy*y + ty, width *= sx, height *= sy. Width / height are
+// coerced positive in case a negative scale flips the rect (a
+// later UX-polish item — for now group resize clamps direction so
+// scales stay positive). Used by group-resize on Box / TextBox.
+export function applyTransformToRect(
+  r: Rect,
+  t: { sx: number; sy: number; tx: number; ty: number },
+): Rect {
+  return {
+    x: t.sx * r.x + t.tx,
+    y: t.sy * r.y + t.ty,
+    width: Math.max(MIN_SIZE, Math.abs(t.sx) * r.width),
+    height: Math.max(MIN_SIZE, Math.abs(t.sy) * r.height),
+  };
+}
+
+export function resizeRect(
   direction: BoxResizeDirection,
   orig: Rect,
   dx: number,
@@ -156,6 +173,11 @@ export function makeRectAdapter(defaults: { width: number; height: number }): Sh
         const r = resizeRect(delta.direction, delta.original, delta.dx, delta.dy);
         return { ...params, x: r.x, y: r.y, width: r.width, height: r.height };
       }
+      if (delta.kind === 'transform') {
+        const r = paramsToRect(params, defaults);
+        const next = applyTransformToRect(r, delta);
+        return { ...params, x: next.x, y: next.y, width: next.width, height: next.height };
+      }
       return params;
     },
 
@@ -177,6 +199,29 @@ export function makeRectAdapter(defaults: { width: number; height: number }): Sh
         const ySlot = findNumericSlot(target, 'y');
         const wSlot = findNumericSlot(target, 'width');
         const hSlot = findNumericSlot(target, 'height');
+        if (xSlot) xSlot.node.value = Math.round(r.x);
+        if (ySlot) ySlot.node.value = Math.round(r.y);
+        if (wSlot) wSlot.node.value = Math.round(r.width);
+        if (hSlot) hSlot.node.value = Math.round(r.height);
+      } else if (delta.kind === 'transform') {
+        // Read current params from the AST (not the live registry,
+        // which adapter.commit doesn't have access to). The shape's
+        // pre-transform values are whatever the slot fills currently
+        // hold — for a one-shot group resize, those match what the
+        // user saw before the gesture started.
+        const xSlot = findNumericSlot(target, 'x');
+        const ySlot = findNumericSlot(target, 'y');
+        const wSlot = findNumericSlot(target, 'width');
+        const hSlot = findNumericSlot(target, 'height');
+        const r = applyTransformToRect(
+          {
+            x: xSlot?.value ?? 0,
+            y: ySlot?.value ?? 0,
+            width: wSlot?.value ?? defaults.width,
+            height: hSlot?.value ?? defaults.height,
+          },
+          delta,
+        );
         if (xSlot) xSlot.node.value = Math.round(r.x);
         if (ySlot) ySlot.node.value = Math.round(r.y);
         if (wSlot) wSlot.node.value = Math.round(r.width);

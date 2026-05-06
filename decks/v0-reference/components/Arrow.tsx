@@ -149,6 +149,17 @@ export const canvas: ShapeAdapter = {
       }
       return { ...params, x2: newX, y2: newY };
     }
+    if (delta.kind === 'transform') {
+      // Both endpoints transform under the same matrix, so an arrow
+      // inside a group resize scales / shifts as a rigid body.
+      return {
+        ...params,
+        x1: delta.sx * num(params, 'x1', 0) + delta.tx,
+        y1: delta.sy * num(params, 'y1', 0) + delta.ty,
+        x2: delta.sx * num(params, 'x2', 200) + delta.tx,
+        y2: delta.sy * num(params, 'y2', 200) + delta.ty,
+      };
+    }
     return params;
   },
 
@@ -224,6 +235,15 @@ export const canvas: ShapeAdapter = {
       const ySlot = findNumericSlot(target, yName);
       if (xSlot) xSlot.node.value = newX;
       if (ySlot) ySlot.node.value = newY;
+    } else if (delta.kind === 'transform') {
+      const x1Slot = findNumericSlot(target, 'x1');
+      const y1Slot = findNumericSlot(target, 'y1');
+      const x2Slot = findNumericSlot(target, 'x2');
+      const y2Slot = findNumericSlot(target, 'y2');
+      if (x1Slot) x1Slot.node.value = Math.round(delta.sx * x1Slot.value + delta.tx);
+      if (y1Slot) y1Slot.node.value = Math.round(delta.sy * y1Slot.value + delta.ty);
+      if (x2Slot) x2Slot.node.value = Math.round(delta.sx * x2Slot.value + delta.tx);
+      if (y2Slot) y2Slot.node.value = Math.round(delta.sy * y2Slot.value + delta.ty);
     } else {
       return null;
     }

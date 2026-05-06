@@ -53,7 +53,9 @@ import type {
   ShapeAdapter,
   ShapeDelta,
   StartGesture,
+  TransformDelta,
 } from './shape-adapter.js';
+import { resizeRect } from './rect-adapter.js';
 import { GestureProvider, spanKey } from './gesture-context.js';
 import { wrapShape } from './shape-projection.js';
 import { SelectionLayer } from './selection-layer.js';
@@ -177,7 +179,11 @@ type DeltaTemplate =
       originalY: number;
       fixedX: number;
       fixedY: number;
-    };
+    }
+  // Group-resize: per-shape marker; the actual transform is derived
+  // each frame from gestureMeta.groupResize (single source of truth
+  // for the whole group, since every member sees the same matrix).
+  | { kind: 'transform' };
 
 interface GestureMeta {
   templates: ReadonlyMap<string, DeltaTemplate>;
@@ -188,6 +194,14 @@ interface GestureMeta {
   slideIdx: number;
   label: string;
   cursor: 'grabbing' | null;
+  // Set when this is a group-resize gesture. The framework uses the
+  // captured group bbox + direction to compute a single transform
+  // each frame, then replicates that transform to every member's
+  // template.
+  groupResize?: {
+    direction: BoxResizeDirection;
+    original: { x: number; y: number; width: number; height: number };
+  };
 }
 
 interface GestureLive {
@@ -646,6 +660,7 @@ export function App({
       spans,
       slideIdx,
       templates,
+      groupResize,
     } = gestureMeta;
 
     const onMove = (e: PointerEvent) => {
@@ -679,7 +694,7 @@ export function App({
           const data = stateRef.current?.shapes.get(key);
           if (!data) continue;
           const adapter = data.canvas as ShapeAdapter;
-          const finalDelta = templateToDelta(template, dx, dy);
+          const finalDelta = templateToDelta(template, dx, dy, groupResize);
           const out = adapter.commit(ast, span, finalDelta, slideIdx);
           if (!out) continue;
           any = true;
@@ -960,7 +975,15 @@ export function App({
     if (!gestureMeta) return EMPTY_DELTAS;
     const out = new Map<string, ShapeDelta>();
     for (const [key, template] of gestureMeta.templates) {
-      out.set(key, templateToDelta(template, gestureLive.dx, gestureLive.dy));
+      out.set(
+        key,
+        templateToDelta(
+          template,
+          gestureLive.dx,
+          gestureLive.dy,
+          gestureMeta.groupResize,
+        ),
+      );
     }
     return out;
   }, [gestureMeta, gestureLive]);
@@ -973,10 +996,36 @@ export function App({
   const startGesture: StartGesture = useCallback(
     (init, event) => {
       const slideIdx = activeIdxRef.current;
-      // Handle drags affect a single shape — the one currently
-      // selected (which is what triggered the handle's render).
-      // selected[0] is that shape since handles only render when
-      // selection.length === 1 (per SelectionLayer).
+      if (init.kind === 'group-resize') {
+        // Multi-shape transform. Per-shape templates are just
+        // markers; the framework reads the captured group bbox +
+        // direction from gestureMeta.groupResize and computes one
+        // transform per frame, replicated to every member.
+        const templates = new Map<string, DeltaTemplate>();
+        const spans: SourceRange[] = [];
+        for (const m of init.members) {
+          const span: SourceRange = { start: m.start, end: m.end };
+          templates.set(spanKey(span), { kind: 'transform' });
+          spans.push(span);
+        }
+        if (templates.size === 0) return;
+        setGestureMeta({
+          templates,
+          spans,
+          pointerStartX: event.clientX,
+          pointerStartY: event.clientY,
+          scale: getCurrentScale(),
+          slideIdx,
+          label: '<group-resize>',
+          cursor: null,
+          groupResize: { direction: init.direction, original: init.originalBox },
+        });
+        setGestureLive(ZERO_LIVE);
+        return;
+      }
+      // Single-shape handle drags. The relevant shape is whatever
+      // is currently selected (handles only render when
+      // selection.length === 1, per SelectionLayer).
       const cur = selected;
       if (cur.length !== 1) return;
       const span = cur[0]!;
@@ -1208,6 +1257,7 @@ function templateToDelta(
   template: DeltaTemplate,
   dx: number,
   dy: number,
+  groupResize?: GestureMeta['groupResize'],
 ): ShapeDelta {
   if (template.kind === 'translate') {
     return { kind: 'translate', dx, dy };
@@ -1221,6 +1271,13 @@ function templateToDelta(
       dy,
     };
   }
+  if (template.kind === 'transform') {
+    // Group resize. Without group context, fall back to identity —
+    // shouldn't happen in practice (transform templates only get
+    // created together with groupResize), but stay safe.
+    if (!groupResize) return { kind: 'transform', sx: 1, sy: 1, tx: 0, ty: 0 };
+    return groupResizeToTransform(groupResize, dx, dy);
+  }
   return {
     kind: 'arrow-endpoint',
     endpoint: template.endpoint,
@@ -1230,6 +1287,40 @@ function templateToDelta(
     fixedY: template.fixedY,
     dx,
     dy,
+  };
+}
+
+// Derive the per-frame transform from the captured group bbox +
+// resize direction + cursor delta. The opposite corner / edge stays
+// fixed; the named direction's corner / edge moves with the cursor;
+// every member shape is mapped through `x' = sx*x + tx, y' = sy*y +
+// ty`. Edges (n / s / e / w) only scale on one axis.
+function groupResizeToTransform(
+  ctx: NonNullable<GestureMeta['groupResize']>,
+  dx: number,
+  dy: number,
+): TransformDelta {
+  const { direction, original } = ctx;
+  const newBox = resizeRect(direction, original, dx, dy);
+  const horizontal = direction.includes('e') || direction.includes('w');
+  const vertical = direction.includes('n') || direction.includes('s');
+  const sx = horizontal ? newBox.width / original.width : 1;
+  const sy = vertical ? newBox.height / original.height : 1;
+  // Fixed-edge anchor: opposite side stays put under the scale.
+  // For 'w', the EAST edge (original.x + original.width) is fixed;
+  // for everything else (incl. no horizontal) the WEST edge is.
+  const fixedX = direction.includes('w')
+    ? original.x + original.width
+    : original.x;
+  const fixedY = direction.includes('n')
+    ? original.y + original.height
+    : original.y;
+  return {
+    kind: 'transform',
+    sx,
+    sy,
+    tx: fixedX * (1 - sx),
+    ty: fixedY * (1 - sy),
   };
 }
 
