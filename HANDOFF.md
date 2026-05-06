@@ -135,9 +135,11 @@ v0.3 is closed. The next logical milestone is v0.4 — canvas gestures and inspe
 
 ## Watch for: opaque-delta refactor trigger
 
-The ShapeAdapter contract uses a typed `ShapeDelta` discriminated union (`translate | box-resize | arrow-endpoint`). App.tsx imports it; adding a new gesture kind requires App-side changes (a new HandleGestureInit variant, a new DeltaTemplate variant, a `templateToDelta` branch). See `SLIDEWRIGHT.md / Editor / App's awareness of gesture types` for the trade-off and the planned refactor when growth warrants.
+The ShapeAdapter contract uses a typed `ShapeDelta` discriminated union (`translate | box-resize | arrow-endpoint | transform`). App.tsx imports it; adding a new gesture kind requires App-side changes (a new HandleGestureInit variant, a new DeltaTemplate variant, a `templateToDelta` branch). See `SLIDEWRIGHT.md / Editor / App's awareness of gesture types` for the trade-off and the planned refactor when growth warrants.
 
 **Trigger to refactor:** the *third* time a new gesture kind requires an App.tsx edit. Two is a coincidence; three is a pattern. The mechanical refactor (per `SLIDEWRIGHT.md`) makes deltas opaque, moves gesture-type logic out of App into the adapters, and leaves `applyGesture` / `calculateBounds` signatures unchanged in `SelectionLayer` and `ShapeProjection`.
+
+**Status: trigger arguably already fired.** `transform` was the fourth variant added (group resize, v0.3); the App.tsx edits it required were the exact pattern this section warns about. The refactor was deferred to keep that task small, but the case for it is now strong. Two upcoming items will compound the pressure: rotation (either generalizes `transform` to a 2x3 matrix *or* adds a fifth variant — see Deferred / Gestures), and v0.4's slotted-layout gestures (likely add new HandleGestureInit kinds for slot-targeted operations). A fresh-context session picking up either of those should seriously consider doing the opaque-delta refactor first rather than adding another typed variant.
 
 
 ## Tree-sitter investigation (deferred)
