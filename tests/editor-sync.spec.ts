@@ -402,6 +402,61 @@ test('external edit clears the undo stack (barrier)', async ({ page }) => {
   expect(after).not.toBe(afterDrag);
 });
 
+test('undo walks back across edits made on different slides', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=two-slides');
+  // Wait for the deck to render so the textarea has its source.
+  await expect(
+    page.locator('.sw-canvas-stage [data-sw-component="Box"]').first(),
+  ).toBeVisible();
+  const original = await page.evaluate(
+    () =>
+      (
+        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
+      ).value,
+  );
+  // Drag on slide 1.
+  const dragInPlace = async () => {
+    const box = page
+      .locator('.sw-canvas-stage [data-sw-component="Box"] > div')
+      .first();
+    await expect(box).toBeVisible();
+    const eb = await box.boundingBox();
+    if (!eb) throw new Error('box not found');
+    await page.mouse.move(eb.x + eb.width / 2, eb.y + eb.height / 2);
+    await page.mouse.down();
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => resolve()),
+          ),
+        ),
+    );
+    await page.mouse.move(eb.x + eb.width / 2 + 50, eb.y + eb.height / 2, {
+      steps: 5,
+    });
+    await page.mouse.up();
+  };
+  await dragInPlace();
+  // Nav to slide 2 and drag there.
+  await page.locator('.sw-thumb').nth(1).click();
+  await dragInPlace();
+  // Nav back to slide 1. Two commits pushed (slide-1 drag, slide-2
+  // drag). Mash Cmd-Z twice — each pop walks back one whole-source
+  // snapshot, regardless of which slide was edited.
+  await page.locator('.sw-thumb').nth(0).click();
+  await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press('ControlOrMeta+Z');
+  await page.keyboard.press('ControlOrMeta+Z');
+  const after = await page.evaluate(
+    () =>
+      (
+        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
+      ).value,
+  );
+  expect(after).toBe(original);
+});
+
 test('navigating slides preserves the undo stack', async ({ page }) => {
   // Regression: subscribe was registered with `activeIdx` in deps,
   // so each nav re-subscribed and the host's immediate-fire-on-
