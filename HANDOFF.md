@@ -1,6 +1,6 @@
 # Slidewright handoff
 
-You're picking up Slidewright development. **v0.0 (read-only viewer), v0.1 (VS Code extension + standalone web app + selection sync), v0.2 (interactive gestures + round-trip emit), v0.2.j (multi-select), and the v0.3 React-native gesture refactor are implemented.** Next milestone is open — the design doc has v0.3 originally scoped as "slot-aware editing + inspector + external-edit reconciliation"; with the gesture refactor done that work is the natural follow-on.
+You're picking up Slidewright development. **v0.0 (read-only viewer), v0.1 (VS Code extension + standalone web app + selection sync), v0.2 (interactive gestures + round-trip emit), v0.2.j (multi-select), and most of v0.3 are implemented**: React-native gesture refactor, external-edit reconciliation, canvas gesture undo / redo, inspector panel (hierarchy + read-write properties), and group resize via TransformDelta. Still open from v0.3's original scope: typed slot selection ("click into named slots") and empty-slot placeholders. After that, see the **Deferred features / future work** section near the end for the next round of polish + capabilities.
 
 ## What Slidewright is
 
@@ -33,10 +33,10 @@ The bet: bidirectional projectional editing of a typed component tree, with stab
   - **`canvas/`** — host-agnostic canvas UI.
     - `host.ts` — `Host` interface.
     - `App.tsx` — top-level canvas component. State + effects for source / selection / gestures / nav / layout. After the v0.3 refactor, gesture state is React-driven: per-pointermove `setGesture` updates dx/dy; the loader's `ShapeProjection` wrapper consumes a gesture context and re-renders shapes with adjusted params; selection visuals are React components portaled into the active Freeform.
-    - `shape-adapter.ts` — declarative ShapeAdapter contract: `boundsFromParams`, `applyGesture`, `Handles` (React component), `commit`. Pure functions / React components. No imperative DOM hooks.
+    - `shape-adapter.ts` — declarative ShapeAdapter contract: `calculateBounds`, `applyGesture`, `Handles` (React component), `commit`. Pure functions / React components. No imperative DOM hooks.
     - `gesture-context.tsx` — React context channel carrying the per-shape delta map (`Map<spanKey, ShapeDelta>`) from App down to `ShapeProjection`s deep in the slide tree.
     - `shape-projection.tsx` — the loader's `wrapShape` callback. Each component invocation gets rendered through a `ShapeProjection` that consumes the gesture context, calls `adapter.applyGesture(params, delta)`, then renders the shape's React component with adjusted params. The result: shape position is a pure function of `(source params + active delta)`.
-    - `selection-layer.tsx` — React component that renders all selection visuals (per-shape outlines, group bbox, handles). Iterates the loader's shape registry, applies the gesture delta to each selected shape's params, computes bounds via `adapter.boundsFromParams`, and portals everything into the active Freeform's positioned div.
+    - `selection-layer.tsx` — React component that renders all selection visuals (per-shape outlines, group bbox, handles). Iterates the loader's shape registry, applies the gesture delta to each selected shape's params, computes bounds via `adapter.calculateBounds`, and portals everything into the active Freeform's positioned div.
     - `rect-adapter.ts` — `makeRectAdapter({ width, height })` factory shared by Box, TextBox, and any future HTML-rectangle shape.
     - `ScaledCanvas.tsx` — 1920x1080 design surface auto-fitted via CSS transform; pointerdown dispatch (selectable / draggable / create-tool); double-click → text-edit or selection-sync.
     - `shape-adapter.ts` — per-shape canvas-behavior contract (`bounds`, `startBodyDrag`, `renderHandles`). Each shape's component file co-locates its adapter. App is the framework; adapters do per-shape work.
@@ -45,7 +45,9 @@ The bet: bidirectional projectional editing of a typed component tree, with stab
     - `canvas.css` — chrome.
 - **`tests/`** — Playwright e2e tests for canvas gestures.
   - `fixtures/*.sw` — minimal `.sw` fixtures, one shape per file. Compile-imported into `StandaloneHost`.
-  - `gestures.spec.ts` — gesture cases (drag body, resize, endpoint move, create, delete) per shape. Run via `npm run test:e2e`.
+  - `gestures.spec.ts` — gesture cases (drag body, resize, endpoint move, create, delete, multi-select, group drag, group resize) per shape.
+  - `editor-sync.spec.ts` — bidirectional source ↔ canvas sync (typing, double-click, cursor sync, slide nav, external-edit reconciliation, undo / redo).
+  - `inspector.spec.ts` — hierarchy tree + property panel (selection sync, double-click → caret, read-write commits, Escape cancel, undo). Run all via `npm run test:e2e`.
 
 ## How to run
 
@@ -109,33 +111,32 @@ End-to-end Playwright tests at `tests/gestures.spec.ts` cover drag-body / resize
 
 Multi-select shipped. shift-click toggle, marquee selection (drag from empty Freeform space → select intersecting shapes; shift held = additive), group body-drag (any selected shape's drag moves all), group delete, per-shape selection outlines + minimum-bounding-box overlay when 2+ shapes are selected. `commitSourceEdit` extended to multi-preserve so selection survives the source round-trip. Scope: within one Freeform; cross-context multi-select is forbidden by intent.
 
-## v0.3 status: gesture refactor implemented (slot-aware-editing / inspector still open)
+## v0.3 status: largely implemented
 
-The v0.3 sequencing in `SLIDEWRIGHT.md` originally scoped slot-aware editing + inspector + external-edit reconciliation. None of those have landed; instead the React-native gesture refactor (originally planned as later polish) was prioritized after v0.2.j to eliminate the recurring "visual didn't update during drag" bug class.
+The original v0.3 scope was slot-aware editing + inspector + external-edit reconciliation. The React-native gesture refactor (originally planned as later polish) was promoted ahead of those after v0.2.j to eliminate the recurring "visual didn't update during drag" bug class. Then the rest of the v0.3 list landed on top, plus group resize.
 
 What landed:
-- Imperative-during-drag is gone. Gesture state lives in React; `setGesture` per pointermove drives re-renders; the loader's `ShapeProjection` consumes a gesture context and re-renders shapes with `adapter.applyGesture(params, delta)`-adjusted params.
-- Selection visuals (outline, group bbox, marquee preview, create preview) are React components portaled into the active Freeform.
-- Adapter contract is fully declarative: `boundsFromParams`, `applyGesture`, `Handles`, `commit`.
-- Box and TextBox share `makeRectAdapter({ width, height })`.
-- Per-frame setState verified to sustain 60fps at 5000 shapes (perf sweep at `tests/perf-stress.spec.ts`, opt-in via `npm run test:perf`).
+
+- **React-native gesture refactor**. Imperative-during-drag is gone. Gesture state lives in React; `setGesture` per pointermove drives re-renders; the loader's `ShapeProjection` consumes a gesture context and re-renders shapes with `adapter.applyGesture(params, delta)`-adjusted params. Selection visuals (outline, group bbox, marquee preview, create preview) are React components portaled into the active Freeform. Adapter contract is fully declarative: `calculateBounds`, `applyGesture`, `Handles`, `commit`. Box and TextBox share `makeRectAdapter({ width, height })`. Per-frame setState verified to sustain 60fps at 5000 shapes (perf sweep at `tests/perf-stress.spec.ts`, opt-in via `npm run test:perf`).
+
+- **External-edit reconciliation**. Source changes from outside the canvas (typing in the editor pane, file reload) cancel any in-progress gesture, clear the canvas-side undo stacks (external edits are barriers in v0), and preserve selection by `(slideIdx, childIdx, componentName)` across the round-trip. Falls over for restructuring edits (insertions / deletions / reorders) — known limitation; stable IDs in source are the long-term answer.
+
+- **Canvas gesture undo / redo**. Cmd-Z / Cmd-Shift-Z. Each commit pushes the pre-commit source plus the slide it was made on; pop restores both source and active slide so the user sees the change being applied / reverted. External edits clear the stacks. Editor-focus stickiness fix (canvas pointerdown blurs any focused text input) ensures Cmd-Z routes to the canvas handler rather than the textarea's native (typically empty) undo. VS Code extension gets editor-native undo for free via `WorkspaceEdit`; standalone uses the canvas-side stack.
+
+- **Inspector panel** (three-stage rollout). Bottom strip layout `[hierarchy | properties | bottomExtra]` lives in App; the standalone provides EditorPane via `bottomExtra`, VS Code leaves it null. `HierarchyPanel` renders the active slide's shapes ordered by source position with two-way selection sync (tree click ↔ canvas selection; double-click → editor caret). `PropertiesPanel` renders one editable row per slot fill — string / number / boolean / name_ref render text inputs, nested components / lists / null are read-only display. Edits commit via `commitToHost` so they enter the canvas-side undo stack.
+
+- **Group resize** via axis-aligned `TransformDelta`. When 2+ shapes are selected, the group bbox renders 8 corner / edge handles. Dragging dispatches a `group-resize` HandleGestureInit; the framework derives one transform per frame (`sx, sy, tx, ty` with the opposite corner / edge as anchor) and replicates it to every member. Adapters gain a `transform` arm: `rect-adapter` applies `x'=sx*x+tx, y'=sy*y+ty, w'*=sx, h'*=sy`; Arrow applies the matrix to both endpoints.
 
 What's still open from v0.3's original scope:
-- Click into named slots (typed slot selection in canvas, distinct from shape selection)
-- Empty-slot placeholders ("text…" inside an empty TextBox)
-- Inspector panel — read-only first; later editable for params
-- External-edit reconciliation: detect typing in source while canvas is open, restore selection by ID, cancel mid-gesture
-- Canvas gesture undo stack with VS Code text-buffer integration; external-edit barriers
-- Group resize via `applyTransform` adapter method (subsumes `applyGesture`'s translate / box-resize cases for proportional gestures; bespoke handles like Arrow endpoint stay on the typed delta path)
+- **Click into named slots** (typed slot selection, distinct from shape selection)
+- **Empty-slot placeholders** ("text…" inside an empty TextBox)
 
 ## Where to start
 
-Pick from the v0.3-still-open list above. Probably in this order:
-1. Inspector panel (read-only) + click-into-named-slot — the inspector is the natural surface for "what is this and what are its params," needed before slot-aware editing.
-2. Empty-slot placeholders.
-3. Slot-aware editing (params editable in inspector).
-4. External-edit reconciliation + gesture undo stack.
-5. Group resize via `applyTransform`.
+Probably finish v0.3 in this order, then look at the **Deferred features / future work** section:
+
+1. Empty-slot placeholders.
+2. Click-into-named-slot.
 
 ## Watch for: opaque-delta refactor trigger
 
@@ -191,12 +192,38 @@ React re-renders with new source; pendingSelectionRef restores selection
 
 The framework owns: pointer event lifecycle, gesture mutex, scale conversion (clientX/Y → designDx/Dy before invoking the adapter), source round-trip, tool-mode policy, selection visuals (outlines / group bbox), per-shape gesture-context distribution.
 
-The adapter owns: pure functions (`applyGesture`, `boundsFromParams`, `commit`) and a React `Handles` component. No imperative DOM mutation; no per-frame style writes; no closures-with-captured-original-state. Adding a new gesture-following visual is "render it as a React component reading the gesture context"; it never lags during drag because it can't — its position is a pure function of state.
+The adapter owns: pure functions (`applyGesture`, `calculateBounds`, `commit`) and a React `Handles` component. No imperative DOM mutation; no per-frame style writes; no closures-with-captured-original-state. Adding a new gesture-following visual is "render it as a React component reading the gesture context"; it never lags during drag because it can't — its position is a pure function of state.
+
+## Deferred features / future work
+
+Designed-or-discussed but not started. Not committed to dates; pulled in when scope or ergonomics warrant. Keep this list current — it's where memory-style "future work" notes live (don't put them in `~/.claude/.../memory/` — they belong here).
+
+### Editor and source surface
+
+- **Standalone code editor upgrade**. Replace the bare `<textarea class="sw-editor-pane">` with a real code editor component (CodeMirror 6 or Monaco). A real editor exposes a proper undo API to hook into rather than fighting the textarea's native behavior — partly motivates the unified-undo goal below.
+
+- **Syntax highlighting for `.sw`**. A TextMate / Tree-sitter / Lezer grammar for the brace-block surface syntax, used by *both* hosts: VS Code extension highlights `.sw` files in the editor pane; standalone editor highlights inside the embedded code editor. Pick the editor component first since it constrains the highlighting integration story.
+
+- **Unified undo stack** across all source-mutating sources: canvas gestures, in-app code editor, external edits. External edits enter as visible-but-unundoable barrier entries. Today the standalone has two parallel lanes — canvas-owned `undoStackRef` and the textarea's native input undo — that don't interleave. VS Code hides this via `WorkspaceEdit` populating editor undo, but the standalone shows the seam clearly.
+
+### Inspector polish
+
+- **Color palette / picker** for `fill`, `stroke`, and any color-valued name_ref param. The deck registry exposes a token palette (`amber`, `cyan`, `magenta`, etc. — see `decks/v0-reference/registry.ts:staticTokens`); the inspector should surface it as swatches with a free-form custom-color follow-up.
+
+- **Drag-to-scrub on numeric inputs** — click-and-drag on the value (or a small grip / label) to change it, with shift = coarser, alt = finer. Matches Figma / Blender / DevTools layout-inspector ergonomics. Particularly useful for `x / y / width / height`.
+
+### Gestures
+
+- **Shift to lock aspect ratio** during single-shape and group resize. Constraint applied at `templateToDelta` time: clamp `sy` to `sx` (or vice versa) per direction. Doesn't require the matrix generalization below.
+
+- **Rotation** on single-shape and group selections. Forces `TransformDelta` to grow from axis-aligned `{sx, sy, tx, ty}` to a full 2x3 matrix `{a, b, c, d, tx, ty}` (`a = cos, b = -sin, c = sin, d = cos`). Adapter bounds — currently axis-aligned — would need to compute oriented bounding boxes or stop being axis-aligned.
+
+- **Transform unification**. Translate and box-resize are mathematically special cases of `TransformDelta`. They're separate today only as conservative scoping for the group-resize task. Don't unify standalone — gate on rotation, which forces the matrix generalization and makes collapsing translate / box-resize onto transform nearly free at the same time. Three things to handle in the migration: direction-aware min-size clamping (today in `resizeRect` — would need to thread the anchor into transform commits), translate's narrow commit footprint (writes only `x, y` rather than all four slot fills), and intent preservation (translate vs resize) for undo labels and keyboard nudges. `arrow-endpoint` stays separate regardless — it's per-endpoint, not a rigid-body transform.
 
 ## Running tests
 
 `npm test` — typecheck + parser + loader + SSR + round-trip property tests (~10s).
-`npm run test:e2e` — Playwright gestures + editor-sync suites against the standalone canvas (~10s, 23 cases, single worker — Vite dev server is single-threaded).
+`npm run test:e2e` — Playwright suites against the standalone canvas (~20s, 53 cases across `gestures.spec.ts`, `editor-sync.spec.ts`, `inspector.spec.ts`; single worker — Vite dev server is single-threaded).
 `npm run test:perf` — opt-in: per-frame setState scaling sweep at N=50/200/500/1000/2000/5000. Used to validate the React-native gesture refactor's perf assumption (60fps to N=1000, 57fps at 2000, falls off at 5000).
 
 ## Build process
