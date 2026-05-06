@@ -1,6 +1,6 @@
 # Slidewright handoff
 
-You're picking up Slidewright development. **v0.0 (read-only viewer), v0.1 (VS Code extension + standalone web app + selection sync), and v0.2 (interactive gestures + round-trip emit) are implemented.** v0.2.j (multi-select) is the next milestone.
+You're picking up Slidewright development. **v0.0 (read-only viewer), v0.1 (VS Code extension + standalone web app + selection sync), v0.2 (interactive gestures + round-trip emit), v0.2.j (multi-select), and the v0.3 React-native gesture refactor are implemented.** Next milestone is open — the design doc has v0.3 originally scoped as "slot-aware editing + inspector + external-edit reconciliation"; with the gesture refactor done that work is the natural follow-on.
 
 ## What Slidewright is
 
@@ -27,12 +27,17 @@ The bet: bidirectional projectional editing of a typed component tree, with stab
 - **`extension/`** — VS Code extension package. Same shape as v0.1; see `src/canvas.ts`, `src/webview/`, `esbuild.mjs`.
 - **`slidewright/`** — the Slidewright package.
   - `grammar/grammar.js` — brace-block grammar in tree-sitter's declarative form. Spec-only; not in build.
-  - `runtime/parser.ts`, `lexer.ts`, `ast.ts`, `emitter.ts`, `loader.ts`, `diagnostics.ts`, `cells.ts`, `contract.ts`, `scope.ts` — runtime layer. The `LoadedComponent` type gained an opaque `canvas?: unknown` field in v0.2 for shape adapters; runtime stays canvas-agnostic.
+  - `runtime/parser.ts`, `lexer.ts`, `ast.ts`, `emitter.ts`, `loader.ts`, `diagnostics.ts`, `cells.ts`, `contract.ts`, `scope.ts` — runtime layer. The `LoadedComponent` type gained an opaque `canvas?: unknown` field in v0.2 for shape adapters; runtime stays canvas-agnostic. `loader.ts` accepts a `wrapShape` callback (canvas-side passes `ShapeProjection`) and returns a `shapes: Map<spanKey, ShapeData>` registry alongside the rendered slides.
   - `runtime/__test__/` — smoke tests (parser, loader, SSR, round-trip property tests).
   - `cli/validate.ts` — `slidewright validate` CLI.
   - **`canvas/`** — host-agnostic canvas UI.
     - `host.ts` — `Host` interface.
-    - `App.tsx` — top-level canvas component. State + effects for source / selection / gestures / nav / layout. After v0.2's three refactors, App is a thin dispatcher: looks up the relevant `ShapeAdapter` by `data-sw-component` and plumbs gesture lifecycle into the adapter's `GestureHandle`.
+    - `App.tsx` — top-level canvas component. State + effects for source / selection / gestures / nav / layout. After the v0.3 refactor, gesture state is React-driven: per-pointermove `setGesture` updates dx/dy; the loader's `ShapeProjection` wrapper consumes a gesture context and re-renders shapes with adjusted params; selection visuals are React components portaled into the active Freeform.
+    - `shape-adapter.ts` — declarative ShapeAdapter contract: `boundsFromParams`, `applyGesture`, `Handles` (React component), `commit`. Pure functions / React components. No imperative DOM hooks.
+    - `gesture-context.tsx` — React context channel carrying the per-shape delta map (`Map<spanKey, ShapeDelta>`) from App down to `ShapeProjection`s deep in the slide tree.
+    - `shape-projection.tsx` — the loader's `wrapShape` callback. Each component invocation gets rendered through a `ShapeProjection` that consumes the gesture context, calls `adapter.applyGesture(params, delta)`, then renders the shape's React component with adjusted params. The result: shape position is a pure function of `(source params + active delta)`.
+    - `selection-layer.tsx` — React component that renders all selection visuals (per-shape outlines, group bbox, handles). Iterates the loader's shape registry, applies the gesture delta to each selected shape's params, computes bounds via `adapter.boundsFromParams`, and portals everything into the active Freeform's positioned div.
+    - `rect-adapter.ts` — `makeRectAdapter({ width, height })` factory shared by Box, TextBox, and any future HTML-rectangle shape.
     - `ScaledCanvas.tsx` — 1920x1080 design surface auto-fitted via CSS transform; pointerdown dispatch (selectable / draggable / create-tool); double-click → text-edit or selection-sync.
     - `shape-adapter.ts` — per-shape canvas-behavior contract (`bounds`, `startBodyDrag`, `renderHandles`). Each shape's component file co-locates its adapter. App is the framework; adapters do per-shape work.
     - `ast-edits.ts` — pure AST helpers (locators, constructors, mutators) plus `commitSourceEdit` (the parse → mutate → emit → reparse → setSource pipeline) plus `computeArrowGeometry`. No React.
@@ -100,24 +105,38 @@ Net: App.tsx 1706 → 805 lines across the three refactors. Behavior unchanged (
 
 End-to-end Playwright tests at `tests/gestures.spec.ts` cover drag-body / resize / endpoint-move / create / delete for each shape (9 cases, ~5.5s). They survive refactors as black-box behavior validation. Workers fixed at 1 because Vite's dev server is single-threaded.
 
-## Where to start: v0.2.j (multi-select)
+## v0.2.j status: implemented
 
-Multi-select is the next milestone. Scope (modulo group resize, deferred):
+Multi-select shipped. shift-click toggle, marquee selection (drag from empty Freeform space → select intersecting shapes; shift held = additive), group body-drag (any selected shape's drag moves all), group delete, per-shape selection outlines + minimum-bounding-box overlay when 2+ shapes are selected. `commitSourceEdit` extended to multi-preserve so selection survives the source round-trip. Scope: within one Freeform; cross-context multi-select is forbidden by intent.
 
-1. **Selection state** becomes `selected: SourceRange[]` (ordered; could be `Set` but array is simpler for `.map`).
-2. **Shift-click to toggle**: ScaledCanvas's `onSelectShape` callback grows a `modifiers: { shift: boolean }` arg; App's handler decides replace vs toggle.
-3. **Marquee selection**: pointerdown on empty canvas in select mode → drag → on release, set selection to all shapes whose bounding box intersects the marquee. New `onMarqueeStart` callback from ScaledCanvas.
-4. **Group body-drag**: any selected shape's body drag moves all selected shapes together. The `activeGesture` slot grows to hold an array of `GestureHandle`s; each frame iterates and dispatches the same delta.
-5. **`commitSourceEdit` extension** to accept multiple `preserveSelection`s (current single-selection version becomes a wrapper that builds a one-element array).
-6. **Group delete**: keyboard handler iterates and removes each selected shape.
-7. **Selection rendering**: dashed outline per selected shape (so the user can see which shapes are in the group) plus a minimum-bounding-box around the group when 2+ are selected. Body-drag responds anywhere on the group bounding box.
-8. **Handles only render when exactly one shape is selected.** Group resize handles on the group bounding box are deferred to a follow-up commit.
+## v0.3 status: gesture refactor implemented (slot-aware-editing / inspector still open)
 
-**Scope of multi-select, by intent:**
-- **Within one layout context only.** Two Boxes on the same Freeform: yes. Box on Freeform + Card in CardRow: no (cross-context multi-select is forbidden — different coordinate systems make group operations ill-defined). When outside-Freeform adapters land, multi-select scopes per layout context.
-- **No group resize in this milestone.** That's a follow-up that adds a new adapter method, `applyTransform`, which subsumes `onMove` for proportional gestures (translate-only for body drag, translate+scale for corner resize). Both single-shape and group resize dispatch through it. Bespoke handles (Arrow endpoint, future shadow-offset, etc.) keep their own `GestureHandle` since they aren't proportional.
+The v0.3 sequencing in `SLIDEWRIGHT.md` originally scoped slot-aware editing + inspector + external-edit reconciliation. None of those have landed; instead the React-native gesture refactor (originally planned as later polish) was prioritized after v0.2.j to eliminate the recurring "visual didn't update during drag" bug class.
 
-After multi-select: source-edit / cursor-sync e2e tests (currently uncovered — extend `tests/` to drive the editor pane and assert the canvas catches up). Then v0.3 territory.
+What landed:
+- Imperative-during-drag is gone. Gesture state lives in React; `setGesture` per pointermove drives re-renders; the loader's `ShapeProjection` consumes a gesture context and re-renders shapes with `adapter.applyGesture(params, delta)`-adjusted params.
+- Selection visuals (outline, group bbox, marquee preview, create preview) are React components portaled into the active Freeform.
+- Adapter contract is fully declarative: `boundsFromParams`, `applyGesture`, `Handles`, `commit`.
+- Box and TextBox share `makeRectAdapter({ width, height })`.
+- Per-frame setState verified to sustain 60fps at 5000 shapes (perf sweep at `tests/perf-stress.spec.ts`, opt-in via `npm run test:perf`).
+
+What's still open from v0.3's original scope:
+- Click into named slots (typed slot selection in canvas, distinct from shape selection)
+- Empty-slot placeholders ("text…" inside an empty TextBox)
+- Inspector panel — read-only first; later editable for params
+- External-edit reconciliation: detect typing in source while canvas is open, restore selection by ID, cancel mid-gesture
+- Canvas gesture undo stack with VS Code text-buffer integration; external-edit barriers
+- Group resize via `applyTransform` adapter method (subsumes `applyGesture`'s translate / box-resize cases for proportional gestures; bespoke handles like Arrow endpoint stay on the typed delta path)
+
+## Where to start
+
+Pick from the v0.3-still-open list above. Probably in this order:
+1. Inspector panel (read-only) + click-into-named-slot — the inspector is the natural surface for "what is this and what are its params," needed before slot-aware editing.
+2. Empty-slot placeholders.
+3. Slot-aware editing (params editable in inspector).
+4. External-edit reconciliation + gesture undo stack.
+5. Group resize via `applyTransform`.
+
 
 ## Tree-sitter investigation (deferred)
 
@@ -132,42 +151,47 @@ The full tree-sitter rationale lived in this file at v0.1 and is preserved in gi
 - **Color tokens as scope bindings**: `accent`, `purple`, etc. mapped to themselves in `decks/v0-reference/registry.ts:staticTokens`; renderer turns them into `var(--<token>)`. A real theme system replaces this in v1+.
 - **Asset URIs**: per-host. `VSCodeHost` via `webview.asWebviewUri()`; `StandaloneHost` via Vite's static-asset imports.
 - **Hardcoded for v0-reference**: the canvas imports `decks/v0-reference/registry`. v0.2 generalizes via an esbuild-as-a-service pipeline that scans whatever deck the user opens — deferred until needed.
-- **`pendingSelectionRef`** carries selection across the gesture-commit emit cycle. Spans shift on every emit; gestures stash the post-emit span in this ref before calling `setSource`, and the subscribe handler picks it up on the round-trip. Set to null = clear selection (default external-edit behavior).
-- **Gesture mutex** is enforced by sharing a single `activeGesture` state slot. Body-drag (from ScaledCanvas) and handle-drag (from adapter `renderHandles`) both feed it; both stopPropagation so only one can land per pointerdown.
+- **`pendingSelectionRef`** carries selection across the gesture-commit emit cycle. Spans shift on every emit; gestures stash the post-emit spans (array — supports multi-select group commits) in this ref before calling `setSource`, and the subscribe handler picks it up on the round-trip. Set to null = clear selection (default external-edit behavior).
+- **Gesture mutex** is enforced by sharing a single `gesture` state slot. Body drag (from ScaledCanvas's pointerdown dispatch) and handle drag (from `adapter.Handles`'s pointerdown via `startGesture`) both feed it; both stopPropagation so only one can land per pointerdown.
 
-## Architecture quick reference: the gesture lifecycle
+## Architecture quick reference: the gesture lifecycle (post-v0.3)
 
 ```
-ScaledCanvas pointerdown (or adapter handle pointerdown)
+ScaledCanvas pointerdown (or adapter Handles pointerdown)
       ↓
-App looks up the shape's ShapeAdapter
+App builds a per-shape `DeltaTemplate` map. Body drag: every
+selected shape gets a `{kind:'translate'}` template. Handle drag:
+the dragged shape gets a `{kind:'box-resize'|'arrow-endpoint',...}`
+template carrying the original bounds / endpoint coords.
       ↓
-adapter.startBodyDrag(ctx) returns a GestureHandle      [body drag]
-   OR
-adapter's handle pointerdown calls ctx.startHandleDrag( [handle drag]
-   GestureHandle, event)
-      ↓
-App sets activeGesture state with the handle
+App.setGesture({ templates, pointerStart, scale, dx:0, dy:0, ... })
       ↓
 useEffect attaches document.pointermove / pointerup
       ↓
-on pointermove: scale-convert delta, call handle.onMove(designDx, designDy)
-on pointerup:   commitSourceEdit(source, label, ast => handle.onCommit(ast, dx, dy))
+pointermove: dx, dy = (clientX/Y - pointerStart) / scale; setGesture
+react renders. gestureDeltas memo (templates × dx/dy) flows through
+the GestureProvider context. ShapeProjection wrappers consume their
+delta and call adapter.applyGesture(params, delta). React reconciles
+DOM. SelectionLayer reads the same data and renders outlines / group
+bbox / handles at adjusted positions.
+      ↓
+pointerup: commitSourceEdit(source, label, ast => for each affected
+shape: adapter.commit(ast, span, finalDelta, slideIdx))
       ↓
 host.setSource(newSource) — round-trips back through Host.subscribe
       ↓
 React re-renders with new source; pendingSelectionRef restores selection
 ```
 
-The framework owns: pointer event lifecycle, gesture mutex, scale conversion (clientX/Y → designDx/Dy before invoking the adapter), source round-trip, tool-mode policy.
+The framework owns: pointer event lifecycle, gesture mutex, scale conversion (clientX/Y → designDx/Dy before invoking the adapter), source round-trip, tool-mode policy, selection visuals (outlines / group bbox), per-shape gesture-context distribution.
 
-The adapter owns: per-frame imperative DOM updates, AST mutation on commit, handle rendering and placement.
+The adapter owns: pure functions (`applyGesture`, `boundsFromParams`, `commit`) and a React `Handles` component. No imperative DOM mutation; no per-frame style writes; no closures-with-captured-original-state. Adding a new gesture-following visual is "render it as a React component reading the gesture context"; it never lags during drag because it can't — its position is a pure function of state.
 
 ## Running tests
 
 `npm test` — typecheck + parser + loader + SSR + round-trip property tests (~10s).
-`npm run test:e2e` — Playwright gestures suite against the standalone canvas (~5.5s, single worker).
-Both should pass before any commit that touches gesture code.
+`npm run test:e2e` — Playwright gestures + editor-sync suites against the standalone canvas (~10s, 23 cases, single worker — Vite dev server is single-threaded).
+`npm run test:perf` — opt-in: per-frame setState scaling sweep at N=50/200/500/1000/2000/5000. Used to validate the React-native gesture refactor's perf assumption (60fps to N=1000, 57fps at 2000, falls off at 5000).
 
 ## Build process
 
