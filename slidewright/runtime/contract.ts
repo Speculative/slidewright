@@ -71,6 +71,13 @@ export type SlideComponent = ComponentType<ComponentRenderProps>;
 export interface LoadedComponent {
   meta: ComponentMeta;
   render: SlideComponent;
+  // Optional canvas-side behavior: drag, resize, selection
+  // handles. Components without this can still render but aren't
+  // directly manipulable. Type is kept opaque (`unknown`) at the
+  // runtime layer so the runtime stays canvas-agnostic; the
+  // canvas (slidewright/canvas/App.tsx) casts to the real
+  // ShapeAdapter shape.
+  canvas?: unknown;
 }
 
 // Component registry. The deck's `index.tsx` builds this from its
@@ -80,9 +87,14 @@ export type ComponentRegistry = Record<string, LoadedComponent>;
 
 // Helper: build a LoadedComponent from a module's namespace import.
 // A module is expected to export `slidewright` (metadata) and `default`
-// (the React component).
+// (the React component). It may optionally export `canvas` (the
+// canvas adapter — opaque to the runtime, consumed by the canvas).
 export function loadComponent(
-  mod: { slidewright?: ComponentMeta; default?: SlideComponent },
+  mod: {
+    slidewright?: ComponentMeta;
+    default?: SlideComponent;
+    canvas?: unknown;
+  },
   name: string,
 ): LoadedComponent {
   if (!mod.slidewright) {
@@ -95,12 +107,16 @@ export function loadComponent(
       `component module \`${name}\` is missing a default React export`,
     );
   }
-  return { meta: mod.slidewright, render: mod.default };
+  return { meta: mod.slidewright, render: mod.default, canvas: mod.canvas };
 }
 
 // Convenience: build a registry from a name → module map.
 export function buildRegistry(
-  modules: Record<string, { slidewright?: ComponentMeta; default?: SlideComponent }>,
+  modules: Record<string, {
+    slidewright?: ComponentMeta;
+    default?: SlideComponent;
+    canvas?: unknown;
+  }>,
 ): ComponentRegistry {
   const out: ComponentRegistry = {};
   for (const [name, mod] of Object.entries(modules)) {
