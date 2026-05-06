@@ -130,10 +130,12 @@ const DRAGGABLE_SELECTOR =
   '[data-sw-component="Box"], [data-sw-component="TextBox"], [data-sw-component="Arrow"]';
 
 // Shapes that respond to Select-mode clicks. Wider than the
-// draggable set since Arrow is selectable (for Delete, future
-// endpoint editing) even though it doesn't yet support drag-to-move.
+// draggable set: Arrow is selectable (for Delete, future endpoint
+// editing) without supporting body drag, and v0.4-tight-cut
+// HStack / VStack are selectable + inspectable but not yet
+// gesture-able.
 const SELECTABLE_SELECTOR =
-  '[data-sw-component="Box"], [data-sw-component="TextBox"], [data-sw-component="Arrow"]';
+  '[data-sw-component="Box"], [data-sw-component="TextBox"], [data-sw-component="Arrow"], [data-sw-component="HStack"], [data-sw-component="VStack"]';
 
 export function ScaledCanvas({
   children,

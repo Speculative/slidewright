@@ -18,6 +18,7 @@ import * as TitleSlide from '../../../decks/v0-reference/components/TitleSlide.j
 import * as ContentSlide from '../../../decks/v0-reference/components/ContentSlide.js';
 import * as CardRow from '../../../decks/v0-reference/components/CardRow.js';
 import * as VStack from '../../../decks/v0-reference/components/VStack.js';
+import * as HStack from '../../../decks/v0-reference/components/HStack.js';
 import * as Freeform from '../../../decks/v0-reference/components/Freeform.js';
 import * as Box from '../../../decks/v0-reference/components/Box.js';
 import * as TextBox from '../../../decks/v0-reference/components/TextBox.js';
@@ -31,6 +32,7 @@ const components = buildRegistry({
   ContentSlide,
   CardRow,
   VStack,
+  HStack,
   Freeform,
   Box,
   TextBox,
@@ -115,6 +117,17 @@ const expected: Array<{ label: string; needles: string[] }> = [
       'card purple',
       'card cyan',
       'card magenta',
+    ],
+  },
+  {
+    label: 'slide 4: stacks demo',
+    needles: [
+      'VStack',
+      'Children flow vertically',
+      'Spacing',
+      'Drives the flex gap',
+      'card purple',
+      'card cyan',
     ],
   },
 ];

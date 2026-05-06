@@ -7,6 +7,13 @@
 // Usage:
 //   // In Box.tsx:
 //   export const canvas = makeRectAdapter({ width: 200, height: 200 });
+//
+// The bespoke gesture for rects is `box-resize` — drag one of 8
+// corner / edge handles. It flows through the framework's
+// opaque-delta channel: RectHandles emits `{ kind: 'opaque', span,
+// init: RectInit }`; framework calls adapter.buildTemplate(init)
+// to capture a RectTemplate; per-frame combineTemplate produces a
+// RectDelta; applyGesture / commit cast through the opaque arm.
 
 import { createElement, type ReactElement } from 'react';
 
@@ -32,6 +39,33 @@ export interface Rect {
   y: number;
   width: number;
   height: number;
+}
+
+// ─── Rect-adapter's internal opaque-channel types ────────────────
+//
+// `RectInit` is what RectHandles emits via startGesture's opaque
+// arm. `RectTemplate` is captured by buildTemplate at gesture-
+// start. `RectDelta` is what combineTemplate produces per frame
+// and applyGesture / commit consume from the opaque arm.
+
+interface RectInit {
+  kind: 'box-resize';
+  direction: BoxResizeDirection;
+  original: Rect;
+}
+
+interface RectTemplate {
+  kind: 'box-resize';
+  direction: BoxResizeDirection;
+  original: Rect;
+}
+
+interface RectDelta {
+  kind: 'box-resize';
+  direction: BoxResizeDirection;
+  original: Rect;
+  dx: number;
+  dy: number;
 }
 
 // Apply an axis-aligned transform to a rect: x' = sx*x + tx,
@@ -127,6 +161,7 @@ function handleAt(
 
 function RectHandles({
   params,
+  span,
   startGesture,
   defaults,
 }: HandlesProps & { defaults: { width: number; height: number } }): ReactElement {
@@ -136,6 +171,7 @@ function RectHandles({
     { style: { display: 'contents' } },
     RESIZE_DIRECTIONS.map((dir) => {
       const pos = handleAt(dir, orig);
+      const init: RectInit = { kind: 'box-resize', direction: dir, original: orig };
       return createElement('div', {
         key: dir,
         className: `sw-resize-handle-shape sw-resize-${dir}`,
@@ -145,7 +181,7 @@ function RectHandles({
           event.stopPropagation();
           event.preventDefault();
           startGesture(
-            { kind: 'box-resize', direction: dir, original: orig },
+            { kind: 'opaque', span, init },
             event.nativeEvent,
           );
         },
@@ -169,16 +205,42 @@ export function makeRectAdapter(defaults: { width: number; height: number }): Sh
           y: num(params, 'y', 0) + delta.dy,
         };
       }
-      if (delta.kind === 'box-resize') {
-        const r = resizeRect(delta.direction, delta.original, delta.dx, delta.dy);
-        return { ...params, x: r.x, y: r.y, width: r.width, height: r.height };
-      }
       if (delta.kind === 'transform') {
         const r = paramsToRect(params, defaults);
         const next = applyTransformToRect(r, delta);
         return { ...params, x: next.x, y: next.y, width: next.width, height: next.height };
       }
+      // Opaque arm — only `box-resize` originates from this adapter.
+      const inner = delta.delta as RectDelta | null;
+      if (inner && inner.kind === 'box-resize') {
+        const r = resizeRect(inner.direction, inner.original, inner.dx, inner.dy);
+        return { ...params, x: r.x, y: r.y, width: r.width, height: r.height };
+      }
       return params;
+    },
+
+    buildTemplate(init) {
+      const cast = init as RectInit | null;
+      if (!cast || cast.kind !== 'box-resize') return null;
+      const template: RectTemplate = {
+        kind: 'box-resize',
+        direction: cast.direction,
+        original: cast.original,
+      };
+      return template;
+    },
+
+    combineTemplate(template, dx, dy) {
+      const cast = template as RectTemplate | null;
+      if (!cast || cast.kind !== 'box-resize') return null;
+      const out: RectDelta = {
+        kind: 'box-resize',
+        direction: cast.direction,
+        original: cast.original,
+        dx,
+        dy,
+      };
+      return out;
     },
 
     Handles(props) {
@@ -193,16 +255,6 @@ export function makeRectAdapter(defaults: { width: number; height: number }): Sh
         const ySlot = findNumericSlot(target, 'y');
         if (xSlot) xSlot.node.value = Math.round(xSlot.value + delta.dx);
         if (ySlot) ySlot.node.value = Math.round(ySlot.value + delta.dy);
-      } else if (delta.kind === 'box-resize') {
-        const r = resizeRect(delta.direction, delta.original, delta.dx, delta.dy);
-        const xSlot = findNumericSlot(target, 'x');
-        const ySlot = findNumericSlot(target, 'y');
-        const wSlot = findNumericSlot(target, 'width');
-        const hSlot = findNumericSlot(target, 'height');
-        if (xSlot) xSlot.node.value = Math.round(r.x);
-        if (ySlot) ySlot.node.value = Math.round(r.y);
-        if (wSlot) wSlot.node.value = Math.round(r.width);
-        if (hSlot) hSlot.node.value = Math.round(r.height);
       } else if (delta.kind === 'transform') {
         // Read current params from the AST (not the live registry,
         // which adapter.commit doesn't have access to). The shape's
@@ -227,7 +279,17 @@ export function makeRectAdapter(defaults: { width: number; height: number }): Sh
         if (wSlot) wSlot.node.value = Math.round(r.width);
         if (hSlot) hSlot.node.value = Math.round(r.height);
       } else {
-        return null;
+        const inner = delta.delta as RectDelta | null;
+        if (!inner || inner.kind !== 'box-resize') return null;
+        const r = resizeRect(inner.direction, inner.original, inner.dx, inner.dy);
+        const xSlot = findNumericSlot(target, 'x');
+        const ySlot = findNumericSlot(target, 'y');
+        const wSlot = findNumericSlot(target, 'width');
+        const hSlot = findNumericSlot(target, 'height');
+        if (xSlot) xSlot.node.value = Math.round(r.x);
+        if (ySlot) ySlot.node.value = Math.round(r.y);
+        if (wSlot) wSlot.node.value = Math.round(r.width);
+        if (hSlot) hSlot.node.value = Math.round(r.height);
       }
       const childIdx = findShapeChildIdx(ast, slideIdx, span);
       return childIdx !== null

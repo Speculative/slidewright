@@ -105,6 +105,38 @@ interface ArrowEndpoints {
   strokeWidth: number;
 }
 
+// Arrow-adapter's internal opaque-channel types. The bespoke
+// gesture for arrows is `arrow-endpoint` — drag tail (1) or tip
+// (2); the other endpoint stays fixed.
+interface ArrowInit {
+  kind: 'arrow-endpoint';
+  endpoint: 1 | 2;
+  originalX: number;
+  originalY: number;
+  fixedX: number;
+  fixedY: number;
+}
+
+interface ArrowTemplate {
+  kind: 'arrow-endpoint';
+  endpoint: 1 | 2;
+  originalX: number;
+  originalY: number;
+  fixedX: number;
+  fixedY: number;
+}
+
+interface ArrowDelta {
+  kind: 'arrow-endpoint';
+  endpoint: 1 | 2;
+  originalX: number;
+  originalY: number;
+  fixedX: number;
+  fixedY: number;
+  dx: number;
+  dy: number;
+}
+
 function num(params: Record<string, unknown>, key: string, fallback: number): number {
   const v = params[key];
   return typeof v === 'number' ? v : fallback;
@@ -141,14 +173,6 @@ export const canvas: ShapeAdapter = {
         y2: num(params, 'y2', 200) + delta.dy,
       };
     }
-    if (delta.kind === 'arrow-endpoint') {
-      const newX = delta.originalX + delta.dx;
-      const newY = delta.originalY + delta.dy;
-      if (delta.endpoint === 1) {
-        return { ...params, x1: newX, y1: newY };
-      }
-      return { ...params, x2: newX, y2: newY };
-    }
     if (delta.kind === 'transform') {
       // Both endpoints transform under the same matrix, so an arrow
       // inside a group resize scales / shifts as a rigid body.
@@ -160,11 +184,66 @@ export const canvas: ShapeAdapter = {
         y2: delta.sy * num(params, 'y2', 200) + delta.ty,
       };
     }
+    const inner = delta.delta as ArrowDelta | null;
+    if (inner && inner.kind === 'arrow-endpoint') {
+      const newX = inner.originalX + inner.dx;
+      const newY = inner.originalY + inner.dy;
+      if (inner.endpoint === 1) {
+        return { ...params, x1: newX, y1: newY };
+      }
+      return { ...params, x2: newX, y2: newY };
+    }
     return params;
+  },
+
+  buildTemplate(init) {
+    const cast = init as ArrowInit | null;
+    if (!cast || cast.kind !== 'arrow-endpoint') return null;
+    const template: ArrowTemplate = {
+      kind: 'arrow-endpoint',
+      endpoint: cast.endpoint,
+      originalX: cast.originalX,
+      originalY: cast.originalY,
+      fixedX: cast.fixedX,
+      fixedY: cast.fixedY,
+    };
+    return template;
+  },
+
+  combineTemplate(template, dx, dy) {
+    const cast = template as ArrowTemplate | null;
+    if (!cast || cast.kind !== 'arrow-endpoint') return null;
+    const out: ArrowDelta = {
+      kind: 'arrow-endpoint',
+      endpoint: cast.endpoint,
+      originalX: cast.originalX,
+      originalY: cast.originalY,
+      fixedX: cast.fixedX,
+      fixedY: cast.fixedY,
+      dx,
+      dy,
+    };
+    return out;
   },
 
   Handles({ params, span, startGesture }: HandlesProps) {
     const e = paramsToEndpoints(params);
+    const init1: ArrowInit = {
+      kind: 'arrow-endpoint',
+      endpoint: 1,
+      originalX: e.x1,
+      originalY: e.y1,
+      fixedX: e.x2,
+      fixedY: e.y2,
+    };
+    const init2: ArrowInit = {
+      kind: 'arrow-endpoint',
+      endpoint: 2,
+      originalX: e.x2,
+      originalY: e.y2,
+      fixedX: e.x1,
+      fixedY: e.y1,
+    };
     return (
       <>
         <div
@@ -175,14 +254,7 @@ export const canvas: ShapeAdapter = {
             event.stopPropagation();
             event.preventDefault();
             startGesture(
-              {
-                kind: 'arrow-endpoint',
-                endpoint: 1,
-                originalX: e.x1,
-                originalY: e.y1,
-                fixedX: e.x2,
-                fixedY: e.y2,
-              },
+              { kind: 'opaque', span, init: init1 },
               event.nativeEvent,
             );
           }}
@@ -195,21 +267,13 @@ export const canvas: ShapeAdapter = {
             event.stopPropagation();
             event.preventDefault();
             startGesture(
-              {
-                kind: 'arrow-endpoint',
-                endpoint: 2,
-                originalX: e.x2,
-                originalY: e.y2,
-                fixedX: e.x1,
-                fixedY: e.y1,
-              },
+              { kind: 'opaque', span, init: init2 },
               event.nativeEvent,
             );
           }}
         />
       </>
     );
-    void span;
   },
 
   commit(ast, span, delta, slideIdx) {
@@ -226,15 +290,6 @@ export const canvas: ShapeAdapter = {
         const slot = findNumericSlot(target, slotName);
         if (slot) slot.node.value = slot.value + dyR;
       }
-    } else if (delta.kind === 'arrow-endpoint') {
-      const newX = Math.round(delta.originalX + delta.dx);
-      const newY = Math.round(delta.originalY + delta.dy);
-      const xName = delta.endpoint === 1 ? 'x1' : 'x2';
-      const yName = delta.endpoint === 1 ? 'y1' : 'y2';
-      const xSlot = findNumericSlot(target, xName);
-      const ySlot = findNumericSlot(target, yName);
-      if (xSlot) xSlot.node.value = newX;
-      if (ySlot) ySlot.node.value = newY;
     } else if (delta.kind === 'transform') {
       const x1Slot = findNumericSlot(target, 'x1');
       const y1Slot = findNumericSlot(target, 'y1');
@@ -245,7 +300,16 @@ export const canvas: ShapeAdapter = {
       if (x2Slot) x2Slot.node.value = Math.round(delta.sx * x2Slot.value + delta.tx);
       if (y2Slot) y2Slot.node.value = Math.round(delta.sy * y2Slot.value + delta.ty);
     } else {
-      return null;
+      const inner = delta.delta as ArrowDelta | null;
+      if (!inner || inner.kind !== 'arrow-endpoint') return null;
+      const newX = Math.round(inner.originalX + inner.dx);
+      const newY = Math.round(inner.originalY + inner.dy);
+      const xName = inner.endpoint === 1 ? 'x1' : 'x2';
+      const yName = inner.endpoint === 1 ? 'y1' : 'y2';
+      const xSlot = findNumericSlot(target, xName);
+      const ySlot = findNumericSlot(target, yName);
+      if (xSlot) xSlot.node.value = newX;
+      if (ySlot) ySlot.node.value = newY;
     }
     const childIdx = findShapeChildIdx(ast, slideIdx, span);
     return childIdx !== null

@@ -23,7 +23,7 @@
 // SLIDEWRIGHT.md / Editor / multi-select scoping rule). One DOM
 // lookup for the Freeform, then everything portals into it.
 
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useState } from 'react';
 import type { ReactElement, PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -31,6 +31,7 @@ import type { ShapeData } from '../runtime/loader.js';
 
 import { spanKey } from './gesture-context.js';
 import type { SourceRange } from './host.js';
+import { isLayoutMeta } from './layout-meta.js';
 import type {
   BoxResizeDirection,
   Bounds,
@@ -39,6 +40,8 @@ import type {
   ShapeSpan,
   StartGesture,
 } from './shape-adapter.js';
+
+const DESIGN_W = 1920;
 
 const GROUP_DIRECTIONS: BoxResizeDirection[] = [
   'nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w',
@@ -57,13 +60,28 @@ interface SelectionLayerProps {
   startGesture: StartGesture;
 }
 
-interface SelectionItem {
-  span: SourceRange;
-  key: string;
-  adapter: ShapeAdapter;
-  params: Record<string, unknown>;
-  bounds: Bounds;
-}
+// Selectable items split into two kinds:
+//   - 'shape' — has a ShapeAdapter; bounds come from
+//     adapter.calculateBounds(params); supports Handles + group
+//     resize.
+//   - 'layout' — v0.4-tight-cut HStack / VStack. No adapter
+//     methods; bounds DOM-measured from the loader's wrapper div;
+//     no Handles, excluded from group-resize handle rendering.
+type SelectionItem =
+  | {
+      kind: 'shape';
+      span: SourceRange;
+      key: string;
+      adapter: ShapeAdapter;
+      params: Record<string, unknown>;
+      bounds: Bounds;
+    }
+  | {
+      kind: 'layout';
+      span: SourceRange;
+      key: string;
+      bounds: Bounds;
+    };
 
 export function SelectionLayer({
   selected,
@@ -73,6 +91,13 @@ export function SelectionLayer({
   startGesture,
 }: SelectionLayerProps): ReactElement | null {
   const portalTarget = useFreeformDiv(selected[0]);
+  // Layout bounds come from DOM measurement, not from params. Doing
+  // it inline in render reads the DOM *before* React's commit phase
+  // flushes layout-affecting source changes (e.g., a stack's
+  // `spacing` edit), so the outline lags one render behind. Measure
+  // in a layout effect after commit (before paint) and stash in
+  // state — render reads the stashed values.
+  const layoutBounds = useMeasuredLayoutBounds(selected, shapes, portalTarget);
 
   if (selected.length === 0) return null;
 
@@ -81,15 +106,23 @@ export function SelectionLayer({
     const key = spanKey(span);
     const data = shapes.get(key);
     if (!data) continue;
+    if (isLayoutMeta(data.canvas)) {
+      const bounds = layoutBounds.get(key);
+      if (!bounds) continue;
+      items.push({ kind: 'layout', span, key, bounds });
+      continue;
+    }
     const adapter = data.canvas as ShapeAdapter;
     const delta = gestureDeltas.get(key);
     const params = delta ? adapter.applyGesture(data.params, delta) : data.params;
     const bounds = adapter.calculateBounds(params);
     if (!bounds) continue;
-    items.push({ span, key, adapter, params, bounds });
+    items.push({ kind: 'shape', span, key, adapter, params, bounds });
   }
 
   if (items.length === 0 || !portalTarget) return null;
+
+  const allShapes = items.every((i) => i.kind === 'shape');
 
   // Group bounding box — the union of per-shape bounds, with a
   // small outset margin so it visually contains the inner outlines.
@@ -124,8 +157,8 @@ export function SelectionLayer({
     };
   }
 
-  const showHandles = items.length === 1 && renderHandles;
-  const showGroupHandles = items.length > 1 && renderHandles && groupCore;
+  const showHandles = items.length === 1 && renderHandles && items[0]!.kind === 'shape';
+  const showGroupHandles = items.length > 1 && renderHandles && groupCore && allShapes;
 
   return createPortal(
     <>
@@ -144,7 +177,7 @@ export function SelectionLayer({
               pointerEvents: 'none',
             }}
           />
-          {showHandles && (
+          {showHandles && item.kind === 'shape' && (
             <item.adapter.Handles
               params={item.params}
               span={item.span as ShapeSpan}
@@ -243,6 +276,103 @@ function handleAt(
     case 'sw': return { left: r.x - 7, top: r.y + r.height - 7 };
     case 'w':  return { left: r.x - 7, top: r.y + r.height / 2 - 7 };
   }
+}
+
+// Re-measures every selected layout after each commit-phase DOM
+// flush, returning a Map from spanKey to Freeform-relative design
+// bounds. Runs in `useLayoutEffect` so it sees the post-commit DOM
+// (a render-phase measurement would read pre-flush bounds and lag
+// one render behind any source edit that shifts the layout — e.g.,
+// editing a VStack's `spacing` in the inspector). The double-render
+// flushed here is contained: layouts are rare in any selection, and
+// the effect only runs when one of (selected, shapes, portalTarget)
+// changes — i.e., on selection change, source change, or portal
+// retarget. Not per gesture frame.
+function useMeasuredLayoutBounds(
+  selected: SourceRange[],
+  shapes: ReadonlyMap<string, ShapeData>,
+  portalTarget: HTMLElement | null,
+): ReadonlyMap<string, Bounds> {
+  const [layoutBounds, setLayoutBounds] = useState<ReadonlyMap<string, Bounds>>(
+    EMPTY_BOUNDS,
+  );
+  useLayoutEffect(() => {
+    if (!portalTarget) {
+      setLayoutBounds(EMPTY_BOUNDS);
+      return;
+    }
+    const next = new Map<string, Bounds>();
+    for (const span of selected) {
+      const key = spanKey(span);
+      const data = shapes.get(key);
+      if (!data || !isLayoutMeta(data.canvas)) continue;
+      const bounds = measureLayoutBounds(span, portalTarget);
+      if (bounds) next.set(key, bounds);
+    }
+    // Only setState when the measurement actually changed — saves a
+    // re-render on every source commit that didn't move a layout.
+    setLayoutBounds((prev) => (boundsMapsEqual(prev, next) ? prev : next));
+  }, [selected, shapes, portalTarget]);
+  return layoutBounds;
+}
+
+const EMPTY_BOUNDS: ReadonlyMap<string, Bounds> = new Map();
+
+function boundsMapsEqual(
+  a: ReadonlyMap<string, Bounds>,
+  b: ReadonlyMap<string, Bounds>,
+): boolean {
+  if (a.size !== b.size) return false;
+  for (const [key, va] of a) {
+    const vb = b.get(key);
+    if (!vb) return false;
+    if (
+      va.left !== vb.left ||
+      va.top !== vb.top ||
+      va.width !== vb.width ||
+      va.height !== vb.height
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// DOM-measure a layout's bounds, expressed in the portal target's
+// coord system (Freeform-relative design pixels). The loader's
+// wrapper for each component invocation is `display: contents`,
+// which means it has no box of its own — its `getBoundingClientRect`
+// returns zero. We measure the wrapper's first element child instead,
+// which is the layout's rendered root (the flex container for HStack
+// / VStack).
+//
+// Returns null if the wrapper, its first child, or the
+// `.presentation-canvas` (used to compute scale) is missing — caller
+// should drop the item from the selection visuals.
+function measureLayoutBounds(
+  span: SourceRange,
+  portalTarget: HTMLElement,
+): Bounds | null {
+  const wrapper = document.querySelector(
+    `.sw-canvas-stage [data-sw-span-start="${span.start}"][data-sw-span-end="${span.end}"]`,
+  );
+  if (!(wrapper instanceof HTMLElement)) return null;
+  const inner = wrapper.firstElementChild;
+  if (!(inner instanceof HTMLElement)) return null;
+  const canvas = document.querySelector(
+    '.sw-canvas-stage .presentation-canvas',
+  );
+  if (!(canvas instanceof HTMLElement)) return null;
+  const scale = canvas.getBoundingClientRect().width / DESIGN_W;
+  if (!Number.isFinite(scale) || scale <= 0) return null;
+  const innerRect = inner.getBoundingClientRect();
+  const portalRect = portalTarget.getBoundingClientRect();
+  return {
+    left: (innerRect.left - portalRect.left) / scale,
+    top: (innerRect.top - portalRect.top) / scale,
+    width: innerRect.width / scale,
+    height: innerRect.height / scale,
+  };
 }
 
 // Looks up the active slide's Freeform DOM. Returns null until the

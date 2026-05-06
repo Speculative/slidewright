@@ -16,6 +16,7 @@ import * as TitleSlide from './components/TitleSlide.js';
 import * as ContentSlide from './components/ContentSlide.js';
 import * as CardRow from './components/CardRow.js';
 import * as VStack from './components/VStack.js';
+import * as HStack from './components/HStack.js';
 import * as Freeform from './components/Freeform.js';
 import * as Box from './components/Box.js';
 import * as TextBox from './components/TextBox.js';
@@ -26,6 +27,7 @@ export const components = buildRegistry({
   ContentSlide,
   CardRow,
   VStack,
+  HStack,
   Freeform,
   Box,
   TextBox,

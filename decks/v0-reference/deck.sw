@@ -79,5 +79,42 @@ Deck {
         }
       }
     }
+
+    Slide {
+      label: "Stacks demo"
+      notes: """
+        v0.4 tight cut: VStack (and, by extension, HStack) inside a
+        Freeform with flow-laid CardRow children. Each stack is
+        selectable — click any non-CardRow area inside it — and its
+        `spacing` param is editable in the inspector. Gestures
+        (gap-drag, reorder) deferred to the wider cut.
+
+        Stack children must be flow-laid components (CardRow, future
+        Eyebrow / Title typography roles). Box / TextBox use
+        absolute positioning so they overlap when placed in a flex
+        parent — which is correct, just not sensible.
+      """
+      content: Freeform {
+        children: [
+          VStack {
+            spacing: 24
+            children: [
+              CardRow {
+                color:   purple
+                eyebrow: "VStack"
+                heading: "Children flow vertically."
+                body:    "Click an empty area inside the VStack to select it; edit `spacing` in the inspector."
+              }
+              CardRow {
+                color:   cyan
+                eyebrow: "Spacing"
+                heading: "Drives the flex gap."
+                body:    "The number param surfaced in the inspector commits straight back to source on Enter."
+              }
+            ]
+          }
+        ]
+      }
+    }
   ]
 }

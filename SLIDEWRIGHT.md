@@ -522,26 +522,38 @@ The contract (`slidewright/canvas/shape-adapter.ts`):
 ```ts
 interface ShapeAdapter {
   // Selection-outline rect, computed from gesture-adjusted params.
-  boundsFromParams(params): Bounds | null;
+  calculateBounds(params): Bounds | null;
+
   // Apply a per-shape gesture delta to params. Pure function;
-  // returns adjusted params. Adapters handle the gesture kinds
-  // they care about and pass through the rest.
+  // returns adjusted params. Adapters dispatch on `delta.kind`:
+  //   - 'translate' / 'transform': framework-known universals.
+  //   - 'opaque': cast `delta.delta` to the adapter's internal
+  //     type (its own typed payload behind the opaque channel).
   applyGesture(params, delta): params;
-  // React component rendering the shape's selection handles
-  // (Box / TextBox: 8 corner / edge resize handles; Arrow:
-  // 2 endpoint grips). Each handle's pointerdown calls
-  // `startGesture` to dispatch a typed handle gesture.
+
+  // Opaque-delta plumbing for adapter-bespoke gestures. The
+  // Handles component emits an opaque init via startGesture; the
+  // framework hands the init back here, then calls
+  // combineTemplate per frame to produce the per-frame opaque
+  // delta payload. Both signatures are `unknown` because the
+  // framework never inspects them.
+  buildTemplate(init: unknown): unknown;
+  combineTemplate(template: unknown, dx: number, dy: number): unknown;
+
+  // React component rendering the shape's selection handles.
+  // Each handle's pointerdown emits `{ kind: 'opaque', span,
+  // init }` via startGesture, where `init` is the adapter's own
+  // typed init payload (returned to it via buildTemplate).
   Handles: ComponentType<HandlesProps>;
-  // Mutate the AST given the final gesture delta. Returns
-  // optional preserveSelection for post-emit selection
-  // restoration; null aborts the commit.
+
+  // Mutate the AST given the final ShapeDelta.
   commit(ast, span, delta, slideIdx): { preserveSelection? } | null;
 }
 
 type ShapeDelta =
   | { kind: 'translate'; dx; dy }
-  | { kind: 'box-resize'; direction; original; dx; dy }
-  | { kind: 'arrow-endpoint'; endpoint; originalX; originalY; fixedX; fixedY; dx; dy };
+  | { kind: 'transform'; sx; sy; tx; ty }
+  | { kind: 'opaque'; delta: unknown };
 ```
 
 **Why React-native instead of imperative-during-drag:**
@@ -564,27 +576,18 @@ Adapters live with their components (`Box.tsx` exports both `slidewright` metada
 
 The shared rect-adapter (`slidewright/canvas/rect-adapter.ts`) factors Box / TextBox into `makeRectAdapter({ width, height })` since they share resize math. Adding a third HTML-rectangle shape is two lines.
 
-**Bespoke handles vs proportional gestures:**
+**Framework-known universals + adapter-opaque bespoke.**
 
-The current contract treats all gestures via typed `ShapeDelta` variants. When group operations land, proportional gestures (body translate, corner-handle resize) may share an `applyTransform(origin, newBox)` formulation; bespoke handles (Arrow endpoint move, future shadow-offset, future bezier control points) keep their own typed delta because they aren't proportional. **OPEN: whether to introduce `applyTransform` as a named generalization or just keep adding ShapeDelta variants — likely the latter unless a specific simplification emerges.**
+`ShapeDelta` has three arms:
 
-**App's awareness of gesture types — bounded coupling, with an opaque-delta refactor signaled in advance.**
+- **`translate`** (body drag, group body drag) and **`transform`** (group resize, future rotation) are framework-known universal kinds. App.tsx hard-codes them because they apply uniformly across every selected shape — body drag dispatches the same translate to all selected shapes; group resize derives one transform per frame from the captured group bbox + cursor and dispatches it to every member.
+- **`opaque`** is the adapter-bespoke arm. The adapter's `Handles` emits `{ kind: 'opaque', span, init }` where `init` carries the adapter's own internal init payload. App calls `adapter.buildTemplate(init)` at gesture-start to capture an opaque template (stored as `unknown`); per-frame `adapter.combineTemplate(template, dx, dy)` produces the opaque delta payload (also `unknown`). The framework wraps it as `{ kind: 'opaque', delta }` and feeds it to `applyGesture` (rendering) and `commit`. The framework never inspects the adapter's payload.
 
-`ShapeDelta` is a discriminated union of all known gesture kinds (`translate | box-resize | arrow-endpoint`). App imports it. App's `startGesture` callback knows how to convert each `HandleGestureInit` variant into the corresponding `DeltaTemplate`; `templateToDelta` knows how to combine templates with `dx, dy` per frame. App doesn't dispatch on the delta's kind — adapters do — but the type machinery is canvas-wide.
+Today's bespoke gestures: `box-resize` (rect-adapter — Box / TextBox), `arrow-endpoint` (Arrow). Future bespoke gestures (bezier control points, shadow offset grips, slot-targeted operations on layout adapters) carry their own internal types behind the same opaque channel — no App.tsx edits required to add them.
 
-The cost: adding a *new gesture kind* (e.g., bezier control point drag for a future Polyline) requires touching `shape-adapter.ts` and `App.tsx` (recognize the new `HandleGestureInit` variant, build the matching template). Adding a *new shape that uses existing gesture kinds* requires no App changes — the adapter implements `applyGesture` / `commit` against the union variants it cares about.
+**Why split universal from opaque rather than going all-opaque?** Translate and transform are mathematically the same operation across every shape that supports them (translate by dx/dy; apply axis-aligned 2D affine). Making them opaque would require each adapter to re-implement the trivial template/delta plumbing for the same math. Splitting keeps the framework minimal: it knows the universal operations because they're inherent to "any shape with bounds in a positional coord system," and stays ignorant of bespoke gestures.
 
-Why we chose typed-union despite App-awareness: the gesture-kind list is bounded by what the canvas as a *whole* supports (roughly: translate, box-resize, arrow-endpoint, plus a handful of future variants), not by what a *single shape* supports. Typed deltas let `gestureDeltas` memo, `SelectionLayer`'s bounds computation, and the framework's commit dispatch all be type-checked against one canonical list. The opaque-delta alternative (each adapter declares its own delta type, exposes `combineTemplate` / `applyOpaque` methods, etc.) decouples App from gesture kinds at the cost of more adapter surface and types that TS can't help across the boundary.
-
-**When to flip to opaque deltas — instructions for a future agent:** if the gesture-kind list grows past ~5–6 variants, OR shape-specific gestures start requiring new ShapeDelta variants in App.tsx every time a shape lands, refactor to opaque-delta. The mechanical change:
-
-  - Drop `ShapeDelta` and `HandleGestureInit` unions from `shape-adapter.ts`.
-  - Each adapter declares its own `Template` and `Delta` types (or treats both as `unknown`).
-  - Add adapter methods: `buildTemplate(handleInit)`, `combineTemplate(template, dx, dy)`. Body-drag's translate stays universal — give it a dedicated `translateBy(params, dx, dy)` adapter method.
-  - App's `startGesture` callback hands the handleInit blob back to the same adapter that emitted it (via the Handles component); the adapter builds its own template. App stores templates as `unknown`. Per-frame, App calls each affected adapter's `combineTemplate(template, dx, dy)` to get the delta, then `applyGesture(params, delta)` for rendering.
-  - `SelectionLayer` calls `adapter.applyGesture` and `adapter.calculateBounds` exactly as today — neither method's signature changes (delta is opaque to it).
-
-Trigger: the *third* time a new gesture kind requires an App.tsx edit. Two is a coincidence; three is a pattern.
+**Rotation extends the transform payload, not the ShapeDelta union.** Rotation generalizes `TransformDelta` from axis-aligned `{sx, sy, tx, ty}` to a full 2x3 matrix `{a, b, c, d, tx, ty}`. That's a payload-shape change inside the existing `transform` arm, not a new ShapeDelta kind. Adapters' `applyGesture` / `commit` for the transform arm get a richer matrix to apply; the framework's group-resize-derives-transform path migrates from `groupResizeToTransform → {sx, sy, tx, ty}` to derive the full 2x3 matrix.
 
 **Multi-select scope:**
 
@@ -930,7 +933,7 @@ Still open from the original v0.3 scope:
 - Inspector panel: shows resolved cell values for the current selection; editable for params.
 - External-edit detection (typing in source while canvas is open): re-parse, restore selection by ID, cancel mid-gesture.
 - Canvas gesture undo stack with VS Code text-buffer integration; external-edit barriers.
-- Group resize. The current contract carries it via a future `box-group-resize` ShapeDelta variant or a separate `applyTransform` method; design open.
+- Group resize via the framework-known `transform` arm of `ShapeDelta`. Adapters that support rigid-body transforms handle the kind in their existing `applyGesture` / `commit`.
 - **Demo (when complete)**: edit slides via canvas AND via source, with selection preserved across external edits, proper undo, and a working inspector.
 
 **v0.4 — Reference deck + round-trip harness + first polish.**
@@ -1033,7 +1036,7 @@ For ease of reference, the major unresolved questions:
 - How structured + freeform compose within a single diagram
 - Auto-router choice(s) for arrows (straight, orthogonal-with-rounded-corners, obstacle-avoiding)
 - Full inventory of CLI query commands beyond the v0 set (`query refs`, etc.)
-- **Group resize**. Two paths under consideration: a new `box-group-resize` ShapeDelta variant (lighter weight; each adapter handles it via its existing `applyGesture`), or a separate `applyTransform(origin, newBox)` formulation as we discussed pre-React-native-refactor (cleaner but adds an adapter method). Lands when an actual user need shows up — multi-select can do everything except group resize today and it's a coherent stopping point.
+- ~~**Group resize**~~ — landed in v0.3 via the framework-known `transform` arm of `ShapeDelta`. Each adapter handles `transform` in its existing `applyGesture` / `commit`; the framework derives one transform per frame from the captured group bbox + cursor and replicates it to every member. See Editor / Gesture model and shape adapters.
 - **Outside-Freeform shape adapters** (Card resize, drop-shadow grip, diagram-specific handles). The `ShapeAdapter` contract supports them in principle; App's selection effect needs to generalize from "anchor handles to closest Freeform" to "anchor to closest positioned ancestor." Defer until an actual outside-Freeform shape needs canvas behavior.
 - **Long-term: snapshot-and-fold undo model** (post-v0; replaces external-edit barriers with a unified history)
 - **Long-term: hybrid emit** (canonical-on-editor-write, leave-alone on idle regions; replaces pure canonical re-emit if author churn becomes painful)
