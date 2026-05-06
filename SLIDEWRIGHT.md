@@ -4,9 +4,11 @@ A projectional editor for code-based slide decks, designed for human/AI co-autho
 
 ## Status
 
-Early design. This document started as a snapshot of an initial design conversation; it has since been updated with decisions from a follow-up design pass that worked through DSL shape, layout primitives, text values, the cell-with-override model for all values, diagrams and constraints, and the implications of each. **Many decisions are still tentative.** Sections marked **OPEN** have multiple options on the table; sections marked **TENTATIVE** have a leading candidate but are not locked in; sections marked **DECIDED** represent stronger commitments but may still be revisited.
+Implementation in progress. This document started as a snapshot of an initial design conversation; pre-v0 design pass is complete (see "Pre-v0 design topics" below). v0.0 (read-only viewer), v0.1 (VS Code extension + standalone web app + selection sync), and v0.2 (interactive gestures + round-trip emit, including text editing, drawing tools, drag, resize, single-shape selection) are implemented. v0.2.j (multi-select) is the active milestone.
 
-The agent reading this should treat the design as input to v0 implementation and as a living document to be updated as implementation reveals what works. Before v0 implementation begins, four big topics need a dedicated design pass: see "Pre-v0 design topics" below.
+Sections marked **OPEN** have multiple options on the table; sections marked **TENTATIVE** have a leading candidate but are not locked in; sections marked **DECIDED** represent stronger commitments but may still be revisited.
+
+The agent reading this should treat the design as input to ongoing implementation and as a living document to be updated as implementation reveals what works. Day-to-day "where things are now" lives in `HANDOFF.md`; load-bearing design commitments and rationale live here.
 
 ---
 
@@ -487,7 +489,7 @@ Slidewright runs as a VS Code extension with a webview rendering the live slide 
 - An inspector panel (selected component's parameters)
 - A presentation mode toggle
 
-### Direct manipulation **TENTATIVE → near-DECIDED in shape**
+### Direct manipulation **DECIDED in shape (v0.2)**
 
 Standard interactions: click to select, drag to move, handles to resize, double-click to edit text. Multi-select with shift/marquee. Z-order controls. Layers panel. Group operations (align, distribute).
 
@@ -510,6 +512,70 @@ The dispatch shape needs to anticipate `Freeform` and pin-supporting components 
 - **Dependent gestures** — the gesture's outcome depends on the broken region's resolved value (dragging an arrow whose target slot has an invalid reference; resizing a Box whose width is bound to a broken cell). *Blocked* until the dependency resolves.
 
 Invalid regions render with error markers in place; sibling slides and unrelated elements continue to render normally. Slide-level is the error-boundary floor — a malformed slide does not take down its neighbors.
+
+### Gesture model and shape adapters **DECIDED (v0.2)**
+
+The architecture that emerged from v0.2 implementation, captured here so it doesn't get re-litigated:
+
+**App-owned dispatch with co-located shape adapters.** The canvas (`slidewright/canvas/App.tsx`) is the gesture dispatcher. It owns the pointer-event lifecycle, the gesture mutex, the source round-trip pipeline, and tool-mode policy. Per-shape behavior — what a Box does on drag, where Arrow's resize handles go, how each shape mutates the AST on commit — lives on a `canvas: ShapeAdapter` export co-located with each shape's component file. App looks up the adapter via the rendered tree's `data-sw-component` attribute and plumbs gesture events into the adapter's `GestureHandle`.
+
+The contract (`slidewright/canvas/shape-adapter.ts`):
+
+```ts
+interface ShapeAdapter {
+  bounds(visualNode): Bounds | null;          // selection-outline rect
+  startBodyDrag(ctx): GestureHandle;          // pointerdown on shape body
+  renderHandles(ctx): () => void;             // handles when shape is selected
+}
+
+interface GestureHandle {
+  onMove(designDx, designDy): void;           // per-frame imperative DOM update
+  onCommit(ast, designDx, designDy):          // mutate AST on release
+    { preserveSelection?: PreserveSelection } | null;
+}
+```
+
+**Why App-owned dispatch instead of per-shape pointer handlers:**
+
+Mutex of "only one gesture at a time" is a single state slot, not a context provider every shape consults. Tool-mode policy ("if `activeTool=box`, pointerdown on a Box should *not* drag — it should start a new Box-creation gesture") lives in one place; without central dispatch, every shape has to consult global tool state. Cross-shape gestures (multi-select, snap, alignment) are tractable because App sees all shapes; per-shape handlers can't see siblings. Source-update cancellation (drag in progress → external edit arrives → drag cancels) is automatic via React effect cleanup.
+
+The cost: shape behavior is split across the shape's component file (render + adapter) and App.tsx (dispatch + lifecycle). The win: framework / shape boundary is honest, multi-shape gestures compose cleanly.
+
+**Why mandatory adapter methods (for now):**
+
+`bounds`, `startBodyDrag`, `renderHandles` are all required today. If a future shape needs to opt out (e.g., Polyline that only supports endpoint handles, no body drag), we'll flip the relevant method to optional and special-case the absent path. Until then, mandatory keeps the contract explicit — no implicit fallback to a "default body drag" the framework imagines.
+
+**Co-location vs separation of adapters:**
+
+Adapters live with their components (`Box.tsx` exports both `slidewright` metadata and `canvas` adapter), not in a separate `slidewright/canvas/shapes/` directory. There's exactly one canvas-like surface in Slidewright; co-location wins on cohesion ("everything about Box is in Box.tsx"). The runtime layer (`LoadedComponent`) gained an opaque `canvas?: unknown` field so the runtime stays canvas-agnostic — the canvas casts to the real shape.
+
+**Bespoke handles vs proportional gestures:**
+
+The current contract treats all gestures the same way (capture-on-start, `onMove`/`onCommit`). When group operations land, proportional gestures (body translate, corner-handle resize) will share an `applyTransform(visualNode, captured, origin, newBox)` method that subsumes `onMove`: body drag is a translate-only transform, corner resize is translate+scale, and group resize dispatches the same transform to every selected shape. Bespoke handles (Arrow endpoint move, future shadow-offset, future bezier control points) keep their own `GestureHandle` because they aren't proportional. **OPEN: when to introduce `applyTransform` — likely at the same time as group resize lands.**
+
+**Multi-select scope:**
+
+Selection is bounded to *one layout context* — two Boxes on the same Freeform can be multi-selected; a Box on Freeform plus a Card in CardRow cannot. Cross-context multi-select is forbidden because the shapes live in different coordinate systems and group operations would be ill-defined ("translate them where? resize together how?"). When outside-Freeform adapters land, this rule scopes per layout context.
+
+**Selection preservation across emit cycles:**
+
+Source spans shift every time the canonical formatter rewrites whitespace, so the in-flight `(start, end)` doesn't match anything in the post-emit AST. Drag and resize commits stash the new shape's span in a `pendingSelectionRef` (`slidewright/canvas/App.tsx`) before calling `host.setSource`; the subscribe handler picks it up on the round-trip and re-applies. The mechanism: capture the shape's *child index* in its parent Freeform's children list before emit, look up the same index in the freshly parsed post-emit AST, read its new span. Externally-driven source changes (typing in editor) leave the ref empty, and selection clears as before.
+
+**Test strategy: end-to-end, not unit.**
+
+Gesture tests run in real Chromium via Playwright (`tests/gestures.spec.ts`), driving the standalone canvas with a real mouse and asserting on the source visible in the editor pane after the round-trip. Pure-function tests of the AST-mutation logic alone would miss the bug classes that actually happen here: pointer-event wiring, React effect ordering, ResizeObserver / boundingBox behavior, contentEditable focus / blur, transform-stuck-on-rerender. The e2e suite survives refactors as black-box behavior validation. **DECIDED.**
+
+### Mediation layer / commitSourceEdit pipeline **DECIDED (v0.2)**
+
+Every gesture's commit path runs the same sequence:
+
+```
+parse(source) → mutate AST in place → emit() → reparse for new selection span → setSource
+```
+
+Centralized in `slidewright/canvas/ast-edits.ts:commitSourceEdit`. Takes a `mutate` callback that operates on the freshly parsed AST and returns either `null` (abort), `{}` (commit without selection preservation), or `{ preserveSelection: { slideIdx, childIdx } }` (commit and have the helper compute the new selection span post-emit). Returns `{ newSource, newSelection }` for the caller to apply.
+
+Errors at any stage (parse error before mutation, parse error in the post-emit reparse) abort the commit cleanly without calling `setSource` — the canvas stays at the pre-edit source rather than emitting on top of a partial AST.
 
 ### Direct manipulation of structured component output **TENTATIVE → leaning DECIDED**
 
@@ -764,37 +830,55 @@ v0 is broken into incremental milestones. Each ends in a runnable demo of the su
 - Host-agnostic canvas at `slidewright/canvas/` (App, ScaledCanvas, SlideStrip, EditorPane, ResizeHandle, DiagnosticsPanel). Two adapter implementations: `VSCodeHost` (postMessage to extension) and `StandaloneHost` (in-memory state + Vite HMR for `.sw` source). Standalone serves at `/canvas.html` via `npm run dev` — same canvas UI, no VS Code required, complete editing loop with a bottom-mounted source-editor pane. The Host abstraction is the integration boundary: any future editor (Vim plugin, JetBrains, web hosted) plugs in by implementing `Host`.
 - **Demo**: open a `.sw` file in VS Code, run "Slidewright: Open Canvas" → side-by-side canvas with strip + main slide. Edits in source reflect instantly; double-click in canvas reveals the source range; cursor in source moves the canvas active slide. Standalone equivalent at `localhost:5173/canvas.html`.
 
-**v0.2 — First interactive gesture: drag-to-move + round-trip emit.**
-- Canonical re-emit pipeline (AST → source via the formatter).
-- VS Code TextEdit API integration for canvas → source writes.
-- Drag-to-move gesture on `Freeform`-positioned elements (the simplest gesture that exercises the full edit → emit → re-parse loop).
-- Cell model with literal overrides (drag writes a literal x/y).
-- Initial round-trip property test on a small corpus.
-- **Demo**: drag a Box, see its `x` and `y` update in source; source change re-renders the canvas.
+**v0.2 — Interactive gestures + round-trip emit. Status: implemented.**
 
-**v0.3 — Text editing + resize + selection model.**
-- Double-click to edit text on text-typed slots.
-- Resize handles on Box-like elements.
-- Single-selection model (multi-select deferred).
-- Inspector panel (read-only — shows resolved cell values for the current selection).
-- **Demo**: edit text and resize boxes through canvas; inspector reflects current state.
+Originally scoped as drag-to-move only; expanded into ten sub-milestones (a–i) covering the full v0.3-as-originally-scoped surface area too — text editing, drawing tools, resize, selection model, the works. Re-scoped post-hoc because the gestures ended up tractable enough to ship together, and v0.3 became "extend selection."
 
-**v0.4 — Slot-aware editing + external-edit reconciliation.**
-- Click into named slots (typed slot selection in canvas).
-- Empty-slot placeholders.
-- Inspector panel becomes editable for params.
+- **v0.2.a–b**: Canonical emitter + in-place text editing via `contentEditable` on the rendered span. Round-trip property tests.
+- **v0.2.c–d**: Comment preservation through canonical emit (lexer emits comments as tokens; parser attaches as `leadingComments` / `trailingComments`).
+- **v0.2.e**: `Freeform` layout primitive; `Box` shape with x / y / width / height / fill slot fills; drag-to-move gesture committing through the AST → emit → setSource pipeline.
+- **v0.2.f**: Tool palette UI (`select` / `box` / `textbox` / `arrow`); Box drawing gesture.
+- **v0.2.g**: `TextBox` (HTML-rectangle with text content) and `Arrow` (SVG line + polygon arrowhead) primitives + their drawing tools.
+- **v0.2.h**: Single-shape selection model (click to select, dashed outline, Escape / click-background to clear, Delete / Backspace removes, selection persists across activeIdx changes within the same source).
+- **v0.2.i.1**: Box / TextBox drag-to-resize via 8 corner / edge handles. Selection preservation across the emit cycle (`pendingSelectionRef` mechanism — see Editor / Gesture model).
+- **v0.2.i.2**: Arrow body drag (translates both endpoints), endpoint handles (drag one endpoint while the other stays fixed), wider invisible hit-area `<line>` for thin arrows.
+
+Post-implementation refactors (still v0.2):
+
+1. **AST helpers extracted** to `slidewright/canvas/ast-edits.ts` (locators, constructors, mutators, `commitSourceEdit` pipeline, `computeArrowGeometry`). Pure functions, unit-testable, no React.
+2. **`commitSourceEdit` helper** centralizes the parse → mutate → emit → reparse-for-selection → setSource pipeline. Called from every gesture's commit point.
+3. **`ShapeAdapter` contract** (`slidewright/canvas/shape-adapter.ts`). Per-shape canvas behavior co-located with the shape's component file. App.tsx becomes a thin dispatcher. See Editor / Gesture model and shape adapters.
+
+Net: App.tsx 1706 → 805 lines across the three refactors, with no behavior change (verified by Playwright e2e suite).
+
+**v0.2.j — Multi-select.**
+- Selection state becomes `selected: SourceRange[]` (within one layout context; cross-context multi-select forbidden).
+- Shift-click to toggle selection of an individual shape.
+- Marquee selection: pointerdown on empty canvas → drag → on release, select all shapes whose bounding box intersects the marquee.
+- Group body-drag (translate all selected shapes together; current `activeGesture` slot grows to hold an array of `GestureHandle`s).
+- `commitSourceEdit` extends to accept multiple `preserveSelection`s.
+- Group delete (extend existing handler to iterate).
+- Selection rendering: dashed outline per selected shape + minimum-bounding-box rendered when 2+ are selected; body-drag responds anywhere on the group bounding box.
+- Handles only render when exactly one shape is selected. Group resize handles on the bounding box are a separate follow-up commit (introduces `applyTransform` adapter method).
+- **Demo**: shift-click and marquee build a selection of multiple Freeform shapes; drag the group, delete the group; selection persists across the source round-trip.
+
+**v0.3 — Slot-aware editing + inspector + external-edit reconciliation.**
+- Click into named slots (typed slot selection in canvas — different from shape selection).
+- Empty-slot placeholders ("text…" inside an empty TextBox).
+- Inspector panel: shows resolved cell values for the current selection; editable for params.
 - External-edit detection (typing in source while canvas is open): re-parse, restore selection by ID, cancel mid-gesture.
 - Canvas gesture undo stack with VS Code text-buffer integration; external-edit barriers.
-- **Demo**: edit slides via canvas AND via source, with selection preserved across external edits and proper undo behavior.
+- Group resize via `applyTransform` (proportional translate-and-scale; subsumes single-shape body drag and corner resize under one method; lands here or in v0.2.j depending on scope).
+- **Demo**: edit slides via canvas AND via source, with selection preserved across external edits, proper undo, and a working inspector.
 
-**v0.5 — Reference deck + round-trip harness + first polish.**
+**v0.4 — Reference deck + round-trip harness + first polish.**
 - Re-create the existing `decks/ne-agents-day-2026/` deck (or a meaningful subset) in Slidewright DSL with custom components.
 - Round-trip property test harness on the full reference deck plus a corpus of synthesized edit sequences.
 - Diagnostics layer polish; better error rendering with slide-level error boundaries.
 - Markdown rendering in `text-markdown`-typed slots.
 - **Demo**: the reference deck runs end-to-end in Slidewright; edits via canvas and source work together; round-trip property tests pass at high volume.
 
-v0.5 is the demoable v0 — it satisfies the success criteria below.
+v0.4 is the demoable v0 — it satisfies the success criteria below. (Old numbering had this as v0.5 because v0.2 / v0.3 split text/resize across two milestones; v0.2 absorbed both, so the tail shifts by one.)
 
 ### What v0 includes (cumulative across phases)
 
@@ -811,7 +895,7 @@ v0.5 is the demoable v0 — it satisfies the success criteria below.
 
 ### What v0 explicitly excludes
 
-- Multi-select, group operations, alignment, distribution.
+- ~~Multi-select, group operations, alignment, distribution.~~ Multi-select moved into v0.2.j scope (the gesture infrastructure made it cheaper than expected). Alignment / distribution still excluded.
 - Inline TS expressions in DSL (`{js: ...}`) — deferred.
 - AI integration as a first-party feature (per AI authoring section, Slidewright doesn't ship agent UX; agents are external).
 - Presentation-mode UI beyond what the existing scaffold already provides.
@@ -819,6 +903,8 @@ v0.5 is the demoable v0 — it satisfies the success criteria below.
 - Computed defaults and the "solve" expression form on cells (literals only in v0).
 - Structured diagrams, magnifiers, coordination protocols beyond what's reserved (`protocols: {}` empty).
 - Theme system (per Styling — minimal tokens only).
+- Cross-context multi-select (Box-in-Freeform + Card-in-CardRow grouped together). Forbidden by intent — different coordinate systems make group operations ill-defined. Selection is always scoped to one layout context.
+- "Outside-Freeform" shape adapters (Card resize handles, diagram-specific handles, drop-shadow offset grips). The `ShapeAdapter` contract supports them in principle but the framework's selection effect still anchors handles to the closest Freeform; generalizing is deferred until an actual outside-Freeform shape needs canvas behavior.
 
 ### v0 success criteria
 
@@ -867,6 +953,12 @@ For ease of reference, the major unresolved questions:
 - ~~Direct manipulation inside structured components~~ → pins as primary mechanism; constraint-style and demote-to-freeform as adjuncts.
 - ~~DSL slot model and surface syntax~~ → typed named slots in a brace-block surface syntax (HCL/Rust-flavored); capitalization-disambiguated component-vs-slot; newline-or-comma separators inside braces; lists in `[...]`; triple-quoted multi-line strings with adjacent-literal concatenation; Markdown allowed in `text-markdown`-typed slots; per-invocation implicit-children rule. See Form.
 
+**Resolved during v0.2 implementation:**
+- ~~Per-shape canvas behavior architecture~~ → `ShapeAdapter` contract co-located with shape components; App.tsx is a thin dispatcher. App-owned dispatch (vs per-shape pointer handlers) won on mutex / tool-mode policy / cross-shape gesture composability. See Editor / Gesture model.
+- ~~Selection preservation across emit cycles~~ → child-index-in-parent-list lookup (spans shift, indices don't); `pendingSelectionRef` carries the post-emit span back through the source round-trip.
+- ~~Multi-select scoping~~ → bounded to one layout context; cross-context multi-select forbidden by intent.
+- ~~Test strategy for gestures~~ → end-to-end Playwright over the standalone canvas. Pure-function tests of AST mutation alone miss the bug classes that actually happen (pointer-event wiring, React effect ordering, contentEditable / focus, transform-stuck-on-rerender).
+
 **Still open (lower priority, OK to defer):**
 - Whether to allow inline TS expressions in DSL prop positions
 - Token system specifics (spacing scale, color model, typography vocabulary)
@@ -878,6 +970,8 @@ For ease of reference, the major unresolved questions:
 - How structured + freeform compose within a single diagram
 - Auto-router choice(s) for arrows (straight, orthogonal-with-rounded-corners, obstacle-avoiding)
 - Full inventory of CLI query commands beyond the v0 set (`query refs`, etc.)
+- **Group resize via `applyTransform`** (the adapter method that subsumes `onMove` for proportional gestures: body translate, single-shape corner resize, group resize all dispatch through it; bespoke handles like Arrow endpoint stay on `GestureHandle`). Lands when group resize lands — likely v0.2.j follow-up or v0.3.
+- **Outside-Freeform shape adapters** (Card resize, drop-shadow grip, diagram-specific handles). The `ShapeAdapter` contract supports them in principle; App's selection effect needs to generalize from "anchor handles to closest Freeform" to "anchor to closest positioned ancestor." Defer until an actual outside-Freeform shape needs canvas behavior.
 - **Long-term: snapshot-and-fold undo model** (post-v0; replaces external-edit barriers with a unified history)
 - **Long-term: hybrid emit** (canonical-on-editor-write, leave-alone on idle regions; replaces pure canonical re-emit if author churn becomes painful)
 - **Revisit: tree-sitter** (currently deferred; revisit if recovery becomes a maintenance burden, or we want syntax highlighting outside our own editor, or we add a second grammar dialect)

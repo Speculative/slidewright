@@ -1,6 +1,6 @@
 # Slidewright handoff
 
-You're picking up Slidewright development. **v0.0 (read-only viewer) and v0.1 (VS Code extension + standalone web app + selection sync) are implemented.** v0.2 (first interactive gesture + round-trip emit) is the next milestone.
+You're picking up Slidewright development. **v0.0 (read-only viewer), v0.1 (VS Code extension + standalone web app + selection sync), and v0.2 (interactive gestures + round-trip emit) are implemented.** v0.2.j (multi-select) is the next milestone.
 
 ## What Slidewright is
 
@@ -17,35 +17,30 @@ The bet: bidirectional projectional editing of a typed component tree, with stab
   - `deck.sw` — DSL source.
   - `index.tsx` — entry for the Vite-served `Presentation` app at `/` (existing v0.0 demo).
   - `registry.ts` — host-agnostic component registry + static color tokens; imported by both `index.tsx` and the canvas.
-  - `components/` — `TitleSlide.tsx`, `ContentSlide.tsx`, `CardRow.tsx`, `VStack.tsx`.
+  - `components/` — `TitleSlide.tsx`, `ContentSlide.tsx`, `CardRow.tsx`, `VStack.tsx`, `Freeform.tsx`, `Box.tsx`, `TextBox.tsx`, `Arrow.tsx`. Each `Box` / `TextBox` / `Arrow` exports a `canvas: ShapeAdapter` alongside its `slidewright` metadata — declares its drag / resize / handle behavior. See **`slidewright/canvas/shape-adapter.ts`**.
 - **`src/`** — Vite-served apps + the existing slide scaffold.
-  - `Presentation.jsx`, `Slide.jsx`, `CodeBlock.jsx` — the existing scaffold (kbd nav, popout notes, scaling, print). Used by the multi-slide presentation app at `/`.
+  - `Presentation.jsx`, `Slide.jsx`, `CodeBlock.jsx` — the existing scaffold (kbd nav, popout notes, scaling, print).
   - `App.jsx` — wires `decks/v0-reference/index.tsx` into the `Presentation` runtime (the v0.0 demo).
-  - `canvas-standalone.tsx` — entry for the standalone Slidewright canvas at `/canvas.html` (the v0.1+ host-agnostic canvas + bottom-mounted source editor).
-  - `standalone-host.ts` — `Host` adapter for the standalone path. Exposes Vite HMR hooks for `.sw` source changes.
+  - `canvas-standalone.tsx` — entry for the standalone Slidewright canvas at `/canvas.html`.
+  - `standalone-host.ts` — `Host` adapter for the standalone path. Honors `?fixture=<name>` for e2e test fixtures (compile-imported via `import.meta.glob` from `tests/fixtures/`).
 - **`canvas.html`** — entry HTML for `/canvas.html`.
-- **`extension/`** — VS Code extension package.
-  - `package.json` — manifest. `main` points at `dist/extension.js`. Activation events: `onLanguage:slidewright` + `workspaceContains:**/*.sw`.
-  - `src/extension.ts` — extension host entry point (activate, command registration, doc-change watcher).
-  - `src/canvas.ts` — `SlidewrightCanvasPanel` class (webview lifecycle, message protocol, source/cursor pushes, source-range reveal).
-  - `src/webview/index.tsx` — webview bundle entry; mounts `App` from `slidewright/canvas/` against `VSCodeHost`.
-  - `src/webview/vscode-host.ts` — `Host` adapter for the webview side.
-  - `esbuild.mjs` — two-target build: extension host (CJS, `vscode` external) + webview (browser IIFE, JSX automatic).
+- **`extension/`** — VS Code extension package. Same shape as v0.1; see `src/canvas.ts`, `src/webview/`, `esbuild.mjs`.
 - **`slidewright/`** — the Slidewright package.
-  - `grammar/grammar.js` — brace-block grammar in tree-sitter's declarative form. Spec-only; tree-sitter is not in the build (see "Tree-sitter investigation" below). Treat divergences with `parser.ts` as bugs in either depending on which is "right" for the case.
-  - `runtime/parser.ts` — hand-rolled recursive-descent parser.
-  - `runtime/lexer.ts`, `ast.ts`, `diagnostics.ts`, `cells.ts`, `contract.ts`, `scope.ts`, `loader.ts` — supporting modules.
-  - `runtime/__test__/` — smoke tests (parser, loader, SSR, headless render).
+  - `grammar/grammar.js` — brace-block grammar in tree-sitter's declarative form. Spec-only; not in build.
+  - `runtime/parser.ts`, `lexer.ts`, `ast.ts`, `emitter.ts`, `loader.ts`, `diagnostics.ts`, `cells.ts`, `contract.ts`, `scope.ts` — runtime layer. The `LoadedComponent` type gained an opaque `canvas?: unknown` field in v0.2 for shape adapters; runtime stays canvas-agnostic.
+  - `runtime/__test__/` — smoke tests (parser, loader, SSR, round-trip property tests).
   - `cli/validate.ts` — `slidewright validate` CLI.
-  - **`canvas/`** — host-agnostic canvas UI (v0.1).
-    - `host.ts` — `Host` interface (subscribe, sendSelection, onCursorChange?, plus optional editor-pane methods setSource/onSelection/setCursor).
-    - `App.tsx` — top-level canvas component (state, keyboard nav, layout, click → source via Host).
-    - `ScaledCanvas.tsx` — 1920x1080 design surface auto-fitted to viewport via CSS transform; double-click → host.sendSelection.
-    - `SlideStrip.tsx` — vertical thumbnail column; CSS-driven sizing, ResizeObserver-driven scale.
-    - `EditorPane.tsx` — `<textarea>` source editor (used by standalone host via `App` siblings; not used by the webview, where VS Code IS the editor).
-    - `ResizeHandle.tsx` — generic drag handle for resizing siblings (axis 'x'/'y', invertable).
-    - `DiagnosticsPanel.tsx` — error rendering.
-    - `canvas.css` — chrome around the slide; the slide content itself uses `src/styles.css`.
+  - **`canvas/`** — host-agnostic canvas UI.
+    - `host.ts` — `Host` interface.
+    - `App.tsx` — top-level canvas component. State + effects for source / selection / gestures / nav / layout. After v0.2's three refactors, App is a thin dispatcher: looks up the relevant `ShapeAdapter` by `data-sw-component` and plumbs gesture lifecycle into the adapter's `GestureHandle`.
+    - `ScaledCanvas.tsx` — 1920x1080 design surface auto-fitted via CSS transform; pointerdown dispatch (selectable / draggable / create-tool); double-click → text-edit or selection-sync.
+    - `shape-adapter.ts` — per-shape canvas-behavior contract (`bounds`, `startBodyDrag`, `renderHandles`). Each shape's component file co-locates its adapter. App is the framework; adapters do per-shape work.
+    - `ast-edits.ts` — pure AST helpers (locators, constructors, mutators) plus `commitSourceEdit` (the parse → mutate → emit → reparse → setSource pipeline) plus `computeArrowGeometry`. No React.
+    - `SlideStrip.tsx`, `EditorPane.tsx`, `ResizeHandle.tsx`, `DiagnosticsPanel.tsx`, `ToolPalette.tsx` — supporting UI.
+    - `canvas.css` — chrome.
+- **`tests/`** — Playwright e2e tests for canvas gestures.
+  - `fixtures/*.sw` — minimal `.sw` fixtures, one shape per file. Compile-imported into `StandaloneHost`.
+  - `gestures.spec.ts` — gesture cases (drag body, resize, endpoint move, create, delete) per shape. Run via `npm run test:e2e`.
 
 ## How to run
 
@@ -54,7 +49,9 @@ The bet: bidirectional projectional editing of a typed component tree, with stab
 npm run dev                # Vite dev server on :5173
                            #   /              → multi-slide v0.0 demo (Presentation)
                            #   /canvas.html   → v0.1+ standalone Slidewright canvas
-npm test                   # typecheck + parser + loader + SSR smoke tests
+                           #   /canvas.html?fixture=<name>  → load a tests/fixtures/*.sw file
+npm test                   # typecheck + parser + loader + SSR + round-trip property tests
+npm run test:e2e           # Playwright gestures suite (Chromium, ~5.5s)
 npm run code-server        # browser VS Code on :8080 (host-only)
                            #   F5 inside it → Extension Development Host
                            #   Cmd+Shift+P → "Slidewright: Open Canvas"
@@ -67,93 +64,124 @@ npm run extension:watch    # esbuild watch mode for extension dev
 
 - DSL parsing for the brace-block surface syntax (component invocations, slot fills, lists, capitalization disambiguation, triple-quoted strings with dedent, adjacent simple-string concatenation, line+block comments, implicit children).
 - Slide-component contract loading and slot-schema validation.
-- Cell runtime with `resolve(handle, context): T` interface; `(handle, context)`-keyed cache; literal layer only (no computed defaults yet).
-- React rendering: walks the AST, dispatches each component to its default React export with `{slots, params}`, drops into the existing `<Presentation>` runtime.
-- The reference deck `decks/v0-reference/deck.sw` renders end-to-end (verified via SSR + smoke tests).
+- Cell runtime with `resolve(handle, context): T` interface; literal layer only (no computed defaults yet).
+- React rendering: walks the AST, dispatches each component to its default React export with `{slots, params}`.
+- The reference deck `decks/v0-reference/deck.sw` renders end-to-end (verified via SSR smoke test).
 - `slidewright validate` CLI with `--parse-only`, `--check-refs`, `--json` flags.
 
 ## v0.1 status: implemented
 
-- VS Code extension at `extension/`. F5 inside code-server (or desktop VS Code) launches the Extension Development Host with `/workspace` open and the Slidewright extension active. Activation: `onLanguage:slidewright` + `workspaceContains:**/*.sw`.
-- "Slidewright: Open Canvas" command opens a webview panel beside the active `.sw` editor; one panel per document URI, ready-handshake before initial source push, file-watcher → re-render.
-- **Selection sync** (both directions). Each component invocation in the rendered tree is wrapped in a `<div data-sw-span-start data-sw-span-end style="display:contents">` (and `Span` runs get the data attrs directly on their `<span>`); double-click anywhere walks up to the nearest data-sw-span ancestor and posts the range. Extension reveals + selects in editor with focus preserved on the canvas. Reverse direction: extension subscribes to `onDidChangeTextEditorSelection`, posts cursor offset, canvas walks the slide list and updates active slide.
-- **Multi-slide navigation**. Vertical thumbnail strip with all slides rendered at scale (no virtualization yet). Resizable column (drag handle, persists to `localStorage`). Keyboard nav `←/→/PgUp/PgDn/Home/End/digits`.
-- **Standalone web app at `/canvas.html`**. Same canvas UI as the webview, mounted against `StandaloneHost` instead of `VSCodeHost`. Bottom-mounted, height-resizable `<textarea>` source editor pane closes the round-trip loop without VS Code: type → canvas re-renders, double-click rendered element → editor jumps + scrolls (start near top), cursor in editor → canvas active slide tracks. Vite HMR refreshes the canvas when `decks/v0-reference/deck.sw` changes on disk.
+- VS Code extension at `extension/`. F5 inside code-server (or desktop VS Code) launches the Extension Development Host.
+- "Slidewright: Open Canvas" command opens a webview panel beside the active `.sw` editor.
+- Selection sync (both directions) via `data-sw-span-*` instrumentation on every component invocation.
+- Multi-slide navigation with vertical thumbnail strip, keyboard nav, persistent strip width.
+- Standalone web app at `/canvas.html` with bottom-mounted source editor.
 
-The architectural shape that emerged:
+## v0.2 status: implemented
 
-- **Host abstraction** is the integration boundary between canvas and editor surface. v0.1 ships two implementations (`VSCodeHost`, `StandaloneHost`); future hosts (Vim plugin, JetBrains, hosted web) plug in by implementing `Host`. Canvas is editor-agnostic; only the host knows about its environment.
-- **`data-sw-span-*` instrumentation** is the rendered-tree → AST mapping. Click → closest('[data-sw-span-start]') → source range. v0.2's gestures will reuse the same instrumentation; no separate side-channel needed.
-- **`prepareSlide(wrappedSlide)`** unwraps the data-sw-span div, clones the inner SlideFrame with chrome props (active/actLabel), rewraps. Used wherever slides are rendered into the Presentation-style chrome (main canvas, strip thumbnails).
-- **Standalone is a peer integration, not a derivative.** The Vite-served standalone canvas at `/canvas.html` is structurally the same as the VS Code path with a different host adapter. Slidewright is a filesystem-integrated tool; any editor that saves a file is a valid host.
+v0.2 was sequenced into ten sub-milestones (a–i). All landed.
 
-## Where to start: v0.2
+- **v0.2.a–b**: Canonical emitter (`slidewright/runtime/emitter.ts`); in-place text editing via `contentEditable` on the rendered span; round-trip property tests with deterministic LCG-driven edit sequences.
+- **v0.2.c–d**: Comment preservation through canonical emit (lexer emits comments as tokens; parser attaches as `leadingComments` / `trailingComments` on each node).
+- **v0.2.e**: `Freeform` layout primitive; `Box` shape with x / y / width / height / fill slot fills; drag-to-move gesture committing through the AST → emit → setSource pipeline.
+- **v0.2.f**: Tool palette UI (`select` / `box` / `textbox` / `arrow`); Box drawing gesture (drag on empty Freeform appends a new Box).
+- **v0.2.g**: `TextBox` (HTML-rectangle with text content, drag and click-to-edit) and `Arrow` (SVG line + polygon arrowhead, x1/y1/x2/y2 endpoints) primitives + their drawing tools.
+- **v0.2.h**: Single-shape selection model (click to select, dashed outline, Escape / click-background to clear, Delete / Backspace removes, selection persists across activeIdx changes within the same source).
+- **v0.2.i.1**: Box / TextBox drag-to-resize via 8 corner / edge handles. Selection preservation across the emit cycle (find shape's child index in pre-emit AST, look it up by index in post-emit AST, stash new span in `pendingSelectionRef`).
+- **v0.2.i.2**: Arrow body drag (translates both endpoints), endpoint handles (drag one endpoint while the other stays fixed), wider invisible hit-area `<line>` for thin arrows.
 
-v0.2 is the first interactive gesture + round-trip emit. From `SLIDEWRIGHT.md / v0 sequencing`:
+After the milestones, three refactors landed:
 
-- Canonical re-emit pipeline (AST → source via the formatter).
-- VS Code TextEdit API integration for canvas → source writes; `Host.setSource` already exists for standalone.
-- Drag-to-move gesture on `Freeform`-positioned elements (the simplest gesture that exercises the full edit → emit → re-parse loop).
-- Cell model with literal overrides (drag writes a literal x/y).
-- Initial round-trip property test on a small corpus.
+1. **AST helpers extracted to `slidewright/canvas/ast-edits.ts`** (`findStringAt`, `findComponentAtSpan`, `findShapeChildIdx`, `findShapeAtChildIdx`, `findActiveSlideFreeform`, `findNumericSlot`, `makeBoxNode` / `TextBoxNode` / `ArrowNode`, `appendShapeToFreeform`, `removeShapeAtSpan`, `computeArrowGeometry`). Pure functions, unit-testable, no React.
+2. **`commitSourceEdit` helper** centralizes the parse → mutate → emit → reparse-for-selection → setSource pipeline. Called from every gesture's commit point.
+3. **`ShapeAdapter` contract** (`slidewright/canvas/shape-adapter.ts`). Each shape primitive exports a `canvas: ShapeAdapter` alongside its `slidewright` metadata. App.tsx looks up the adapter via `data-sw-component` and dispatches gesture events to it. Per-shape gesture branching is gone — Box, TextBox, Arrow each own their drag / resize / handle implementation in their own component file.
 
-The architecture is ready: gestures attach to the data-sw-span wrappers, mutate the AST, run the canonical emitter, and `Host.setSource(newSource)` handles the rest. Both the standalone path (in-memory) and VS Code path (TextEdit API on the document) flow through the same `setSource` API.
+Net: App.tsx 1706 → 805 lines across the three refactors. Behavior unchanged (verified by the e2e suite).
+
+End-to-end Playwright tests at `tests/gestures.spec.ts` cover drag-body / resize / endpoint-move / create / delete for each shape (9 cases, ~5.5s). They survive refactors as black-box behavior validation. Workers fixed at 1 because Vite's dev server is single-threaded.
+
+## Where to start: v0.2.j (multi-select)
+
+Multi-select is the next milestone. Scope (modulo group resize, deferred):
+
+1. **Selection state** becomes `selected: SourceRange[]` (ordered; could be `Set` but array is simpler for `.map`).
+2. **Shift-click to toggle**: ScaledCanvas's `onSelectShape` callback grows a `modifiers: { shift: boolean }` arg; App's handler decides replace vs toggle.
+3. **Marquee selection**: pointerdown on empty canvas in select mode → drag → on release, set selection to all shapes whose bounding box intersects the marquee. New `onMarqueeStart` callback from ScaledCanvas.
+4. **Group body-drag**: any selected shape's body drag moves all selected shapes together. The `activeGesture` slot grows to hold an array of `GestureHandle`s; each frame iterates and dispatches the same delta.
+5. **`commitSourceEdit` extension** to accept multiple `preserveSelection`s (current single-selection version becomes a wrapper that builds a one-element array).
+6. **Group delete**: keyboard handler iterates and removes each selected shape.
+7. **Selection rendering**: dashed outline per selected shape (so the user can see which shapes are in the group) plus a minimum-bounding-box around the group when 2+ are selected. Body-drag responds anywhere on the group bounding box.
+8. **Handles only render when exactly one shape is selected.** Group resize handles on the group bounding box are deferred to a follow-up commit.
+
+**Scope of multi-select, by intent:**
+- **Within one layout context only.** Two Boxes on the same Freeform: yes. Box on Freeform + Card in CardRow: no (cross-context multi-select is forbidden — different coordinate systems make group operations ill-defined). When outside-Freeform adapters land, multi-select scopes per layout context.
+- **No group resize in this milestone.** That's a follow-up that adds a new adapter method, `applyTransform`, which subsumes `onMove` for proportional gestures (translate-only for body drag, translate+scale for corner resize). Both single-shape and group resize dispatch through it. Bespoke handles (Arrow endpoint, future shadow-offset, etc.) keep their own `GestureHandle` since they aren't proportional.
+
+After multi-select: source-edit / cursor-sync e2e tests (currently uncovered — extend `tests/` to drive the editor pane and assert the canvas catches up). Then v0.3 territory.
 
 ## Tree-sitter investigation (deferred)
 
-Slidewright ships a hand-rolled recursive-descent parser. Tree-sitter was investigated as the alternative; the investigation is captured here so the next agent doesn't re-litigate without context.
+Slidewright ships a hand-rolled recursive-descent parser. Tree-sitter was investigated and deferred. Triggers for re-opening: recovery code becomes a maintenance burden across new gestures; we want syntax highlighting in environments outside our own editor; we add a second grammar dialect. Until then `slidewright/grammar/grammar.js` is preserved as a precise specification.
 
-What tree-sitter would have given us:
-- Declarative grammar (low maintenance for many-grammar projects).
-- Automatic error recovery via the GLR machinery.
-- Incremental parsing.
-- A round-trippable CST with positions and trivia.
-
-What it would have cost:
-- A WASM artifact in the repo (the JS API path requires compiled WASM via `web-tree-sitter`; tree-sitter doesn't have a pure-JS target).
-- A `tree-sitter generate` + `tree-sitter build --wasm` step in the build process, which needs emscripten or Docker.
-- A diagnostics ceiling that doesn't reach where we want to be ("expected X, got Y" structural errors vs the slot-type-aware hints SLIDEWRIGHT.md / AI authoring calls for).
-
-What the actual SOTA looks like for diagnostics-quality-prioritizing single-language toolchains: hand-rolled recursive descent. Every primary language toolchain that prioritizes IDE-grade diagnostics is hand-rolled — rustc / rust-analyzer, Roslyn for C#, the TypeScript compiler, Clang, the Swift compiler. Tree-sitter's most-loved use cases (atom/zed/neovim/GitHub highlighter) are syntax highlighting and generic IDE plumbing across many languages, not primary toolchains.
-
-For Slidewright specifically:
-- We have one grammar to maintain — the declarative-grammar economy doesn't apply.
-- Diagnostics quality is a stated priority.
-- The grammar is small and the recovery synchronization points are well-defined (slide-level, brace-body-level, value-level), so recovery is bounded work, not open-ended risk.
-- Incremental parsing isn't load-bearing — slide files are small and we re-parse at gesture-commit, not at mouse-move.
-- The canonical emitter is our own work either way; tree-sitter's CST gives us trivia for free but doesn't write the emitter.
-
-Triggers for re-opening the question:
-- Recovery code becomes a maintenance burden across new gestures.
-- We want syntax highlighting in environments outside our own editor (Vim, VS Code's TextMate grammars, GitHub) — they ingest tree-sitter grammars natively.
-- We add a second grammar dialect.
-
-Until then: `slidewright/grammar/grammar.js` is preserved as a precise specification of the brace-block grammar in tree-sitter's standard form, useful documentation regardless of the runtime path.
+The full tree-sitter rationale lived in this file at v0.1 and is preserved in git history (commit `0790967` and earlier). The short version: every primary-language toolchain that prioritizes IDE-grade diagnostics is hand-rolled (rustc, Roslyn, TypeScript, Clang, Swift). Tree-sitter's strength is many-grammar plumbing; we have one grammar.
 
 ## Conventions worth knowing
 
-- **Built-in `Slide`**: the deck author wraps each slide in `Slide { content: ... }`, mapped to the existing `src/Slide.jsx`. Keeps the contract uniform — no hidden "frame slot" magic.
-- **Selection sync on double-click**: single click is for navigation (changing active slide). Double-click on rendered content jumps the editor cursor.
-- **Color tokens as scope bindings**: `accent`, `purple`, etc. are mapped to themselves in `decks/v0-reference/registry.ts:staticTokens`; the renderer turns them into `var(--<token>)`. A real theme system replaces this in v1+.
-- **Asset URIs**: per-host. `VSCodeHost` computes them via `webview.asWebviewUri()`; `StandaloneHost` uses Vite's static-asset imports. The DSL author writes `headshotImg` as a name reference; the host injects the resolved URL into the deck scope.
-- **Hardcoded for v0-reference**: the canvas imports `decks/v0-reference/registry` and the extension hardcodes its asset list. v0.2 generalizes via an esbuild-as-a-service pipeline that scans whatever deck the user opens.
+- **Built-in `Slide`** wraps each slide; mapped to `src/Slide.jsx`.
+- **Selection sync on double-click**: single click is for navigation. Double-click on rendered content jumps the editor cursor.
+- **Color tokens as scope bindings**: `accent`, `purple`, etc. mapped to themselves in `decks/v0-reference/registry.ts:staticTokens`; renderer turns them into `var(--<token>)`. A real theme system replaces this in v1+.
+- **Asset URIs**: per-host. `VSCodeHost` via `webview.asWebviewUri()`; `StandaloneHost` via Vite's static-asset imports.
+- **Hardcoded for v0-reference**: the canvas imports `decks/v0-reference/registry`. v0.2 generalizes via an esbuild-as-a-service pipeline that scans whatever deck the user opens — deferred until needed.
+- **`pendingSelectionRef`** carries selection across the gesture-commit emit cycle. Spans shift on every emit; gestures stash the post-emit span in this ref before calling `setSource`, and the subscribe handler picks it up on the round-trip. Set to null = clear selection (default external-edit behavior).
+- **Gesture mutex** is enforced by sharing a single `activeGesture` state slot. Body-drag (from ScaledCanvas) and handle-drag (from adapter `renderHandles`) both feed it; both stopPropagation so only one can land per pointerdown.
+
+## Architecture quick reference: the gesture lifecycle
+
+```
+ScaledCanvas pointerdown (or adapter handle pointerdown)
+      ↓
+App looks up the shape's ShapeAdapter
+      ↓
+adapter.startBodyDrag(ctx) returns a GestureHandle      [body drag]
+   OR
+adapter's handle pointerdown calls ctx.startHandleDrag( [handle drag]
+   GestureHandle, event)
+      ↓
+App sets activeGesture state with the handle
+      ↓
+useEffect attaches document.pointermove / pointerup
+      ↓
+on pointermove: scale-convert delta, call handle.onMove(designDx, designDy)
+on pointerup:   commitSourceEdit(source, label, ast => handle.onCommit(ast, dx, dy))
+      ↓
+host.setSource(newSource) — round-trips back through Host.subscribe
+      ↓
+React re-renders with new source; pendingSelectionRef restores selection
+```
+
+The framework owns: pointer event lifecycle, gesture mutex, scale conversion (clientX/Y → designDx/Dy before invoking the adapter), source round-trip, tool-mode policy.
+
+The adapter owns: per-frame imperative DOM updates, AST mutation on commit, handle rendering and placement.
 
 ## Running tests
 
-`npm test` runs (in order): `tsc --noEmit` + parser smoke + loader smoke + SSR smoke. The SSR smoke renders the v0-reference deck through `react-dom/server` and asserts on the output structure — catches React-side regressions without needing a browser. A headless chromium smoke test (`slidewright/runtime/__test__/render.smoke.ts`) exists for the canvas; needs `npx playwright install chromium` after each `carthage build` since playwright binaries live outside persistent mounts.
+`npm test` — typecheck + parser + loader + SSR + round-trip property tests (~10s).
+`npm run test:e2e` — Playwright gestures suite against the standalone canvas (~5.5s, single worker).
+Both should pass before any commit that touches gesture code.
 
 ## Build process
 
 Per `SLIDEWRIGHT.md / Build process and decision-making`:
 
 1. Build narrowly. Don't generalize beyond what the current phase needs, but don't bake in assumptions that preclude later generalization.
-2. Test the round-trip property aggressively once v0.2+ lands. Property-based testing.
-3. Document decisions in SLIDEWRIGHT.md as they get made.
+2. Test the round-trip property aggressively — done for emit, growing for gestures.
+3. Document decisions in `SLIDEWRIGHT.md` as they get made; reflect implementation reality in this file.
 4. Resist scope creep. Animations, AI, structured diagrams are all exciting and tempting. Don't.
 5. Revisit decisions when implementation reveals new information.
 
 ## Asymmetries worth holding in mind
 
-- **The contract is the only architectural piece with external consumers** (user-authored components, eventually AI-generated components, eventually shared component libraries). Iterate freely on internal architecture; commit to contract stability only when external consumers exist. v0 has no external consumers yet.
-- **Slidewright is an application that ships a bundler** (Vite or equivalent) — the same way Slidev, Astro, SvelteKit do. Deck authors write `.tsx` components; that requires compilation. The standalone `/canvas.html` is the model for what users experience; the bundler runs locally on their machine, no hosting.
+- **The contract is the only architectural piece with external consumers** (user-authored components, eventually AI, eventually shared component libraries). Iterate freely on internal architecture; commit to contract stability only when external consumers exist. v0 has no external consumers yet.
+- **Slidewright is an application that ships a bundler** (Vite or equivalent). Deck authors write `.tsx` components; that requires compilation. The standalone `/canvas.html` is the model for what users experience.
 - **VS Code is the primary editor we test against**, but it's not the architectural center. The Host abstraction means selection sync and gestures must work in any editor that saves files. Smoke-test desktop VS Code before any external release; otherwise iterate in code-server or the standalone web app.
+- **The `ShapeAdapter` contract is internal-only.** Per-shape canvas behavior is co-located with shape components but the contract isn't part of any external API. Iterate freely as the multi-select / group-resize / outside-Freeform extensions land.
