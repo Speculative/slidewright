@@ -1,6 +1,6 @@
 # Slidewright handoff
 
-You're picking up Slidewright development. **v0.0 (read-only viewer), v0.1 (VS Code extension + standalone web app + selection sync), v0.2 (interactive gestures + round-trip emit), v0.2.j (multi-select), and most of v0.3 are implemented**: React-native gesture refactor, external-edit reconciliation, canvas gesture undo / redo, inspector panel (hierarchy + read-write properties), and group resize via TransformDelta. Still open from v0.3's original scope: typed slot selection ("click into named slots") and empty-slot placeholders. After that, see the **Deferred features / future work** section near the end for the next round of polish + capabilities.
+You're picking up Slidewright development. **v0.0 (read-only viewer), v0.1 (VS Code extension + standalone web app + selection sync), v0.2 (interactive gestures + round-trip emit), v0.2.j (multi-select), and v0.3 are implemented**: React-native gesture refactor, external-edit reconciliation, canvas gesture undo / redo, inspector panel (hierarchy + read-write properties), and group resize via TransformDelta. Two items from v0.3's original scope (typed slot selection and empty-slot placeholders) were deferred — both depend on canvas gestures for non-Freeform components, which is v0.4-scope work. See the **Deferred features / future work** section near the end for what's next.
 
 ## What Slidewright is
 
@@ -111,7 +111,7 @@ End-to-end Playwright tests at `tests/gestures.spec.ts` cover drag-body / resize
 
 Multi-select shipped. shift-click toggle, marquee selection (drag from empty Freeform space → select intersecting shapes; shift held = additive), group body-drag (any selected shape's drag moves all), group delete, per-shape selection outlines + minimum-bounding-box overlay when 2+ shapes are selected. `commitSourceEdit` extended to multi-preserve so selection survives the source round-trip. Scope: within one Freeform; cross-context multi-select is forbidden by intent.
 
-## v0.3 status: largely implemented
+## v0.3 status: implemented
 
 The original v0.3 scope was slot-aware editing + inspector + external-edit reconciliation. The React-native gesture refactor (originally planned as later polish) was promoted ahead of those after v0.2.j to eliminate the recurring "visual didn't update during drag" bug class. Then the rest of the v0.3 list landed on top, plus group resize.
 
@@ -127,16 +127,11 @@ What landed:
 
 - **Group resize** via axis-aligned `TransformDelta`. When 2+ shapes are selected, the group bbox renders 8 corner / edge handles. Dragging dispatches a `group-resize` HandleGestureInit; the framework derives one transform per frame (`sx, sy, tx, ty` with the opposite corner / edge as anchor) and replicates it to every member. Adapters gain a `transform` arm: `rect-adapter` applies `x'=sx*x+tx, y'=sy*y+ty, w'*=sx, h'*=sy`; Arrow applies the matrix to both endpoints.
 
-What's still open from v0.3's original scope:
-- **Click into named slots** (typed slot selection, distinct from shape selection)
-- **Empty-slot placeholders** ("text…" inside an empty TextBox)
+Two items from the original v0.3 list were deferred to v0.4: **click into named slots** and **empty-slot placeholders**. Both turned out to depend on canvas gestures for non-Freeform components — today only Freeform's children (Box / TextBox / Arrow) participate in gestures, and Freeform's `children` is a list-valued slot, not the typed named slots those features were aimed at. The slotted layouts in the registry (TitleSlide, ContentSlide, CardRow, VStack) have named slots, but they're render-only on the canvas. Pulling them into the gesture / inspector story is the natural v0.4 milestone; see **Deferred features / future work**.
 
 ## Where to start
 
-Probably finish v0.3 in this order, then look at the **Deferred features / future work** section:
-
-1. Empty-slot placeholders.
-2. Click-into-named-slot.
+v0.3 is closed. The next logical milestone is v0.4 — canvas gestures and inspector support for non-Freeform / slotted-layout components, which unlocks named-slot selection and empty-slot placeholders along the way. Until that's scoped concretely, pick from the **Deferred features / future work** section based on what feels most pressing.
 
 ## Watch for: opaque-delta refactor trigger
 
@@ -197,6 +192,16 @@ The adapter owns: pure functions (`applyGesture`, `calculateBounds`, `commit`) a
 ## Deferred features / future work
 
 Designed-or-discussed but not started. Not committed to dates; pulled in when scope or ergonomics warrant. Keep this list current — it's where memory-style "future work" notes live (don't put them in `~/.claude/.../memory/` — they belong here).
+
+### v0.4 candidate: canvas gestures + inspector for non-Freeform components
+
+Today only Freeform participates in canvas gestures. Box / TextBox / Arrow are leaf shapes; Freeform's `children` is the only "container" slot the canvas knows how to manipulate. The slotted layouts in the registry (TitleSlide, ContentSlide, CardRow, VStack) have named slots like `title`, `subtitle`, `eyebrow`, `left`, `right`, but they render passively — no selection, no gestures, no inspector edits. Lifting them into the canvas-editing story is the natural next milestone, and unlocks two items deferred from v0.3:
+
+- **Click into named slots** — typed slot selection. Once a slotted layout is gesture-editable, clicking an empty slot or a slot's filled child should select the *slot* as the editing target, distinct from selecting the shape that fills it. Needed for operations like "insert into this slot" or "replace this slot's content."
+
+- **Empty-slot placeholders** — affordances like "text…" inside an empty `TextBox.content`, or per-slot prompts inside an empty named slot, so users can see and click into slots that have no content yet. Independently shippable in principle, but the placeholder design will probably want to inherit from a slot-aware visual treatment that doesn't exist yet, which is why it's grouped here.
+
+The shape of the work is open: extend `ShapeAdapter` to cover slotted containers, or introduce a parallel `LayoutAdapter` that the framework dispatches to for non-leaf elements? Today's `ScaledCanvas` pointerdown dispatches by `data-sw-component` + selector traversal; the analogous slot-targeting story (which slot did I click into?) needs new instrumentation from the loader.
 
 ### Editor and source surface
 
