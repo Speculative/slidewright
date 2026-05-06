@@ -20,7 +20,14 @@ async function getSource(page: Page): Promise<string> {
 async function setSource(page: Page, source: string): Promise<void> {
   // `.fill()` clears + types — replaces the whole editor pane,
   // which is what we want when we're staging a known source state.
+  // Blur after so subsequent keypresses (e.g., Cmd-Z) don't get
+  // intercepted by the textarea's native handlers (the textarea
+  // tracks its own undo for typing; we want our canvas handler).
   await page.locator('.sw-editor-pane').fill(source);
+  await page.evaluate(() => {
+    const el = document.activeElement as HTMLElement | null;
+    if (el && el !== document.body) el.blur();
+  });
 }
 
 interface EditorSelection {
@@ -244,6 +251,155 @@ test('external param edit preserves selection on the same shape', async ({ page 
   await setSource(page, original.replace(/x:\s*400/, 'x: 600'));
   // Outline still on screen, now at the new position.
   await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
+});
+
+test('canvas Cmd-Z undoes a drag commit', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-box');
+  const box = page
+    .locator('.sw-canvas-stage [data-sw-component="Box"] > div')
+    .first();
+  await expect(box).toBeVisible();
+  // Read initial source for the assertion baseline.
+  const beforeDrag = await page.evaluate(
+    () =>
+      (
+        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
+      ).value,
+  );
+  // Drag the box, commit a new x position.
+  await box.hover();
+  const eb = await box.boundingBox();
+  if (!eb) throw new Error('box not found');
+  await page.mouse.move(eb.x + eb.width / 2, eb.y + eb.height / 2);
+  await page.mouse.down();
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  await page.mouse.move(eb.x + eb.width / 2 + 50, eb.y + eb.height / 2, {
+    steps: 5,
+  });
+  await page.mouse.up();
+  // Confirm source actually changed.
+  const afterDrag = await page.evaluate(
+    () =>
+      (
+        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
+      ).value,
+  );
+  expect(afterDrag).not.toBe(beforeDrag);
+  // Move focus away from the editor pane (Cmd-Z routes to our
+  // canvas handler only when focus isn't in the textarea — the
+  // textarea has its own native undo for typing).
+  await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
+  // Cmd-Z (or Ctrl-Z, ControlOrMeta covers both).
+  await page.keyboard.press('ControlOrMeta+Z');
+  const afterUndo = await page.evaluate(
+    () =>
+      (
+        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
+      ).value,
+  );
+  expect(afterUndo).toBe(beforeDrag);
+});
+
+test('canvas Cmd-Shift-Z redoes the undone gesture', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-box');
+  const box = page
+    .locator('.sw-canvas-stage [data-sw-component="Box"] > div')
+    .first();
+  await expect(box).toBeVisible();
+  const eb = await box.boundingBox();
+  if (!eb) throw new Error('box not found');
+  await page.mouse.move(eb.x + eb.width / 2, eb.y + eb.height / 2);
+  await page.mouse.down();
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  await page.mouse.move(eb.x + eb.width / 2 + 50, eb.y + eb.height / 2, {
+    steps: 5,
+  });
+  await page.mouse.up();
+  const afterDrag = await page.evaluate(
+    () =>
+      (
+        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
+      ).value,
+  );
+  await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press('ControlOrMeta+Z'); // undo
+  await page.keyboard.press('ControlOrMeta+Shift+Z'); // redo
+  const afterRedo = await page.evaluate(
+    () =>
+      (
+        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
+      ).value,
+  );
+  expect(afterRedo).toBe(afterDrag);
+});
+
+test('external edit clears the undo stack (barrier)', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-box');
+  const box = page
+    .locator('.sw-canvas-stage [data-sw-component="Box"] > div')
+    .first();
+  await expect(box).toBeVisible();
+  const beforeDrag = await page.evaluate(
+    () =>
+      (
+        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
+      ).value,
+  );
+  // Commit a drag → undo stack now has [beforeDrag].
+  const eb = await box.boundingBox();
+  if (!eb) throw new Error('box not found');
+  await page.mouse.move(eb.x + eb.width / 2, eb.y + eb.height / 2);
+  await page.mouse.down();
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  await page.mouse.move(eb.x + eb.width / 2 + 50, eb.y + eb.height / 2, {
+    steps: 5,
+  });
+  await page.mouse.up();
+  const afterDrag = await page.evaluate(
+    () =>
+      (
+        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
+      ).value,
+  );
+  // External edit: type in the editor pane.
+  await setSource(page, afterDrag.replace(/y:\s*\d+/, 'y: 444'));
+  // Confirm the external edit landed before testing the barrier.
+  const afterEdit = await page.evaluate(
+    () =>
+      (
+        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
+      ).value,
+  );
+  expect(afterEdit).toMatch(/y:\s*444\b/);
+  // Try to undo. Stack was cleared by the external edit, so this
+  // should be a no-op — source stays at the externally-edited
+  // version (not afterDrag, not beforeDrag).
+  await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press('ControlOrMeta+Z');
+  const after = await page.evaluate(
+    () =>
+      (
+        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
+      ).value,
+  );
+  expect(after).toMatch(/y:\s*444\b/);
+  expect(after).not.toBe(beforeDrag);
+  expect(after).not.toBe(afterDrag);
 });
 
 test('external edit that deletes the selected shape clears selection', async ({ page }) => {

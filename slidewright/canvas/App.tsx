@@ -248,6 +248,49 @@ export function App({ host }: { host: Host }): ReactElement {
   // trip. External edits leave it null and selection clears.
   const pendingSelectionRef = useRef<SourceRange[] | null>(null);
 
+  // Live source mirror. Read by gesture commit code (which doesn't
+  // have a state closure to current source) and by commitToHost
+  // (which pushes the pre-commit source onto the undo stack).
+  // Updated below on every state change.
+  const sourceRef = useRef<string>('');
+
+  // Canvas-side gesture undo stack. Each canvas commit pushes the
+  // pre-commit source onto undoStack and clears redoStack. Cmd / Ctrl
+  // + Z pops undo onto redo; Cmd / Ctrl + Shift + Z reverses. External
+  // edits clear both stacks (per SLIDEWRIGHT.md / Undo/redo —
+  // external edits are barriers in v0).
+  //
+  // VS Code's text-buffer undo also tracks each WorkspaceEdit-applied
+  // canvas commit, so users in editor focus get editor-native undo
+  // (which our handler doesn't override since the editor textarea
+  // is excluded from the keyboard-handler input check). The two
+  // mechanisms reach the same source states from different
+  // directions; mixing them just clears our stack on the next
+  // editor-driven edit.
+  const undoStackRef = useRef<string[]>([]);
+  const redoStackRef = useRef<string[]>([]);
+  // Set true before any internal setSource (gesture commit, undo,
+  // redo). Subscribe reads + clears it: truthy means "the source
+  // change we're about to process was driven by us; preserve the
+  // undo stacks." Falsy means external — barrier behavior.
+  const internalSourceChangeRef = useRef(false);
+
+  // Wraps host.setSource for any canvas-driven source change so
+  // the undo stacks see the pre-change source and the subscribe
+  // handler treats the round-trip as internal.
+  const commitToHost = useCallback(
+    (newSource: string, newSelections?: SourceRange[]) => {
+      undoStackRef.current.push(sourceRef.current);
+      redoStackRef.current = [];
+      internalSourceChangeRef.current = true;
+      if (newSelections && newSelections.length > 0) {
+        pendingSelectionRef.current = newSelections;
+      }
+      host.setSource?.(newSource);
+    },
+    [host],
+  );
+
   useEffect(() => {
     try {
       localStorage.setItem(STRIP_WIDTH_KEY, String(stripWidth));
@@ -268,12 +311,13 @@ export function App({ host }: { host: Host }): ReactElement {
         scope,
         wrapShape,
       });
-      // Distinguish internal commits (canvas gestures that just
-      // called host.setSource and stashed the post-emit spans) from
-      // external edits (user typing in the editor pane / file
-      // reload). The pending ref is set right before our setSource
-      // calls inside commitSourceEdit; if it's null at this point
-      // we know this subscribe firing is external.
+      // Distinguish internal source changes (canvas gesture commit,
+      // canvas-side undo, canvas-side redo — all flow through
+      // commitToHost / the keyboard undo handler, which set
+      // internalSourceChangeRef) from external edits (user typing
+      // in the editor pane / file reload — ref stays false).
+      const isInternal = internalSourceChangeRef.current;
+      internalSourceChangeRef.current = false;
       const pending = pendingSelectionRef.current;
       pendingSelectionRef.current = null;
       const prevState = stateRef.current;
@@ -291,19 +335,27 @@ export function App({ host }: { host: Host }): ReactElement {
         }
         return next;
       });
-      if (pending) {
-        // Internal commit: spans were re-found post-emit by the
-        // gesture's commit pipeline. Apply them.
-        setSelected(pending);
+      if (isInternal) {
+        // Canvas-driven (gesture commit / undo / redo). Selection:
+        // gesture commits stash post-emit spans in pending; undo /
+        // redo leave pending null (no specific shape to restore;
+        // `selected` simply clears, which matches what most editors
+        // do across undo / redo boundaries).
+        setSelected(pending ?? []);
         return;
       }
-      // External edit. Cancel any in-progress gesture (its captured
-      // spans / templates point at a stale AST). Preserve selection
-      // by (slideIdx, childIdx, componentName) lookup — works for
-      // benign edits (typing inside strings, modifying params) but
-      // doesn't survive restructuring (insertions / deletions /
-      // reorders). Stable IDs in source are the long-term answer
-      // (per SLIDEWRIGHT.md / IDs in source); not v0.3 scope.
+      // External edit. Three responses:
+      //   1. Cancel any in-progress gesture (its captured spans /
+      //      templates point at a stale AST).
+      //   2. Clear the canvas-side undo/redo stacks — external
+      //      edits are barriers per SLIDEWRIGHT.md / Undo/redo.
+      //   3. Preserve selection by (slideIdx, childIdx,
+      //      componentName) lookup. Works for benign edits (typing
+      //      inside strings, modifying params); doesn't survive
+      //      restructuring (insertions / deletions / reorders) —
+      //      stable IDs in source are the long-term answer.
+      undoStackRef.current = [];
+      redoStackRef.current = [];
       setGestureMeta(null);
       setGestureLive(ZERO_LIVE);
       setSelected((prevSelected) =>
@@ -398,14 +450,14 @@ export function App({ host }: { host: Host }): ReactElement {
     return () => window.removeEventListener('keydown', onKey);
   }, [total]);
 
+  useEffect(() => {
+    sourceRef.current = state?.source ?? '';
+  }, [state]);
+
   // Text-edit gesture (contentEditable). Different lifecycle from
   // pointer gestures — keyboard-driven, blur to commit. Stays
   // imperative because contentEditable IS imperative; the React
   // model doesn't fit.
-  const sourceRef = useRef<string>('');
-  useEffect(() => {
-    sourceRef.current = state?.source ?? '';
-  }, [state]);
   useEffect(() => {
     if (!editing) return;
     const { node, originalText, start, end } = editing;
@@ -431,7 +483,7 @@ export function App({ host }: { host: Host }): ReactElement {
           target.value = newText;
           return {};
         });
-        if (result) host.setSource?.(result.newSource);
+        if (result) commitToHost(result.newSource);
       } else if (intent === 'cancel') {
         node.textContent = originalText;
       }
@@ -528,10 +580,7 @@ export function App({ host }: { host: Host }): ReactElement {
         return { preserveSelections };
       });
       if (result) {
-        if (result.newSelections.length > 0) {
-          pendingSelectionRef.current = result.newSelections;
-        }
-        host.setSource?.(result.newSource);
+        commitToHost(result.newSource, result.newSelections);
       }
       setGestureMeta(null);
       setGestureLive(ZERO_LIVE);
@@ -601,7 +650,7 @@ export function App({ host }: { host: Host }): ReactElement {
         return {};
       });
       if (result) {
-        host.setSource?.(result.newSource);
+        commitToHost(result.newSource);
         setActiveTool('select');
       }
       setCreatePreview(null);
@@ -704,7 +753,7 @@ export function App({ host }: { host: Host }): ReactElement {
     };
   }, [marquee]);
 
-  // ─── Keyboard: Escape, Delete / Backspace ───────────────────────
+  // ─── Keyboard: Escape, Delete / Backspace, Cmd-Z / Cmd-Shift-Z ──
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
@@ -712,8 +761,45 @@ export function App({ host }: { host: Host }): ReactElement {
         t &&
         (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))
       ) {
+        // Editable text element has focus — defer to its native
+        // handling for everything (typing, native undo).
         return;
       }
+
+      // Undo / redo (Cmd/Ctrl + Z, Cmd/Ctrl + Shift + Z). Modifier-
+      // gated; handled before the no-modifier early return below.
+      // Reaches our canvas-side undo stack — gesture commits push,
+      // Cmd-Z pops onto redoStack, Cmd-Shift-Z reverses. VS Code's
+      // editor-native undo also tracks each WorkspaceEdit-applied
+      // canvas commit, so editor-focused undo "just works"
+      // through that path; this handler covers the
+      // canvas-focused / standalone case.
+      const ctrlOrCmd = e.ctrlKey || e.metaKey;
+      if (ctrlOrCmd && !e.altKey && (e.key === 'z' || e.key === 'Z')) {
+        // Always preventDefault on Cmd-Z / Cmd-Shift-Z reaching the
+        // canvas. Even when our undo / redo stack is empty, the
+        // browser's native input-undo can reach back into the
+        // editor textarea's recent edits (especially after a
+        // programmatic .fill()), surprising the user. The canvas-
+        // owned undo is the single source of truth from this
+        // handler's perspective.
+        e.preventDefault();
+        if (e.shiftKey) {
+          const next = redoStackRef.current.pop();
+          if (next === undefined) return;
+          undoStackRef.current.push(sourceRef.current);
+          internalSourceChangeRef.current = true;
+          host.setSource?.(next);
+          return;
+        }
+        const prev = undoStackRef.current.pop();
+        if (prev === undefined) return;
+        redoStackRef.current.push(sourceRef.current);
+        internalSourceChangeRef.current = true;
+        host.setSource?.(prev);
+        return;
+      }
+
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
       if (e.key === 'Escape') {
@@ -732,7 +818,7 @@ export function App({ host }: { host: Host }): ReactElement {
           return any ? {} : null;
         });
         if (result) {
-          host.setSource?.(result.newSource);
+          commitToHost(result.newSource);
           setSelected([]);
         }
         e.preventDefault();
