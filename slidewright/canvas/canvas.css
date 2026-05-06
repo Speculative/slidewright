@@ -290,14 +290,18 @@ html, body, #root {
   pointer-events: auto;
 }
 
-.sw-resize-nw { top: -7px;  left: -7px;  cursor: nwse-resize; }
-.sw-resize-ne { top: -7px;  right: -7px; cursor: nesw-resize; }
-.sw-resize-se { bottom: -7px; right: -7px; cursor: nwse-resize; }
-.sw-resize-sw { bottom: -7px; left: -7px;  cursor: nesw-resize; }
-.sw-resize-n  { top: -7px;    left: 50%; transform: translateX(-50%); cursor: ns-resize; }
-.sw-resize-s  { bottom: -7px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
-.sw-resize-e  { top: 50%;  right: -7px; transform: translateY(-50%); cursor: ew-resize; }
-.sw-resize-w  { top: 50%;  left: -7px;  transform: translateY(-50%); cursor: ew-resize; }
+/* Per-direction cursor only — handle positioning is supplied via
+ * inline style by the adapter's Handles render (which knows the
+ * shape's design-space bounds and computes each handle's freeform-
+ * relative coords). */
+.sw-resize-nw { cursor: nwse-resize; }
+.sw-resize-ne { cursor: nesw-resize; }
+.sw-resize-se { cursor: nwse-resize; }
+.sw-resize-sw { cursor: nesw-resize; }
+.sw-resize-n  { cursor: ns-resize; }
+.sw-resize-s  { cursor: ns-resize; }
+.sw-resize-e  { cursor: ew-resize; }
+.sw-resize-w  { cursor: ew-resize; }
 
 /* Arrow endpoint handles (v0.2.i.2). Same visual as box-resize
  * handles but positioned directly inside the freeform at the

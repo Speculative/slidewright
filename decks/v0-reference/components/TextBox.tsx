@@ -10,6 +10,12 @@
 // span has visible content for the user to double-click. Future
 // polish: auto-enter edit mode on creation and drop the
 // placeholder.
+//
+// Canvas-side gesture behavior: same shape as Box (8-handle
+// resize, body translate). The adapter is structurally identical
+// — different component name in commit's findComponentAtSpan, that's
+// it. Future: factor into a shared "rect adapter" utility if a
+// third HTML-rectangle shape lands.
 
 import type { ReactNode } from 'react';
 import type {
@@ -17,9 +23,9 @@ import type {
   ComponentRenderProps,
 } from '../../../slidewright/runtime/contract.js';
 import type {
-  GestureHandle,
+  BoxResizeDirection,
+  HandlesProps,
   ShapeAdapter,
-  ShapeSpan,
 } from '../../../slidewright/canvas/shape-adapter.js';
 import {
   findComponentAtSpan,
@@ -76,176 +82,148 @@ export default function TextBox({ slots, params }: ComponentRenderProps) {
 }
 
 // ─── Canvas adapter ──────────────────────────────────────────────
-//
-// TextBox is a div like Box (same x/y/width/height slots, same
-// drag and resize semantics). The adapter is structurally
-// identical — different component name in onCommit's
-// findComponentAtSpan, that's it. Future: factor into a shared
-// "rectangle adapter" if a third HTML-based shape lands.
 
-type ResizeDirection = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+const RESIZE_DIRECTIONS: BoxResizeDirection[] = [
+  'nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w',
+];
 
 const MIN_SIZE = 1;
 
-interface BoxRect {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-}
+interface Rect { x: number; y: number; width: number; height: number }
 
-function rectResize(
-  direction: ResizeDirection,
-  orig: BoxRect,
-  designDx: number,
-  designDy: number,
-): BoxRect {
-  let { left, top, width, height } = orig;
+function resizeRect(
+  direction: BoxResizeDirection,
+  orig: Rect,
+  dx: number,
+  dy: number,
+): Rect {
+  let { x, y, width, height } = orig;
   if (direction.includes('w')) {
-    const proposedWidth = orig.width - designDx;
-    if (proposedWidth < MIN_SIZE) {
-      left = orig.left + orig.width - MIN_SIZE;
+    const proposed = orig.width - dx;
+    if (proposed < MIN_SIZE) {
+      x = orig.x + orig.width - MIN_SIZE;
       width = MIN_SIZE;
     } else {
-      left = orig.left + designDx;
-      width = proposedWidth;
+      x = orig.x + dx;
+      width = proposed;
     }
   } else if (direction.includes('e')) {
-    width = Math.max(MIN_SIZE, orig.width + designDx);
+    width = Math.max(MIN_SIZE, orig.width + dx);
   }
   if (direction.includes('n')) {
-    const proposedHeight = orig.height - designDy;
-    if (proposedHeight < MIN_SIZE) {
-      top = orig.top + orig.height - MIN_SIZE;
+    const proposed = orig.height - dy;
+    if (proposed < MIN_SIZE) {
+      y = orig.y + orig.height - MIN_SIZE;
       height = MIN_SIZE;
     } else {
-      top = orig.top + designDy;
-      height = proposedHeight;
+      y = orig.y + dy;
+      height = proposed;
     }
   } else if (direction.includes('s')) {
-    height = Math.max(MIN_SIZE, orig.height + designDy);
+    height = Math.max(MIN_SIZE, orig.height + dy);
   }
-  return { left, top, width, height };
+  return { x, y, width, height };
+}
+
+function num(params: Record<string, unknown>, key: string, fallback: number): number {
+  const v = params[key];
+  return typeof v === 'number' ? v : fallback;
+}
+
+function paramsToRect(params: Record<string, unknown>): Rect {
+  return {
+    x: num(params, 'x', 0),
+    y: num(params, 'y', 0),
+    width: num(params, 'width', 320),
+    height: num(params, 'height', 120),
+  };
 }
 
 export const canvas: ShapeAdapter = {
-  bounds(visualNode) {
-    if (!(visualNode instanceof HTMLElement)) return null;
-    return {
-      left: visualNode.offsetLeft,
-      top: visualNode.offsetTop,
-      width: visualNode.offsetWidth,
-      height: visualNode.offsetHeight,
-    };
+  boundsFromParams(params) {
+    const r = paramsToRect(params);
+    return { left: r.x, top: r.y, width: r.width, height: r.height };
   },
 
-  startBodyDrag(ctx) {
-    if (!(ctx.visualNode instanceof HTMLElement)) {
-      return { onMove: () => {}, onCommit: () => null };
+  applyGesture(params, delta) {
+    if (delta.kind === 'translate') {
+      return {
+        ...params,
+        x: num(params, 'x', 0) + delta.dx,
+        y: num(params, 'y', 0) + delta.dy,
+      };
     }
-    const visualNode = ctx.visualNode;
-    const cs = window.getComputedStyle(visualNode);
-    const originalLeft = parseFloat(cs.left) || 0;
-    const originalTop = parseFloat(cs.top) || 0;
-    const { span, slideIdx, getOverlay } = ctx;
-
-    return {
-      onMove(dx, dy) {
-        const newLeft = originalLeft + dx;
-        const newTop = originalTop + dy;
-        visualNode.style.left = `${newLeft}px`;
-        visualNode.style.top = `${newTop}px`;
-        const overlay = getOverlay();
-        if (overlay) {
-          overlay.style.left = `${newLeft - 4}px`;
-          overlay.style.top = `${newTop - 4}px`;
-        }
-      },
-      onCommit(ast, dx, dy) {
-        const target = findComponentAtSpan(ast, span.start, span.end);
-        if (!target) return null;
-        const xSlot = findNumericSlot(target, 'x');
-        const ySlot = findNumericSlot(target, 'y');
-        if (xSlot) xSlot.node.value = Math.round(originalLeft + dx);
-        if (ySlot) ySlot.node.value = Math.round(originalTop + dy);
-        const childIdx = findShapeChildIdx(ast, slideIdx, span);
-        return childIdx !== null
-          ? { preserveSelection: { slideIdx, childIdx } }
-          : {};
-      },
-    };
-  },
-
-  renderHandles(ctx) {
-    const { overlay, visualNode, span, slideIdx, startHandleDrag } = ctx;
-    if (!(visualNode instanceof HTMLElement)) return () => {};
-    const directions: ResizeDirection[] = [
-      'nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w',
-    ];
-    const handles: HTMLElement[] = [];
-    for (const dir of directions) {
-      const handle = document.createElement('div');
-      handle.className = `sw-resize-handle-shape sw-resize-${dir}`;
-      handle.addEventListener('pointerdown', (event) => {
-        if (event.button !== 0) return;
-        event.stopPropagation();
-        event.preventDefault();
-        startHandleDrag(
-          makeRectResizeHandle(visualNode, overlay, dir, span, slideIdx),
-          event,
-        );
-      });
-      overlay.appendChild(handle);
-      handles.push(handle);
+    if (delta.kind === 'box-resize') {
+      const r = resizeRect(delta.direction, delta.original, delta.dx, delta.dy);
+      return { ...params, x: r.x, y: r.y, width: r.width, height: r.height };
     }
-    return () => {
-      for (const h of handles) h.remove();
-    };
+    return params;
   },
-};
 
-function makeRectResizeHandle(
-  visualNode: HTMLElement,
-  overlay: HTMLElement,
-  direction: ResizeDirection,
-  span: ShapeSpan,
-  slideIdx: number,
-): GestureHandle {
-  const cs = window.getComputedStyle(visualNode);
-  const orig: BoxRect = {
-    left: parseFloat(cs.left) || 0,
-    top: parseFloat(cs.top) || 0,
-    width: visualNode.offsetWidth,
-    height: visualNode.offsetHeight,
-  };
-  return {
-    onMove(dx, dy) {
-      const r = rectResize(direction, orig, dx, dy);
-      visualNode.style.left = `${r.left}px`;
-      visualNode.style.top = `${r.top}px`;
-      visualNode.style.width = `${r.width}px`;
-      visualNode.style.height = `${r.height}px`;
-      overlay.style.left = `${r.left - 4}px`;
-      overlay.style.top = `${r.top - 4}px`;
-      overlay.style.width = `${r.width + 8}px`;
-      overlay.style.height = `${r.height + 8}px`;
-    },
-    onCommit(ast, dx, dy) {
-      const r = rectResize(direction, orig, dx, dy);
-      const target = findComponentAtSpan(ast, span.start, span.end);
-      if (!target) return null;
+  Handles({ params, span, startGesture }: HandlesProps) {
+    const orig = paramsToRect(params);
+    const handleAt = (dir: BoxResizeDirection): { left: number; top: number } => {
+      switch (dir) {
+        case 'nw': return { left: orig.x - 7, top: orig.y - 7 };
+        case 'n':  return { left: orig.x + orig.width / 2 - 7, top: orig.y - 7 };
+        case 'ne': return { left: orig.x + orig.width - 7, top: orig.y - 7 };
+        case 'e':  return { left: orig.x + orig.width - 7, top: orig.y + orig.height / 2 - 7 };
+        case 'se': return { left: orig.x + orig.width - 7, top: orig.y + orig.height - 7 };
+        case 's':  return { left: orig.x + orig.width / 2 - 7, top: orig.y + orig.height - 7 };
+        case 'sw': return { left: orig.x - 7, top: orig.y + orig.height - 7 };
+        case 'w':  return { left: orig.x - 7, top: orig.y + orig.height / 2 - 7 };
+      }
+    };
+    return (
+      <>
+        {RESIZE_DIRECTIONS.map((dir) => {
+          const pos = handleAt(dir);
+          return (
+            <div
+              key={dir}
+              className={`sw-resize-handle-shape sw-resize-${dir}`}
+              style={{ left: `${pos.left}px`, top: `${pos.top}px` }}
+              onPointerDown={(event) => {
+                if (event.button !== 0) return;
+                event.stopPropagation();
+                event.preventDefault();
+                startGesture(
+                  { kind: 'box-resize', direction: dir, original: orig },
+                  event.nativeEvent,
+                );
+              }}
+            />
+          );
+        })}
+      </>
+    );
+    void span;
+  },
+
+  commit(ast, span, delta, slideIdx) {
+    const target = findComponentAtSpan(ast, span.start, span.end);
+    if (!target) return null;
+    if (delta.kind === 'translate') {
+      const xSlot = findNumericSlot(target, 'x');
+      const ySlot = findNumericSlot(target, 'y');
+      if (xSlot) xSlot.node.value = Math.round(xSlot.value + delta.dx);
+      if (ySlot) ySlot.node.value = Math.round(ySlot.value + delta.dy);
+    } else if (delta.kind === 'box-resize') {
+      const r = resizeRect(delta.direction, delta.original, delta.dx, delta.dy);
       const xSlot = findNumericSlot(target, 'x');
       const ySlot = findNumericSlot(target, 'y');
       const wSlot = findNumericSlot(target, 'width');
       const hSlot = findNumericSlot(target, 'height');
-      if (xSlot) xSlot.node.value = Math.round(r.left);
-      if (ySlot) ySlot.node.value = Math.round(r.top);
+      if (xSlot) xSlot.node.value = Math.round(r.x);
+      if (ySlot) ySlot.node.value = Math.round(r.y);
       if (wSlot) wSlot.node.value = Math.round(r.width);
       if (hSlot) hSlot.node.value = Math.round(r.height);
-      const childIdx = findShapeChildIdx(ast, slideIdx, span);
-      return childIdx !== null
-        ? { preserveSelection: { slideIdx, childIdx } }
-        : {};
-    },
-  };
-}
+    } else {
+      return null;
+    }
+    const childIdx = findShapeChildIdx(ast, slideIdx, span);
+    return childIdx !== null
+      ? { preserveSelection: { slideIdx, childIdx } }
+      : {};
+  },
+};

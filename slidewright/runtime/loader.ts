@@ -40,6 +40,7 @@ import {
   type ComponentMeta,
   type ComponentRegistry,
   type ComponentRenderProps,
+  type SlideComponent,
   type SlotType,
 } from './contract.js';
 import {
@@ -54,6 +55,29 @@ export interface LoadDeckInput {
   file: string;
   components: ComponentRegistry;
   scope?: Scope;
+  // Optional override for how each component invocation is wrapped
+  // before being returned. Default wraps in a `<div data-sw-
+  // component=...>` for selection sync. The canvas overrides this
+  // to wrap with a React component that consumes gesture context
+  // (so shapes re-render with gesture-adjusted params during a
+  // gesture). Other consumers (CLI validate, SSR smoke tests) use
+  // the default and never see gesture state.
+  wrapShape?: WrapShape;
+}
+
+export type WrapShape = (input: WrapShapeInput) => ReactElement;
+
+export interface WrapShapeInput {
+  comp: Component;
+  // Component-registry entry. Carries the React render function
+  // (`loaded.render`) and the optional `canvas` adapter the
+  // wrapper consumes.
+  loaded: { render: SlideComponent; meta: ComponentMeta; canvas?: unknown };
+  slots: Record<string, unknown>;
+  params: Record<string, unknown>;
+  // Stable key for the React render — already computed from the
+  // component's source span by the loader.
+  cellKey: string;
 }
 
 export interface DeckMeta {
@@ -67,6 +91,29 @@ export interface LoadDeckResult {
   meta: DeckMeta;
   slides: ReactElement[];
   diagnostics: Diagnostic[];
+  // Registry of shapes that declare a canvas adapter. Keyed by
+  // `${span.start}-${span.end}`. Used by canvas-side selection /
+  // gesture rendering to compute bounds and dispatch gestures
+  // without re-walking the AST or the DOM.
+  //
+  // The runtime layer doesn't know what a ShapeAdapter is, so the
+  // entry's `canvas` field is typed as `unknown`. Canvas casts.
+  shapes: ReadonlyMap<string, ShapeData>;
+}
+
+export interface ShapeData {
+  comp: Component;
+  // The component-registry entry's `canvas` export, opaque here.
+  // Only present when the component declared one (so the registry
+  // is naturally filtered to gesture-able shapes).
+  canvas: unknown;
+  // Resolved params for the shape — the same map the loader hands
+  // to its React render. Adapters use these as the source-driven
+  // baseline that gestures transform.
+  params: Record<string, unknown>;
+  // Which slide this shape lives in (0-based). Adapter commits use
+  // it for childIdx-based selection preservation.
+  slideIdx: number;
 }
 
 const DEFAULT_META: DeckMeta = {
@@ -85,17 +132,20 @@ export function loadDeck(input: LoadDeckInput): LoadDeckResult {
     diagnostics,
     cellStore: new CellStore(),
     cellSeq: 0,
+    wrapShape: input.wrapShape ?? defaultWrapShape,
+    shapes: new Map(),
+    currentSlideIdx: -1,
   };
 
   // Find the top-level Deck invocation. We accept exactly one for v0.0.
   const deck = findDeck(ast, ctx);
   if (!deck) {
-    return { meta: DEFAULT_META, slides: [], diagnostics };
+    return { meta: DEFAULT_META, slides: [], diagnostics, shapes: ctx.shapes };
   }
 
   const meta = renderDeckMeta(deck, ctx);
   const slides = renderDeckSlides(deck, ctx);
-  return { meta, slides, diagnostics };
+  return { meta, slides, diagnostics, shapes: ctx.shapes };
 }
 
 interface LoadCtx {
@@ -105,6 +155,32 @@ interface LoadCtx {
   diagnostics: Diagnostic[];
   cellStore: CellStore;
   cellSeq: number;
+  wrapShape: WrapShape;
+  shapes: Map<string, ShapeData>;
+  // The slide index currently being rendered. Set by
+  // renderDeckSlides as it iterates; used to tag each shape with
+  // its parent slide for canvas-side commit logic.
+  currentSlideIdx: number;
+}
+
+// Default wrap: a span-only marker div for selection sync. No
+// gesture awareness — the canvas overrides via input.wrapShape.
+function defaultWrapShape(input: WrapShapeInput): ReactElement {
+  return createElement(
+    'div',
+    {
+      key: `wrap-${input.comp.span.start.offset}`,
+      'data-sw-component': input.comp.name,
+      'data-sw-span-start': input.comp.span.start.offset,
+      'data-sw-span-end': input.comp.span.end.offset,
+      style: { display: 'contents' },
+    },
+    createElement(input.loaded.render, {
+      slots: input.slots as ComponentRenderProps['slots'],
+      params: input.params,
+      key: input.cellKey,
+    }),
+  );
 }
 
 function nextCellId(ctx: LoadCtx, hint: string): string {
@@ -197,6 +273,7 @@ function renderDeckSlides(deck: Component, ctx: LoadCtx): ReactElement[] {
       );
       continue;
     }
+    ctx.currentSlideIdx = idx;
     const el = renderSlide(item, ctx, idx);
     if (el) out.push(el);
     idx += 1;
@@ -377,12 +454,25 @@ function renderComponent(comp: Component, ctx: LoadCtx): ReactNode {
     );
   }
 
-  const props: ComponentRenderProps & { key: string } = {
-    slots: slots as ComponentRenderProps['slots'],
+  // Register shapes with canvas adapters in the registry the
+  // canvas reads for selection / gesture rendering.
+  if (loaded.canvas !== undefined && ctx.currentSlideIdx >= 0) {
+    const key = `${comp.span.start.offset}-${comp.span.end.offset}`;
+    ctx.shapes.set(key, {
+      comp,
+      canvas: loaded.canvas,
+      params,
+      slideIdx: ctx.currentSlideIdx,
+    });
+  }
+
+  return ctx.wrapShape({
+    comp,
+    loaded,
+    slots,
     params,
-    key: cellKey(comp),
-  };
-  return wrapWithSpan(comp, createElement(loaded.render, props));
+    cellKey: cellKey(comp),
+  });
 }
 
 function renderSpanAsNode(comp: Component, ctx: LoadCtx): ReactNode {

@@ -6,21 +6,37 @@
 // (runtime metadata: slot types, params) and `canvas` (this
 // interface: how the shape behaves under direct manipulation).
 //
-// App.tsx is the dispatcher: when a pointerdown lands on a shape,
-// App looks up the adapter by `data-sw-component` and plumbs the
-// gesture lifecycle (pointermove / pointerup / commit pipeline)
-// into the adapter's GestureHandle. The adapter owns its per-frame
-// imperative DOM updates and its AST mutation on commit; the
-// framework owns the listener lifecycle, gesture mutex, and
-// source round-trip.
+// The architecture is React-native: gesture state lives in App's
+// React state, the loader wraps each shape with a ShapeProjection
+// that consumes gesture context, and the adapter's `applyGesture`
+// declaratively transforms params → adjusted-params for the
+// in-progress gesture. No imperative DOM mutation during drag —
+// React re-renders shapes (and selection visuals, handles, group
+// bbox) every frame as gesture state advances.
 //
-// Scope today: single-select shapes inside a Freeform. Multi-select
-// (v0.2.j) and Card-style adapters outside Freeform (later) will
-// extend this contract; the current shape is the floor that
-// supports the v0.2 reference deck without losing existing
-// behavior.
+// Adapter responsibilities:
+//   - `applyGesture(params, delta)` — pure function. Given the
+//     shape's source-driven params and a per-shape delta supplied
+//     by the framework, return new params that include the
+//     gesture's effect. Deltas are typed by gesture kind; the
+//     adapter handles only the kinds that apply to its shape and
+//     returns params unchanged for the rest.
+//   - `boundsFromParams(params)` — pure function. Compute the
+//     shape's selection-bounds rectangle from its params. Used by
+//     framework's selection-outline / group-bbox renderers (which
+//     are now React components, not DOM-walking effects).
+//   - `Handles` — React component. Renders the shape's selection
+//     handles (Box / TextBox: 8 corner / edge resize handles;
+//     Arrow: 2 endpoint grips). Each handle's pointerdown calls
+//     the framework's `startGesture` callback with a typed gesture
+//     descriptor. Returns null when handles aren't applicable.
+//   - `commit(ast, span, finalDelta)` — mutate the AST given the
+//     final gesture delta. Returns optional preserveSelection so
+//     the host round-trip restores selection on the post-emit
+//     source.
 
 import type { SourceFile } from '../runtime/ast.js';
+import type { ReactElement } from 'react';
 import type { PreserveSelection } from './ast-edits.js';
 
 // Selection-outline rectangle in the shape's parent's coordinate
@@ -32,96 +48,125 @@ export interface Bounds {
   height: number;
 }
 
-// Source span identifying the shape's AST node. Carried through
-// gesture context so onCommit can find the same component in a
-// freshly parsed AST.
+// Source span identifying the shape's AST node.
 export interface ShapeSpan {
   start: number;
   end: number;
 }
 
-// A shape-specific gesture in progress. The framework calls these
-// in response to pointermove / pointerup events; the adapter
-// performs imperative DOM updates per frame and mutates the AST on
-// commit.
+// Resize handle direction for box-style 8-handle resize.
+export type BoxResizeDirection =
+  | 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+
+// ─── Per-shape gesture deltas ────────────────────────────────────
 //
-// Both callbacks receive deltas in *design space* — the framework
-// converts client-pixel deltas using the canvas's current scale
-// before invoking the adapter, so adapters never have to think
-// about CSS transforms.
-export interface GestureHandle {
-  // One pointermove. Update the rendered DOM (style.left / line
-  // attrs / etc.) however this gesture defines visual feedback.
-  onMove(designDx: number, designDy: number): void;
-  // Pointerup. Mutate slot fills on the freshly parsed `ast` in
-  // place. Return preserveSelection if the shape should remain
-  // selected after the source round-trip; null to abort the
-  // commit (e.g., target not found, gesture below threshold).
-  onCommit(
-    ast: SourceFile,
-    designDx: number,
-    designDy: number,
-  ): { preserveSelection?: PreserveSelection } | null;
+// During a gesture, the framework computes a per-shape delta and
+// passes it (via React context) to each affected shape's
+// ShapeProjection wrapper. The wrapper calls
+// `adapter.applyGesture(params, delta)` and renders the shape with
+// the result. Deltas are typed so adapters can pattern-match:
+
+// Translate the shape by (dx, dy) in design space. Body drag for
+// a single shape and group body drag both produce this — for
+// group drag, every selected shape gets the same translate
+// delta.
+export interface TranslateDelta {
+  kind: 'translate';
+  dx: number;
+  dy: number;
 }
 
-// Context passed to startBodyDrag.
-export interface BodyDragContext {
-  // The shape's rendered root — `firstElementChild` of the
-  // data-sw-component wrapper (the wrapper itself is
-  // `display: contents` and has no layout box). Box / TextBox:
-  // a positioned div. Arrow: an SVG.
-  visualNode: Element;
-  // Returns the selection outline div if one exists. Lazy because
-  // the React commit that mounts the overlay (selection effect)
-  // may not have run by the time startBodyDrag is called —
-  // clicking an unselected shape both selects and drags in the
-  // same React batched update, but the selection effect runs
-  // after pointerdown returns. Adapters call this inside onMove
-  // each frame to get the current overlay (or null if selection
-  // cleared mid-drag).
-  getOverlay: () => HTMLElement | null;
+// Box-style corner / edge resize. The opposite edges stay fixed;
+// the named direction's edges move by (dx, dy). `original` is
+// captured at gesture-start so commit can mutate slot fills off a
+// stable starting box rather than reading from already-mutated
+// in-progress state.
+export interface BoxResizeDelta {
+  kind: 'box-resize';
+  direction: BoxResizeDirection;
+  original: { x: number; y: number; width: number; height: number };
+  dx: number;
+  dy: number;
+}
+
+// Arrow endpoint move — drag one of the two endpoints; the other
+// stays fixed. `endpoint` is 1 (tail / x1, y1) or 2 (tip /
+// x2, y2). `originalX` / `originalY` are the moving endpoint's
+// position at gesture-start; `fixedX` / `fixedY` are the other
+// endpoint (stays put). Adapter computes new endpoint coords from
+// (original + dx, original + dy).
+export interface ArrowEndpointDelta {
+  kind: 'arrow-endpoint';
+  endpoint: 1 | 2;
+  originalX: number;
+  originalY: number;
+  fixedX: number;
+  fixedY: number;
+  dx: number;
+  dy: number;
+}
+
+export type ShapeDelta = TranslateDelta | BoxResizeDelta | ArrowEndpointDelta;
+
+// ─── Handles component contract ──────────────────────────────────
+
+// Callback an adapter's Handles component invokes when one of its
+// handles initiates a gesture. The framework owns the rest of the
+// gesture lifecycle (pointermove / pointerup, source commit).
+//
+// `kind` distinguishes box-resize from arrow-endpoint. The
+// `original` shape captures values needed at gesture commit time
+// (the framework forwards these to adapter.commit via the gesture
+// state).
+export type StartGesture = (
+  init: HandleGestureInit,
+  event: PointerEvent,
+) => void;
+
+export type HandleGestureInit =
+  | { kind: 'box-resize'; direction: BoxResizeDirection; original: { x: number; y: number; width: number; height: number } }
+  | { kind: 'arrow-endpoint'; endpoint: 1 | 2; originalX: number; originalY: number; fixedX: number; fixedY: number };
+
+export interface HandlesProps {
+  // Shape's CURRENT params (gesture-adjusted if applicable, so
+  // handles position themselves correctly during a resize gesture
+  // — they track the live preview by virtue of reading the same
+  // adjusted params the shape uses).
+  params: Record<string, unknown>;
   span: ShapeSpan;
-  slideIdx: number;
+  startGesture: StartGesture;
 }
 
-// Context passed to renderHandles.
-export interface HandleRenderContext {
-  // Always present — renderHandles is only called for selected
-  // shapes, and the selection outline mounts before handles.
-  overlay: HTMLElement;
-  visualNode: Element;
-  span: ShapeSpan;
-  slideIdx: number;
-  // Read the current canvas scale (design pixels → CSS pixels).
-  // Adapters call this when starting handle gestures to capture
-  // a stable scale for the gesture's lifetime.
-  getScale: () => number;
-  // Called by the adapter's handle pointerdown handlers to start
-  // a gesture. The framework owns the document.pointermove /
-  // pointerup loop; the adapter just supplies the handle and the
-  // pointerdown event (so the framework can capture clientX/Y as
-  // the gesture's start position).
-  startHandleDrag: (handle: GestureHandle, event: PointerEvent) => void;
-}
+// ─── Adapter contract ────────────────────────────────────────────
 
-// The full canvas-side contract for a shape. All three methods
-// are mandatory today — if a future shape needs to opt out of one
-// (e.g., Polyline that only supports endpoint handles, no body
-// drag), we'll flip the relevant method to optional and special-
-// case the absent path in the dispatcher. Until that need shows
-// up, mandatory keeps the contract explicit.
 export interface ShapeAdapter {
-  // Compute the selection bounds for the dashed outline. Returns
-  // design-space pixels in the shape's parent's coord system.
-  bounds(visualNode: Element): Bounds | null;
-  // Start a body-drag gesture. The framework calls this when
-  // pointerdown lands on the shape body in select mode.
-  startBodyDrag(ctx: BodyDragContext): GestureHandle;
-  // Render the shape's selection handles when it becomes selected.
-  // Adapter creates / appends DOM elements wherever it wants
-  // (typically into ctx.overlay for handles around the bounding
-  // rect, or into a freeform-level ancestor for handles at
-  // arbitrary positions like Arrow endpoints). Returns a cleanup
-  // function the framework runs when selection clears.
-  renderHandles(ctx: HandleRenderContext): () => void;
+  // Compute the selection-outline bounds from the shape's params
+  // (gesture-adjusted if applicable). Used by selection
+  // rendering. Returns null if the shape doesn't have a meaningful
+  // bounding box (shouldn't happen for current shapes).
+  boundsFromParams(params: Record<string, unknown>): Bounds | null;
+
+  // Apply a per-shape gesture delta to the shape's params.
+  // Returns adjusted params. For deltas the shape doesn't recognize
+  // (e.g., box-resize on Arrow), return params unchanged. Pure;
+  // called every render during an active gesture.
+  applyGesture(
+    params: Record<string, unknown>,
+    delta: ShapeDelta,
+  ): Record<string, unknown>;
+
+  // React component rendering the shape's selection handles. Null
+  // when no handles apply (e.g., during multi-select). Mounted by
+  // the framework inside the Freeform's positioned div.
+  Handles: (props: HandlesProps) => ReactElement | null;
+
+  // Mutate the AST in place to commit the gesture's final state.
+  // Returns optional preserveSelection for post-emit selection
+  // restoration; null aborts the commit.
+  commit(
+    ast: SourceFile,
+    span: ShapeSpan,
+    delta: ShapeDelta,
+    slideIdx: number,
+  ): { preserveSelection?: PreserveSelection } | null;
 }
