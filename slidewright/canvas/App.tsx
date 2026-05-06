@@ -174,6 +174,16 @@ interface GestureLive {
 
 const ZERO_LIVE: GestureLive = { dx: 0, dy: 0 };
 
+// ─── Undo/redo entry ──────────────────────────────────────────────
+//
+// Each commit captures the pre-commit source plus the slide the
+// commit was made on. On pop, the active slide is restored alongside
+// the source so the user sees the change being applied/reverted.
+interface UndoEntry {
+  source: string;
+  slideIdx: number;
+}
+
 // ─── Create gesture (drawing tools) ───────────────────────────────
 //
 // React-native preview state. Replaces the old imperative
@@ -267,20 +277,39 @@ export function App({ host }: { host: Host }): ReactElement {
   // mechanisms reach the same source states from different
   // directions; mixing them just clears our stack on the next
   // editor-driven edit.
-  const undoStackRef = useRef<string[]>([]);
-  const redoStackRef = useRef<string[]>([]);
+  //
+  // Entries carry the slide the commit was made on so popping either
+  // stack also navigates back to that slide — without it, source
+  // reverts but the user's view stays put, which is confusing when
+  // the change wasn't on the active slide.
+  const undoStackRef = useRef<UndoEntry[]>([]);
+  const redoStackRef = useRef<UndoEntry[]>([]);
   // Set true before any internal setSource (gesture commit, undo,
   // redo). Subscribe reads + clears it: truthy means "the source
   // change we're about to process was driven by us; preserve the
   // undo stacks." Falsy means external — barrier behavior.
   const internalSourceChangeRef = useRef(false);
 
+  // activeIdx mirror — read inside long-lived closures (notably
+  // the host.subscribe callback and commitToHost) so effect deps
+  // don't have to include `activeIdx`. Every slide change would
+  // otherwise re-subscribe, triggering the host's immediate-fire-
+  // on-subscribe, which was indistinguishable from an external
+  // edit and silently cleared the undo stack on every nav.
+  const activeIdxRef = useRef(activeIdx);
+  useEffect(() => {
+    activeIdxRef.current = activeIdx;
+  }, [activeIdx]);
+
   // Wraps host.setSource for any canvas-driven source change so
   // the undo stacks see the pre-change source and the subscribe
   // handler treats the round-trip as internal.
   const commitToHost = useCallback(
     (newSource: string, newSelections?: SourceRange[]) => {
-      undoStackRef.current.push(sourceRef.current);
+      undoStackRef.current.push({
+        source: sourceRef.current,
+        slideIdx: activeIdxRef.current,
+      });
       redoStackRef.current = [];
       internalSourceChangeRef.current = true;
       if (newSelections && newSelections.length > 0) {
@@ -298,17 +327,6 @@ export function App({ host }: { host: Host }): ReactElement {
       // Storage unavailable; fine to lose.
     }
   }, [stripWidth]);
-
-  // activeIdx mirror — read inside long-lived closures (notably
-  // the host.subscribe callback) so the effect's deps don't have
-  // to include `activeIdx`. Every slide change would otherwise
-  // re-subscribe, triggering the host's immediate-fire-on-subscribe,
-  // which was indistinguishable from an external edit and silently
-  // cleared the undo stack on every nav.
-  const activeIdxRef = useRef(activeIdx);
-  useEffect(() => {
-    activeIdxRef.current = activeIdx;
-  }, [activeIdx]);
 
   useEffect(() => {
     return host.subscribe(({ source, fileName, assets }) => {
@@ -798,18 +816,30 @@ export function App({ host }: { host: Host }): ReactElement {
         // handler's perspective.
         e.preventDefault();
         if (e.shiftKey) {
-          const next = redoStackRef.current.pop();
-          if (next === undefined) return;
-          undoStackRef.current.push(sourceRef.current);
+          const entry = redoStackRef.current.pop();
+          if (entry === undefined) return;
+          undoStackRef.current.push({
+            source: sourceRef.current,
+            slideIdx: entry.slideIdx,
+          });
           internalSourceChangeRef.current = true;
-          host.setSource?.(next);
+          if (entry.slideIdx !== activeIdxRef.current) {
+            setActiveIdx(entry.slideIdx);
+          }
+          host.setSource?.(entry.source);
           return;
         }
-        const prev = undoStackRef.current.pop();
-        if (prev === undefined) return;
-        redoStackRef.current.push(sourceRef.current);
+        const entry = undoStackRef.current.pop();
+        if (entry === undefined) return;
+        redoStackRef.current.push({
+          source: sourceRef.current,
+          slideIdx: entry.slideIdx,
+        });
         internalSourceChangeRef.current = true;
-        host.setSource?.(prev);
+        if (entry.slideIdx !== activeIdxRef.current) {
+          setActiveIdx(entry.slideIdx);
+        }
+        host.setSource?.(entry.source);
         return;
       }
 

@@ -504,7 +504,12 @@ test('navigating slides preserves the undo stack', async ({ page }) => {
   expect(afterUndo).toBe(beforeDrag);
 });
 
-test('focusing the editor pane without changes preserves the undo stack', async ({ page }) => {
+test('clicking the canvas after focusing the editor restores Cmd-Z routing', async ({ page }) => {
+  // Regression: divs aren't focusable, so a click on the canvas
+  // didn't naturally blur a previously-clicked editor textarea.
+  // Cmd-Z then hit the textarea's native undo (which has nothing
+  // canvas-related on it) and the user had to switch slides — a
+  // side-effect that happened to move focus — to recover.
   await page.goto('/canvas.html?fixture=single-box');
   const box = page
     .locator('.sw-canvas-stage [data-sw-component="Box"] > div')
@@ -516,7 +521,6 @@ test('focusing the editor pane without changes preserves the undo stack', async 
         document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
       ).value,
   );
-  // Commit a drag.
   const eb = await box.boundingBox();
   if (!eb) throw new Error('box not found');
   await page.mouse.move(eb.x + eb.width / 2, eb.y + eb.height / 2);
@@ -531,18 +535,29 @@ test('focusing the editor pane without changes preserves the undo stack', async 
     steps: 5,
   });
   await page.mouse.up();
-  // Focus the editor pane (e.g., user clicks into it to read source)
-  // without typing anything.
+  // User clicks into the editor (e.g., to read source) without typing.
   await page.locator('.sw-editor-pane').focus();
-  // Move focus back to the canvas so Cmd-Z routes to the canvas
-  // handler (textarea's native undo would otherwise intercept).
-  await page.evaluate(() => {
-    const el = document.activeElement as HTMLElement | null;
-    if (el && el !== document.body) el.blur();
-  });
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (document.activeElement as HTMLElement | null)?.classList.contains(
+          'sw-editor-pane',
+        ) ?? false,
+      ),
+    )
+    .toBe(true);
+  // Click on the canvas. The pointerdown should shed editor focus on
+  // its own — no test-side blur needed.
   await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const a = document.activeElement as HTMLElement | null;
+        return a?.classList.contains('sw-editor-pane') ?? false;
+      }),
+    )
+    .toBe(false);
   await page.keyboard.press('ControlOrMeta+Z');
-  // Should revert to the pre-drag source.
   const afterUndo = await page.evaluate(
     () =>
       (
@@ -550,6 +565,77 @@ test('focusing the editor pane without changes preserves the undo stack', async 
       ).value,
   );
   expect(afterUndo).toBe(beforeDrag);
+});
+
+test('undo navigates to the slide where the change was made', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=two-slides');
+  await expect(
+    page.locator('.sw-canvas-stage [data-sw-component="Box"]').first(),
+  ).toBeVisible();
+  // Drag the Box on slide 1.
+  const box = page
+    .locator('.sw-canvas-stage [data-sw-component="Box"] > div')
+    .first();
+  const eb = await box.boundingBox();
+  if (!eb) throw new Error('box not found');
+  await page.mouse.move(eb.x + eb.width / 2, eb.y + eb.height / 2);
+  await page.mouse.down();
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  await page.mouse.move(eb.x + eb.width / 2 + 60, eb.y + eb.height / 2, {
+    steps: 5,
+  });
+  await page.mouse.up();
+  // Switch to slide 2, then Cmd-Z. The undone commit was on slide
+  // 1, so the active slide should snap back to slide 1 even though
+  // the user is currently looking at slide 2.
+  await page.locator('.sw-thumb').nth(1).click();
+  await expect(page.locator('.sw-thumb.active')).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(page.locator('.sw-thumb').nth(1)).toHaveClass(/active/);
+  await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press('ControlOrMeta+Z');
+  await expect(page.locator('.sw-thumb').nth(0)).toHaveClass(/active/);
+});
+
+test('redo navigates to the slide where the change was made', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=two-slides');
+  await expect(
+    page.locator('.sw-canvas-stage [data-sw-component="Box"]').first(),
+  ).toBeVisible();
+  const box = page
+    .locator('.sw-canvas-stage [data-sw-component="Box"] > div')
+    .first();
+  const eb = await box.boundingBox();
+  if (!eb) throw new Error('box not found');
+  // Commit on slide 1.
+  await page.mouse.move(eb.x + eb.width / 2, eb.y + eb.height / 2);
+  await page.mouse.down();
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  await page.mouse.move(eb.x + eb.width / 2 + 60, eb.y + eb.height / 2, {
+    steps: 5,
+  });
+  await page.mouse.up();
+  // Undo (still on slide 1) — leaves a redo entry tagged with slide 1.
+  await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press('ControlOrMeta+Z');
+  // Switch to slide 2, then redo. Active slide should return to 1.
+  await page.locator('.sw-thumb').nth(1).click();
+  await expect(page.locator('.sw-thumb').nth(1)).toHaveClass(/active/);
+  await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press('ControlOrMeta+Shift+Z');
+  await expect(page.locator('.sw-thumb').nth(0)).toHaveClass(/active/);
 });
 
 test('external edit that deletes the selected shape clears selection', async ({ page }) => {

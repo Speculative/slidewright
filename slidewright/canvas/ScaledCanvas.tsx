@@ -208,6 +208,21 @@ export function ScaledCanvas({
     const target = event.target as Element | null;
     if (!target?.closest) return;
 
+    // Shed focus from any editor-side text input as soon as the user
+    // touches the canvas. Canvas content is mostly non-focusable
+    // divs, so a click here doesn't naturally move focus — leaving
+    // a previously-clicked editor textarea focused, which then
+    // swallows Cmd-Z (routing it to the textarea's native — and
+    // usually empty — undo instead of our canvas handler).
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLElement &&
+      active !== document.body &&
+      (active.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName))
+    ) {
+      active.blur();
+    }
+
     // Creation tools take precedence over drag-to-move: any tool
     // other than 'select' makes pointerdown over a Freeform drag
     // out a new shape, even if the click lands on top of an
