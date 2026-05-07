@@ -50,6 +50,24 @@ import type { SourceFile } from '../runtime/ast.js';
 import type { PreserveSelection } from './ast-edits.js';
 import type { HandlesProps, ShapeSpan } from './shape-adapter.js';
 
+export interface ChildDragContext {
+  // The dragged child's component span (the AST node being moved).
+  childSpan: ShapeSpan;
+  // The parent layout's component span — its own AST node, where
+  // the children-list slot lives that gets mutated at commit time.
+  parentSpan: ShapeSpan;
+  // The parent layout's loader-wrapper element (display: contents).
+  // Useful for finding children's DOM rects via parentEl.children.
+  parentEl: HTMLElement;
+  // The pointerdown event. Adapter uses this for cursor coords if
+  // it needs to capture them at gesture start.
+  event: PointerEvent;
+  // Current canvas scale (design-pixel → CSS-pixel ratio).
+  // Adapter uses this for client → design coord conversion if it
+  // wants to capture children's rects in design space.
+  scale: number;
+}
+
 export interface LayoutAdapter {
   kind: 'layout';
 
@@ -60,10 +78,13 @@ export interface LayoutAdapter {
   // through this adapter's buildGestureState → combineGestureState
   // → applyGesture → commit). Return null to let the framework's
   // existing dispatch run (body-drag for shapes, etc.).
-  interceptChildDrag?(
-    childSpan: ShapeSpan,
-    event: PointerEvent,
-  ): unknown | null;
+  //
+  // Receives a context object with the DOM handles the adapter
+  // typically needs to seed gesture state (the layout's wrapper for
+  // measuring children's rects; the parent / child spans for
+  // identifying nodes in the AST at commit time; the scale for any
+  // client→design coord conversion).
+  interceptChildDrag?(ctx: ChildDragContext): unknown | null;
 
   // Selection-time handle grips (e.g., gap-drag grips between
   // children). Same contract as ShapeAdapter.Handles — pointerdown

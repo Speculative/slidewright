@@ -31,7 +31,7 @@ import type { ShapeData } from '../runtime/loader.js';
 
 import { spanKey } from './gesture-context.js';
 import type { SourceRange } from './host.js';
-import { isLayoutAdapter } from './layout-adapter.js';
+import { isLayoutAdapter, type LayoutAdapter } from './layout-adapter.js';
 import type {
   BoxResizeDirection,
   Bounds,
@@ -64,9 +64,10 @@ interface SelectionLayerProps {
 //   - 'shape' — has a ShapeAdapter; bounds come from
 //     adapter.calculateBounds(params); supports Handles + group
 //     resize.
-//   - 'layout' — v0.4-tight-cut HStack / VStack. No adapter
-//     methods; bounds DOM-measured from the loader's wrapper div;
-//     no Handles, excluded from group-resize handle rendering.
+//   - 'layout' — HStack / VStack and future flow-laid containers.
+//     Bounds DOM-measured from the loader's wrapper. Handles are
+//     optional (gap-drag grips when implemented); excluded from
+//     group-resize handle rendering.
 type SelectionItem =
   | {
       kind: 'shape';
@@ -80,6 +81,8 @@ type SelectionItem =
       kind: 'layout';
       span: SourceRange;
       key: string;
+      adapter: LayoutAdapter;
+      params: Record<string, unknown>;
       bounds: Bounds;
     };
 
@@ -97,7 +100,12 @@ export function SelectionLayer({
   // `spacing` edit), so the outline lags one render behind. Measure
   // in a layout effect after commit (before paint) and stash in
   // state — render reads the stashed values.
-  const layoutBounds = useMeasuredLayoutBounds(selected, shapes, portalTarget);
+  const layoutBounds = useMeasuredLayoutBounds(
+    selected,
+    shapes,
+    gestureDeltas,
+    portalTarget,
+  );
 
   if (selected.length === 0) return null;
 
@@ -109,7 +117,22 @@ export function SelectionLayer({
     if (isLayoutAdapter(data.canvas)) {
       const bounds = layoutBounds.get(key);
       if (!bounds) continue;
-      items.push({ kind: 'layout', span, key, bounds });
+      // Live preview during a gap-drag (or any layout-adapter
+      // gesture that mutates this layout's params): apply the
+      // gesture delta so Handles read updated params.
+      const delta = gestureDeltas.get(key);
+      const params =
+        delta && data.canvas.applyGesture
+          ? data.canvas.applyGesture(data.params, delta)
+          : data.params;
+      items.push({
+        kind: 'layout',
+        span,
+        key,
+        adapter: data.canvas,
+        params,
+        bounds,
+      });
       continue;
     }
     const adapter = data.canvas as ShapeAdapter;
@@ -157,7 +180,10 @@ export function SelectionLayer({
     };
   }
 
-  const showHandles = items.length === 1 && renderHandles && items[0]!.kind === 'shape';
+  // Handles render for any single-selected item with a Handles
+  // component (shape: required; layout: optional). Group handles
+  // (rigid-body resize) only fire on shape selections.
+  const showHandles = items.length === 1 && renderHandles;
   const showGroupHandles = items.length > 1 && renderHandles && groupCore && allShapes;
 
   return createPortal(
@@ -178,6 +204,13 @@ export function SelectionLayer({
             }}
           />
           {showHandles && item.kind === 'shape' && (
+            <item.adapter.Handles
+              params={item.params}
+              span={item.span as ShapeSpan}
+              startGesture={startGesture}
+            />
+          )}
+          {showHandles && item.kind === 'layout' && item.adapter.Handles && (
             <item.adapter.Handles
               params={item.params}
               span={item.span as ShapeSpan}
@@ -285,12 +318,15 @@ function handleAt(
 // one render behind any source edit that shifts the layout — e.g.,
 // editing a VStack's `spacing` in the inspector). The double-render
 // flushed here is contained: layouts are rare in any selection, and
-// the effect only runs when one of (selected, shapes, portalTarget)
-// changes — i.e., on selection change, source change, or portal
-// retarget. Not per gesture frame.
+// the equality check below skips the second render when the
+// measurement didn't move (the common case). Per-gesture-frame
+// re-measurement (via gestureDeltas in the deps) is needed so the
+// outline tracks live param changes — e.g., gap-drag growing the
+// VStack's height as `spacing` increases.
 function useMeasuredLayoutBounds(
   selected: SourceRange[],
   shapes: ReadonlyMap<string, ShapeData>,
+  gestureDeltas: ReadonlyMap<string, ShapeDelta>,
   portalTarget: HTMLElement | null,
 ): ReadonlyMap<string, Bounds> {
   const [layoutBounds, setLayoutBounds] = useState<ReadonlyMap<string, Bounds>>(
@@ -310,9 +346,10 @@ function useMeasuredLayoutBounds(
       if (bounds) next.set(key, bounds);
     }
     // Only setState when the measurement actually changed — saves a
-    // re-render on every source commit that didn't move a layout.
+    // re-render on every source commit / gesture frame that didn't
+    // move a layout.
     setLayoutBounds((prev) => (boundsMapsEqual(prev, next) ? prev : next));
-  }, [selected, shapes, portalTarget]);
+  }, [selected, shapes, gestureDeltas, portalTarget]);
   return layoutBounds;
 }
 

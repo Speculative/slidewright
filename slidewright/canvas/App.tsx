@@ -57,8 +57,9 @@ import type {
 import { resizeRect } from './rect-adapter.js';
 import { GestureProvider, spanKey } from './gesture-context.js';
 import { wrapShape } from './shape-projection.js';
-import { isLayoutAdapter } from './layout-adapter.js';
+import { isLayoutAdapter, type LayoutAdapter } from './layout-adapter.js';
 import { SelectionLayer } from './selection-layer.js';
+import { GestureOverlayLayer } from './gesture-overlay-layer.js';
 import { DiagnosticsPanel } from './DiagnosticsPanel.js';
 import { SlideStrip } from './SlideStrip.js';
 import { ResizeHandle } from './ResizeHandle.js';
@@ -190,7 +191,10 @@ interface GestureMeta {
   scale: number;
   slideIdx: number;
   label: string;
-  cursor: 'grabbing' | null;
+  // CSS cursor pinned on document.body for the gesture's duration.
+  // 'grabbing' for body-drag; 'ns-resize' / 'ew-resize' for layout
+  // gap-drag; null leaves the cursor untouched.
+  cursor: string | null;
   // Set when this is a group-resize gesture. The framework uses the
   // captured group bbox + direction to compute a single transform
   // each frame, then replicates that transform to every member's
@@ -690,8 +694,9 @@ export function App({
           if (!state) continue;
           const data = stateRef.current?.shapes.get(key);
           if (!data) continue;
-          const adapter = data.canvas as ShapeAdapter;
+          const adapter = data.canvas as ShapeAdapter | LayoutAdapter;
           const finalDelta = gestureStateToDelta(state, dx, dy, groupResize, adapter);
+          if (!adapter.commit) continue;
           const out = adapter.commit(ast, span, finalDelta, slideIdx);
           if (!out) continue;
           any = true;
@@ -980,7 +985,8 @@ export function App({
     const out = new Map<string, ShapeDelta>();
     for (const [key, gestureState] of gestureMeta.states) {
       const data = state.shapes.get(key);
-      const adapter = (data?.canvas as ShapeAdapter | undefined) ?? null;
+      const adapter =
+        (data?.canvas as ShapeAdapter | LayoutAdapter | undefined) ?? null;
       out.set(
         key,
         gestureStateToDelta(
@@ -1035,13 +1041,16 @@ export function App({
         return;
       }
       // Opaque arm. Look up the adapter via the span the Handles
-      // component carried; ask it to build a per-shape gesture state.
+      // component carried (or interceptChildDrag dispatcher); ask
+      // it to build a per-shape gesture state. Same path serves
+      // ShapeAdapter (Handles-emitted opaque init) and LayoutAdapter
+      // (interceptChildDrag-emitted opaque init).
       const span = init.span;
       const key = spanKey(span);
       const data = stateRef.current?.shapes.get(key);
       if (!data) return;
-      const adapter = data.canvas as ShapeAdapter | undefined;
-      if (!adapter) return;
+      const adapter = data.canvas as ShapeAdapter | LayoutAdapter | undefined;
+      if (!adapter?.buildGestureState) return;
       const payload = adapter.buildGestureState(init.init);
       if (payload == null) return;
       setGestureMeta({
@@ -1052,7 +1061,7 @@ export function App({
         scale: getCurrentScale(),
         slideIdx,
         label: '<resize>',
-        cursor: null,
+        cursor: init.cursor ?? null,
       });
       setGestureLive(ZERO_LIVE);
     },
@@ -1126,6 +1135,31 @@ export function App({
                 onSelectShape={(range, modifiers) =>
                   applySelectionClick(range, modifiers, setSelected)
                 }
+                onChildDragStart={(target) => {
+                  // Look up the parent component's adapter. If it's
+                  // a LayoutAdapter with interceptChildDrag, ask it
+                  // to take ownership of the drag. Returns true iff
+                  // it accepted (init non-null) — ScaledCanvas then
+                  // skips body-drag.
+                  const parentData = state.shapes.get(spanKey(target.parentSpan));
+                  if (!parentData) return false;
+                  const adapter = parentData.canvas;
+                  if (!isLayoutAdapter(adapter)) return false;
+                  if (!adapter.interceptChildDrag) return false;
+                  const init = adapter.interceptChildDrag({
+                    childSpan: target.childSpan,
+                    parentSpan: target.parentSpan,
+                    parentEl: target.parentEl,
+                    event: target.event,
+                    scale: target.scale,
+                  });
+                  if (init == null) return false;
+                  startGesture(
+                    { kind: 'opaque', span: target.parentSpan, init },
+                    target.event,
+                  );
+                  return true;
+                }}
                 activeTool={activeTool}
               >
                 {preparedSlide}
@@ -1136,6 +1170,11 @@ export function App({
                 gestureDeltas={gestureDeltas}
                 renderHandles={activeTool === 'select' && !gestureMeta}
                 startGesture={startGesture}
+              />
+              <GestureOverlayLayer
+                activeSpans={gestureMeta?.spans ?? EMPTY_SPANS}
+                shapes={state.shapes}
+                gestureDeltas={gestureDeltas}
               />
               <MarqueePreviewOverlay marquee={marquee} />
               <CreatePreviewOverlay createPreview={createPreview} />
@@ -1209,6 +1248,7 @@ export function App({
 }
 
 const EMPTY_DELTAS: ReadonlyMap<string, ShapeDelta> = new Map();
+const EMPTY_SPANS: ReadonlyArray<SourceRange> = [];
 
 // Re-find each previously-selected shape in the new shapes
 // registry by (slideIdx + childIdx + componentName). Used for
@@ -1261,7 +1301,7 @@ function gestureStateToDelta(
   dx: number,
   dy: number,
   groupResize: GestureMeta['groupResize'] | undefined,
-  adapter: ShapeAdapter | null,
+  adapter: ShapeAdapter | LayoutAdapter | null,
 ): ShapeDelta {
   if (state.kind === 'translate') {
     return { kind: 'translate', dx, dy };
@@ -1275,7 +1315,9 @@ function gestureStateToDelta(
   }
   // Opaque arm — the adapter combines its captured payload with
   // the cursor delta to produce the per-frame opaque delta.
-  if (!adapter) return { kind: 'opaque', delta: null };
+  // ShapeAdapter has combineGestureState as required, LayoutAdapter
+  // has it optional; optional-chain handles both.
+  if (!adapter?.combineGestureState) return { kind: 'opaque', delta: null };
   return {
     kind: 'opaque',
     delta: adapter.combineGestureState(state.payload, dx, dy),

@@ -167,9 +167,17 @@ export type HandleGestureInit =
       // `{ kind: 'arrow-endpoint', endpoint, originalX, originalY,
       // fixedX, fixedY }`). The framework looks up the adapter via
       // the span and calls adapter.buildGestureState(init).
+      //
+      // Optional `cursor` lets the adapter request a CSS cursor
+      // (e.g., 'ns-resize' for gap-drag) that the framework pins
+      // on document.body for the gesture's duration. The grip's own
+      // CSS cursor only applies while the cursor is over the grip
+      // — once the gesture starts, the cursor floats free of the
+      // grip and would otherwise revert to default.
       kind: 'opaque';
       span: ShapeSpan;
       init: unknown;
+      cursor?: string;
     };
 
 export interface HandlesProps {

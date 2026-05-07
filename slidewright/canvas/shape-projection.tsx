@@ -19,17 +19,23 @@ import type { WrapShape, WrapShapeInput } from '../runtime/loader.js';
 import type { ComponentRenderProps } from '../runtime/contract.js';
 
 import { useShapeDelta } from './gesture-context.js';
+import type { LayoutAdapter } from './layout-adapter.js';
 import type { ShapeAdapter } from './shape-adapter.js';
 
 function ShapeProjection(input: WrapShapeInput): ReactElement {
   const { comp, loaded, slots, params, cellKey } = input;
-  const adapter = loaded.canvas as ShapeAdapter | undefined;
+  // Accept either a ShapeAdapter (applyGesture required) or a
+  // LayoutAdapter (applyGesture optional — only set when the layout
+  // has a gesture that mutates its own params, e.g., gap-drag).
+  const adapter = loaded.canvas as ShapeAdapter | LayoutAdapter | undefined;
   const delta = useShapeDelta({
     start: comp.span.start.offset,
     end: comp.span.end.offset,
   });
   const adjustedParams =
-    adapter && delta ? adapter.applyGesture(params, delta) : params;
+    adapter?.applyGesture && delta
+      ? adapter.applyGesture(params, delta)
+      : params;
   return createElement(
     'div',
     {

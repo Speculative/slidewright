@@ -89,6 +89,26 @@ export interface MarqueeStart {
   shift: boolean;
 }
 
+// Layout-intercept gesture (v0.4 reorder). Pointerdown on a
+// component whose immediate parent is another component opens this
+// dispatch path: the host looks up the parent's adapter and asks
+// `interceptChildDrag(childSpan, event)`. If the layout takes
+// ownership (returns non-null init), the host dispatches a layout-
+// owned opaque gesture and returns true; ScaledCanvas then skips
+// body-drag. Returning false falls through to existing dispatch.
+export interface ChildDragStart {
+  childSpan: SourceRange;
+  parentSpan: SourceRange;
+  // The parent component's wrapper element (the loader's
+  // display:contents div). Adapter uses this to enumerate its
+  // children's DOM rects at gesture start.
+  parentEl: HTMLElement;
+  pointerStartX: number;
+  pointerStartY: number;
+  scale: number;
+  event: PointerEvent;
+}
+
 interface Props {
   children: ReactNode;
   onSelectRange?: (range: SourceRange) => void;
@@ -117,6 +137,14 @@ interface Props {
   // pointermove and, on release, sets selection to all shapes
   // intersecting the rectangle.
   onMarqueeStart?: (target: MarqueeStart) => void;
+  // Fired when pointer goes down on a component whose immediate
+  // parent is also a component (v0.4 reorder). The handler looks
+  // up the parent's adapter; if it's a LayoutAdapter with
+  // `interceptChildDrag` and the call returns non-null init, the
+  // handler dispatches a layout-owned opaque gesture and returns
+  // true. ScaledCanvas then skips body-drag. Returning false
+  // falls through to existing dispatch.
+  onChildDragStart?: (target: ChildDragStart) => boolean;
   activeTool?: 'select' | 'box' | 'textbox' | 'arrow';
 }
 
@@ -145,6 +173,7 @@ export function ScaledCanvas({
   onCreateStart,
   onSelectShape,
   onMarqueeStart,
+  onChildDragStart,
   activeTool = 'select',
 }: Props): ReactElement {
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -274,6 +303,40 @@ export function ScaledCanvas({
       if (modifiers.shift) {
         event.preventDefault();
         return;
+      }
+      // Layout-intercept (v0.4 reorder). Walk up to find the
+      // innermost component AND its parent component. If the
+      // host's onChildDragStart says yes, dispatch returned and
+      // skip body-drag.
+      if (onChildDragStart) {
+        const innerComp = target.closest('[data-sw-component]');
+        const parentComp = innerComp?.parentElement?.closest('[data-sw-component]');
+        if (innerComp instanceof HTMLElement && parentComp instanceof HTMLElement) {
+          const childStart = parseInt(innerComp.getAttribute('data-sw-span-start') ?? '', 10);
+          const childEnd = parseInt(innerComp.getAttribute('data-sw-span-end') ?? '', 10);
+          const parentStart = parseInt(parentComp.getAttribute('data-sw-span-start') ?? '', 10);
+          const parentEnd = parseInt(parentComp.getAttribute('data-sw-span-end') ?? '', 10);
+          if (
+            Number.isFinite(childStart) &&
+            Number.isFinite(childEnd) &&
+            Number.isFinite(parentStart) &&
+            Number.isFinite(parentEnd)
+          ) {
+            const handled = onChildDragStart({
+              childSpan: { start: childStart, end: childEnd },
+              parentSpan: { start: parentStart, end: parentEnd },
+              parentEl: parentComp,
+              pointerStartX: event.clientX,
+              pointerStartY: event.clientY,
+              scale,
+              event: event.nativeEvent,
+            });
+            if (handled) {
+              event.preventDefault();
+              return;
+            }
+          }
+        }
       }
       const draggable = target.closest(DRAGGABLE_SELECTOR);
       if (
