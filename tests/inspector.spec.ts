@@ -205,6 +205,27 @@ test('multi-selection shows the multi-edit hint', async ({ page }) => {
   ).toContainText('multi-edit not supported');
 });
 
+test('slide-level VStack (no Freeform ancestor) is selectable + inspectable', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=slide-level-vstack');
+  // VStack rendered inside the slide content directly, no Freeform.
+  await expect(
+    page.locator('.sw-canvas-stage [data-sw-component="VStack"]'),
+  ).toBeAttached();
+  await expect(
+    page.locator('.sw-canvas-stage [data-sw-component="Freeform"]'),
+  ).toHaveCount(0);
+  // Click the VStack via the hierarchy tree (avoids any
+  // child-drag-intercept that a direct canvas click would trigger).
+  await page.locator('.sw-hierarchy-node').first().click();
+  // Selection outline must render — verifies the slide-stage portal
+  // fallback in useSelectionPortal is wired through.
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
+  // Properties panel shows the VStack's spacing param.
+  await expect(
+    page.locator('.sw-property-row').filter({ hasText: 'spacing' }),
+  ).toHaveCount(1);
+});
+
 test('switching slides updates the hierarchy tree', async ({ page }) => {
   await page.goto('/canvas.html?fixture=two-slides');
   await expect(page.locator('.sw-hierarchy-node')).toHaveCount(1);

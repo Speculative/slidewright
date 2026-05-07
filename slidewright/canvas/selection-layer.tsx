@@ -12,18 +12,18 @@
 //     adapter.calculateBounds. The result tracks the shape's
 //     gesture-adjusted position automatically — no separate
 //     "update outline during drag" logic.
-//   - Render visuals via a React portal into the active slide's
-//     Freeform DOM. The Freeform is the positioning context (its
-//     inner div is `position: relative`); the portal makes the
-//     overlay's `left` / `top` Freeform-relative without coupling
-//     selection rendering to where the SelectionLayer itself sits
-//     in the React tree.
+//   - Render visuals via a React portal. The portal target is
+//     either the closest Freeform's positioned div (for shape
+//     selections + layouts inside Freeforms) or the slide stage
+//     `.presentation-canvas` (for layouts at slide-level with no
+//     Freeform ancestor). See `portal-target.ts:useSelectionPortal`
+//     for the conditional lookup.
 //
-// Multi-select scope: all selected shapes share a Freeform (per
-// SLIDEWRIGHT.md / Editor / multi-select scoping rule). One DOM
-// lookup for the Freeform, then everything portals into it.
+// Multi-select scope: all selected shapes share one positioning
+// context (per SLIDEWRIGHT.md / Editor / multi-select scoping
+// rule), so one portal lookup suffices for the whole selection.
 
-import { Fragment, useEffect, useLayoutEffect, useState } from 'react';
+import { Fragment, useLayoutEffect, useState } from 'react';
 import type { ReactElement, PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -32,6 +32,7 @@ import type { ShapeData } from '../runtime/loader.js';
 import { spanKey } from './gesture-context.js';
 import type { SourceRange } from './host.js';
 import { isLayoutAdapter, type LayoutAdapter } from './layout-adapter.js';
+import { useSelectionPortal } from './portal-target.js';
 import type {
   BoxResizeDirection,
   Bounds,
@@ -93,7 +94,7 @@ export function SelectionLayer({
   renderHandles,
   startGesture,
 }: SelectionLayerProps): ReactElement | null {
-  const portalTarget = useFreeformDiv(selected[0]);
+  const portalTarget = useSelectionPortal(selected[0]);
   // Layout bounds come from DOM measurement, not from params. Doing
   // it inline in render reads the DOM *before* React's commit phase
   // flushes layout-affecting source changes (e.g., a stack's
@@ -412,27 +413,3 @@ function measureLayoutBounds(
   };
 }
 
-// Looks up the active slide's Freeform DOM. Returns null until the
-// slide has rendered (first render of a fresh source). Subscribes
-// to layout effects so the lookup retries after React commits the
-// slide tree.
-function useFreeformDiv(firstSpan?: SourceRange): HTMLElement | null {
-  const [el, setEl] = useState<HTMLElement | null>(null);
-  useEffect(() => {
-    if (!firstSpan) {
-      setEl(null);
-      return;
-    }
-    // Find the selected shape's wrapper in the active canvas, walk
-    // up to the closest Freeform's inner div (the positioned one,
-    // first child of the wrapper). One lookup per selection /
-    // source change — not per gesture frame.
-    const wrapper = document.querySelector(
-      `.sw-canvas-stage [data-sw-span-start="${firstSpan.start}"][data-sw-span-end="${firstSpan.end}"]`,
-    );
-    const freeform = wrapper?.closest('[data-sw-component="Freeform"]');
-    const inner = freeform?.firstElementChild;
-    setEl(inner instanceof HTMLElement ? inner : null);
-  }, [firstSpan?.start, firstSpan?.end]);
-  return el;
-}

@@ -1,8 +1,10 @@
 // GestureOverlayLayer — mounts each active gesture's
 // LayoutAdapter.GestureOverlay during the gesture lifecycle.
 //
-// Symmetric with SelectionLayer: portals into the active Freeform's
-// positioned div, reads gesture state, renders the adapter-supplied
+// Symmetric with SelectionLayer: shares the same portal target via
+// `portal-target.ts:useSelectionPortal` (closest Freeform's
+// positioned div, falling back to the slide stage for layouts at
+// slide-level), reads gesture state, renders the adapter-supplied
 // overlay component. Each layout adapter that wants to draw
 // ephemeral visuals during its gesture (insertion line for reorder,
 // hover indicators, etc.) implements `GestureOverlay`; the framework
@@ -17,7 +19,6 @@
 // affordances (an insertion line between two children) that need
 // their own overlay surface.
 
-import { useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -26,6 +27,7 @@ import type { ShapeData } from '../runtime/loader.js';
 import { spanKey } from './gesture-context.js';
 import type { SourceRange } from './host.js';
 import { isLayoutAdapter } from './layout-adapter.js';
+import { useSelectionPortal } from './portal-target.js';
 import type { ShapeDelta } from './shape-adapter.js';
 
 interface Props {
@@ -41,7 +43,7 @@ export function GestureOverlayLayer({
   shapes,
   gestureDeltas,
 }: Props): ReactElement | null {
-  const portalTarget = useFreeformDiv(activeSpans[0]);
+  const portalTarget = useSelectionPortal(activeSpans[0]);
   if (activeSpans.length === 0 || !portalTarget) return null;
   const overlays: ReactElement[] = [];
   for (const span of activeSpans) {
@@ -61,25 +63,4 @@ export function GestureOverlayLayer({
   }
   if (overlays.length === 0) return null;
   return createPortal(<>{overlays}</>, portalTarget);
-}
-
-// Same lookup as SelectionLayer's — find the active slide's
-// Freeform's positioned div by walking up from the gesture's first
-// span. Could be extracted to a shared hook; inlined for now since
-// each consumer has slightly different anchor-span semantics.
-function useFreeformDiv(firstSpan?: SourceRange): HTMLElement | null {
-  const [el, setEl] = useState<HTMLElement | null>(null);
-  useEffect(() => {
-    if (!firstSpan) {
-      setEl(null);
-      return;
-    }
-    const wrapper = document.querySelector(
-      `.sw-canvas-stage [data-sw-span-start="${firstSpan.start}"][data-sw-span-end="${firstSpan.end}"]`,
-    );
-    const freeform = wrapper?.closest('[data-sw-component="Freeform"]');
-    const inner = freeform?.firstElementChild;
-    setEl(inner instanceof HTMLElement ? inner : null);
-  }, [firstSpan?.start, firstSpan?.end]);
-  return el;
 }

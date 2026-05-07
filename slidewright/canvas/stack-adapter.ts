@@ -285,16 +285,18 @@ function captureReorderInit(
   if (!(flexEl instanceof HTMLElement)) return null;
 
   // Determine the cursor's main-axis position at gesture start, in
-  // design-space relative to the freeform's positioned div. We
-  // capture pointerMainStart in the SAME frame as childMainBounds
-  // so combineGestureState's `pointerMainStart + dx/dy` arithmetic
+  // design-space relative to the reference frame. We capture
+  // pointerMainStart in the SAME frame as childMainBounds so
+  // combineGestureState's `pointerMainStart + dx/dy` arithmetic
   // works out (dx/dy are design-space deltas from gesture start).
   //
-  // freeformInner = the positioned div SelectionLayer / overlays
-  // portal into. It's the active Freeform's first element child.
-  const freeformInner = findFreeformInner(flexEl);
-  if (!freeformInner) return null;
-  const freeformRect = freeformInner.getBoundingClientRect();
+  // referenceFrame = the positioned div SelectionLayer / overlays
+  // portal into — Freeform's positioned div if there's a Freeform
+  // ancestor, the slide stage otherwise. Same lookup as
+  // useSelectionPortal so measurements + rendering stay aligned.
+  const referenceFrame = findReferenceFrame(flexEl);
+  if (!referenceFrame) return null;
+  const refRect = referenceFrame.getBoundingClientRect();
 
   const childEls: HTMLElement[] = [];
   // Each direct child of flexEl is the loader's display:contents
@@ -325,19 +327,19 @@ function captureReorderInit(
   }
   if (sourceIdx === -1) return null;
 
-  // Capture each child's main-axis range in design-space, freeform-
-  // relative coords (matching SelectionLayer's portal frame).
+  // Capture each child's main-axis range in design-space, reference-
+  // frame-relative coords (matching the portal frame).
   const childMainBounds = childEls.map((el) => {
     const rect = el.getBoundingClientRect();
     if (axis === 'v') {
       return {
-        start: (rect.top - freeformRect.top) / ctx.scale,
-        end: (rect.bottom - freeformRect.top) / ctx.scale,
+        start: (rect.top - refRect.top) / ctx.scale,
+        end: (rect.bottom - refRect.top) / ctx.scale,
       };
     }
     return {
-      start: (rect.left - freeformRect.left) / ctx.scale,
-      end: (rect.right - freeformRect.left) / ctx.scale,
+      start: (rect.left - refRect.left) / ctx.scale,
+      end: (rect.right - refRect.left) / ctx.scale,
     };
   });
 
@@ -346,17 +348,17 @@ function captureReorderInit(
   const flexRect = flexEl.getBoundingClientRect();
   const crossStart =
     axis === 'v'
-      ? (flexRect.left - freeformRect.left) / ctx.scale
-      : (flexRect.top - freeformRect.top) / ctx.scale;
+      ? (flexRect.left - refRect.left) / ctx.scale
+      : (flexRect.top - refRect.top) / ctx.scale;
   const crossEnd =
     axis === 'v'
-      ? (flexRect.right - freeformRect.left) / ctx.scale
-      : (flexRect.bottom - freeformRect.top) / ctx.scale;
+      ? (flexRect.right - refRect.left) / ctx.scale
+      : (flexRect.bottom - refRect.top) / ctx.scale;
 
   const pointerMainStart =
     axis === 'v'
-      ? (ctx.event.clientY - freeformRect.top) / ctx.scale
-      : (ctx.event.clientX - freeformRect.left) / ctx.scale;
+      ? (ctx.event.clientY - refRect.top) / ctx.scale
+      : (ctx.event.clientX - refRect.left) / ctx.scale;
 
   const init: ReorderInit = {
     kind: 'reorder',
@@ -370,13 +372,22 @@ function captureReorderInit(
   return init;
 }
 
-// Walk up from any element inside a Freeform to find the
-// Freeform's first-element-child (the positioned div used as the
-// portal target). Returns null if there's no Freeform ancestor.
-function findFreeformInner(el: Element): HTMLElement | null {
+// Find the reference frame for child / cursor measurement — the
+// same positioned ancestor that selection visuals + gesture
+// overlays portal into. Prefer the closest Freeform's first-
+// element-child (the layout's coord system when nested in a
+// Freeform); fall back to the slide stage `.presentation-canvas`
+// for layouts at slide-level. Mirrors `portal-target.ts:
+// useSelectionPortal`'s lookup so measurements and rendering stay
+// in the same frame.
+function findReferenceFrame(el: Element): HTMLElement | null {
   const freeform = el.closest('[data-sw-component="Freeform"]');
   const inner = freeform?.firstElementChild;
-  return inner instanceof HTMLElement ? inner : null;
+  if (inner instanceof HTMLElement) return inner;
+  const stage = document.querySelector(
+    '.sw-canvas-stage .presentation-canvas',
+  );
+  return stage instanceof HTMLElement ? stage : null;
 }
 
 // ─── Wrapping / unwrapping ───────────────────────────────────────
@@ -587,71 +598,68 @@ function useMeasuredGripPositions(
   span: ShapeSpan,
   axis: Axis,
 ): GripPosition[] {
-  const [grips, setGrips] = useState<GripPosition[]>([]);
+  const [grips, setGrips] = useState<GripPosition[]>(EMPTY_GRIPS);
   useLayoutEffect(() => {
-    const wrapper = document.querySelector(
-      `.sw-canvas-stage [data-sw-span-start="${span.start}"][data-sw-span-end="${span.end}"]`,
-    );
-    if (!(wrapper instanceof HTMLElement)) {
-      setGrips([]);
-      return;
-    }
-    const flexEl = wrapper.firstElementChild;
-    if (!(flexEl instanceof HTMLElement)) {
-      setGrips([]);
-      return;
-    }
-    const freeform = wrapper.closest('[data-sw-component="Freeform"]');
-    const freeformInner = freeform?.firstElementChild;
-    if (!(freeformInner instanceof HTMLElement)) {
-      setGrips([]);
-      return;
-    }
-    const canvas = document.querySelector(
-      '.sw-canvas-stage .presentation-canvas',
-    );
-    if (!(canvas instanceof HTMLElement)) {
-      setGrips([]);
-      return;
-    }
-    const scale = canvas.getBoundingClientRect().width / 1920;
-    if (!Number.isFinite(scale) || scale <= 0) {
-      setGrips([]);
-      return;
-    }
-    const freeformRect = freeformInner.getBoundingClientRect();
-    const childInners: HTMLElement[] = [];
-    for (const w of Array.from(flexEl.children)) {
-      if (!(w instanceof HTMLElement)) continue;
-      const inner = w.firstElementChild;
-      if (inner instanceof HTMLElement) childInners.push(inner);
-    }
-    if (childInners.length < 2) {
-      setGrips([]);
-      return;
-    }
-    const flexRect = flexEl.getBoundingClientRect();
-    const crossStart =
-      axis === 'v'
-        ? (flexRect.left - freeformRect.left) / scale
-        : (flexRect.top - freeformRect.top) / scale;
-    const crossEnd =
-      axis === 'v'
-        ? (flexRect.right - freeformRect.left) / scale
-        : (flexRect.bottom - freeformRect.top) / scale;
-    const next: GripPosition[] = [];
-    for (let i = 0; i < childInners.length - 1; i++) {
-      const a = childInners[i]!.getBoundingClientRect();
-      const b = childInners[i + 1]!.getBoundingClientRect();
-      const aEnd = axis === 'v' ? a.bottom : a.right;
-      const bStart = axis === 'v' ? b.top : b.left;
-      const refOrigin = axis === 'v' ? freeformRect.top : freeformRect.left;
-      const centerMain = ((aEnd + bStart) / 2 - refOrigin) / scale;
-      next.push({ centerMain, crossStart, crossEnd });
-    }
+    // Compute-then-set pattern: compute the result via a helper
+    // that returns EMPTY_GRIPS for any failure path, then setGrips
+    // with the functional form so the equality bailout prevents an
+    // infinite loop. Without this, an early-return path that calls
+    // `setGrips([])` creates a fresh empty array each time —
+    // Object.is fails on identity, React schedules a re-render, the
+    // no-deps useLayoutEffect runs again, and we loop forever
+    // whenever the wrapper lookup fails (e.g., briefly during slide
+    // navigation when the selected span points at re-rendered DOM).
+    const next = computeGripPositions(span, axis);
     setGrips((prev) => (gripsEqual(prev, next) ? prev : next));
   });
   return grips;
+}
+
+const EMPTY_GRIPS: GripPosition[] = [];
+
+function computeGripPositions(span: ShapeSpan, axis: Axis): GripPosition[] {
+  const wrapper = document.querySelector(
+    `.sw-canvas-stage [data-sw-span-start="${span.start}"][data-sw-span-end="${span.end}"]`,
+  );
+  if (!(wrapper instanceof HTMLElement)) return EMPTY_GRIPS;
+  const flexEl = wrapper.firstElementChild;
+  if (!(flexEl instanceof HTMLElement)) return EMPTY_GRIPS;
+  const referenceFrame = findReferenceFrame(wrapper);
+  if (!referenceFrame) return EMPTY_GRIPS;
+  const canvas = document.querySelector(
+    '.sw-canvas-stage .presentation-canvas',
+  );
+  if (!(canvas instanceof HTMLElement)) return EMPTY_GRIPS;
+  const scale = canvas.getBoundingClientRect().width / 1920;
+  if (!Number.isFinite(scale) || scale <= 0) return EMPTY_GRIPS;
+  const refRect = referenceFrame.getBoundingClientRect();
+  const childInners: HTMLElement[] = [];
+  for (const w of Array.from(flexEl.children)) {
+    if (!(w instanceof HTMLElement)) continue;
+    const inner = w.firstElementChild;
+    if (inner instanceof HTMLElement) childInners.push(inner);
+  }
+  if (childInners.length < 2) return EMPTY_GRIPS;
+  const flexRect = flexEl.getBoundingClientRect();
+  const crossStart =
+    axis === 'v'
+      ? (flexRect.left - refRect.left) / scale
+      : (flexRect.top - refRect.top) / scale;
+  const crossEnd =
+    axis === 'v'
+      ? (flexRect.right - refRect.left) / scale
+      : (flexRect.bottom - refRect.top) / scale;
+  const next: GripPosition[] = [];
+  for (let i = 0; i < childInners.length - 1; i++) {
+    const a = childInners[i]!.getBoundingClientRect();
+    const b = childInners[i + 1]!.getBoundingClientRect();
+    const aEnd = axis === 'v' ? a.bottom : a.right;
+    const bStart = axis === 'v' ? b.top : b.left;
+    const refOrigin = axis === 'v' ? refRect.top : refRect.left;
+    const centerMain = ((aEnd + bStart) / 2 - refOrigin) / scale;
+    next.push({ centerMain, crossStart, crossEnd });
+  }
+  return next;
 }
 
 function gripsEqual(a: GripPosition[], b: GripPosition[]): boolean {
