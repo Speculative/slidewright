@@ -1164,7 +1164,14 @@ export function App({
               >
                 {preparedSlide}
               </ScaledCanvas>
+              {/* Key on activeIdx so DOM-tied hook state (cached
+                portal target, ResizeObserver subscriptions, layout
+                snapshots) resets on slide navigation. The standalone
+                canvas only mounts the active slide; without a remount,
+                observers stay subscribed to the previous slide's now-
+                detached DOM and never re-attach on nav-back. */}
               <SelectionLayer
+                key={activeIdx}
                 selected={selected}
                 shapes={state.shapes}
                 gestureDeltas={gestureDeltas}
@@ -1172,6 +1179,7 @@ export function App({
                 startGesture={startGesture}
               />
               <GestureOverlayLayer
+                key={activeIdx}
                 activeSpans={gestureMeta?.spans ?? EMPTY_SPANS}
                 shapes={state.shapes}
                 gestureDeltas={gestureDeltas}

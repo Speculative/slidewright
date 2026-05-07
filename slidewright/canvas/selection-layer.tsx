@@ -23,7 +23,7 @@
 // context (per SLIDEWRIGHT.md / Editor / multi-select scoping
 // rule), so one portal lookup suffices for the whole selection.
 
-import { Fragment, useLayoutEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import type { ReactElement, PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -32,7 +32,11 @@ import type { ShapeData } from '../runtime/loader.js';
 import { spanKey } from './gesture-context.js';
 import type { SourceRange } from './host.js';
 import { isLayoutAdapter, type LayoutAdapter } from './layout-adapter.js';
-import { useSelectionPortal } from './portal-target.js';
+import { measureLayoutSnapshot } from './layout-measurement.js';
+import {
+  findPortalAncestor,
+  useSelectionPortal,
+} from './portal-target.js';
 import type {
   BoxResizeDirection,
   Bounds,
@@ -41,8 +45,6 @@ import type {
   ShapeSpan,
   StartGesture,
 } from './shape-adapter.js';
-
-const DESIGN_W = 1920;
 
 const GROUP_DIRECTIONS: BoxResizeDirection[] = [
   'nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w',
@@ -101,12 +103,7 @@ export function SelectionLayer({
   // `spacing` edit), so the outline lags one render behind. Measure
   // in a layout effect after commit (before paint) and stash in
   // state — render reads the stashed values.
-  const layoutBounds = useMeasuredLayoutBounds(
-    selected,
-    shapes,
-    gestureDeltas,
-    portalTarget,
-  );
+  const layoutBounds = useMeasuredLayoutBounds(selected, shapes, portalTarget);
 
   if (selected.length === 0) return null;
 
@@ -312,45 +309,60 @@ function handleAt(
   }
 }
 
-// Re-measures every selected layout after each commit-phase DOM
-// flush, returning a Map from spanKey to Freeform-relative design
-// bounds. Runs in `useLayoutEffect` so it sees the post-commit DOM
-// (a render-phase measurement would read pre-flush bounds and lag
-// one render behind any source edit that shifts the layout — e.g.,
-// editing a VStack's `spacing` in the inspector). The double-render
-// flushed here is contained: layouts are rare in any selection, and
-// the equality check below skips the second render when the
-// measurement didn't move (the common case). Per-gesture-frame
-// re-measurement (via gestureDeltas in the deps) is needed so the
-// outline tracks live param changes — e.g., gap-drag growing the
-// VStack's height as `spacing` increases.
+// ResizeObserver-driven layout-bounds tracking. Subscribes to each
+// selected layout (and the canvas, for scale changes); on any size
+// change, re-measure all selected layouts via measureLayoutSnapshot.
+// Replaces the v0.4 useLayoutEffect + manual deps pattern that had
+// recurring reactivity bugs (missed deps for gesture-driven layout
+// shifts, infinite loops from early-return identity churn). The
+// observer fires on layout commits regardless of which React state
+// triggered them, so consumers don't have to enumerate state inputs.
 function useMeasuredLayoutBounds(
   selected: SourceRange[],
   shapes: ReadonlyMap<string, ShapeData>,
-  gestureDeltas: ReadonlyMap<string, ShapeDelta>,
   portalTarget: HTMLElement | null,
 ): ReadonlyMap<string, Bounds> {
   const [layoutBounds, setLayoutBounds] = useState<ReadonlyMap<string, Bounds>>(
     EMPTY_BOUNDS,
   );
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (!portalTarget) {
-      setLayoutBounds(EMPTY_BOUNDS);
+      setLayoutBounds((prev) => (prev.size === 0 ? prev : EMPTY_BOUNDS));
       return;
     }
-    const next = new Map<string, Bounds>();
+    const remeasure = (): void => {
+      const next = new Map<string, Bounds>();
+      for (const span of selected) {
+        const key = spanKey(span);
+        const data = shapes.get(key);
+        if (!data || !isLayoutAdapter(data.canvas)) continue;
+        const snap = measureLayoutSnapshot(span);
+        if (snap) next.set(key, snap.layout);
+      }
+      setLayoutBounds((prev) => (boundsMapsEqual(prev, next) ? prev : next));
+    };
+    remeasure();
+
+    const observer = new ResizeObserver(remeasure);
+    const canvas = document.querySelector(
+      '.sw-canvas-stage .presentation-canvas',
+    );
+    if (canvas instanceof HTMLElement) observer.observe(canvas);
     for (const span of selected) {
       const key = spanKey(span);
       const data = shapes.get(key);
       if (!data || !isLayoutAdapter(data.canvas)) continue;
-      const bounds = measureLayoutBounds(span, portalTarget);
-      if (bounds) next.set(key, bounds);
+      const wrapper = document.querySelector(
+        `.sw-canvas-stage [data-sw-span-start="${span.start}"][data-sw-span-end="${span.end}"]`,
+      );
+      if (!wrapper) continue;
+      const layoutEl = wrapper.firstElementChild;
+      if (layoutEl instanceof HTMLElement) observer.observe(layoutEl);
+      const ref = findPortalAncestor(wrapper);
+      if (ref) observer.observe(ref);
     }
-    // Only setState when the measurement actually changed — saves a
-    // re-render on every source commit / gesture frame that didn't
-    // move a layout.
-    setLayoutBounds((prev) => (boundsMapsEqual(prev, next) ? prev : next));
-  }, [selected, shapes, gestureDeltas, portalTarget]);
+    return () => observer.disconnect();
+  }, [selected, shapes, portalTarget]);
   return layoutBounds;
 }
 
@@ -374,42 +386,5 @@ function boundsMapsEqual(
     }
   }
   return true;
-}
-
-// DOM-measure a layout's bounds, expressed in the portal target's
-// coord system (Freeform-relative design pixels). The loader's
-// wrapper for each component invocation is `display: contents`,
-// which means it has no box of its own — its `getBoundingClientRect`
-// returns zero. We measure the wrapper's first element child instead,
-// which is the layout's rendered root (the flex container for HStack
-// / VStack).
-//
-// Returns null if the wrapper, its first child, or the
-// `.presentation-canvas` (used to compute scale) is missing — caller
-// should drop the item from the selection visuals.
-function measureLayoutBounds(
-  span: SourceRange,
-  portalTarget: HTMLElement,
-): Bounds | null {
-  const wrapper = document.querySelector(
-    `.sw-canvas-stage [data-sw-span-start="${span.start}"][data-sw-span-end="${span.end}"]`,
-  );
-  if (!(wrapper instanceof HTMLElement)) return null;
-  const inner = wrapper.firstElementChild;
-  if (!(inner instanceof HTMLElement)) return null;
-  const canvas = document.querySelector(
-    '.sw-canvas-stage .presentation-canvas',
-  );
-  if (!(canvas instanceof HTMLElement)) return null;
-  const scale = canvas.getBoundingClientRect().width / DESIGN_W;
-  if (!Number.isFinite(scale) || scale <= 0) return null;
-  const innerRect = inner.getBoundingClientRect();
-  const portalRect = portalTarget.getBoundingClientRect();
-  return {
-    left: (innerRect.left - portalRect.left) / scale,
-    top: (innerRect.top - portalRect.top) / scale,
-    width: innerRect.width / scale,
-    height: innerRect.height / scale,
-  };
 }
 

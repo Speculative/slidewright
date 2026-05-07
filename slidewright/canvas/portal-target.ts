@@ -32,11 +32,24 @@ import { useEffect, useState } from 'react';
 
 import type { SourceRange } from './host.js';
 
+// Walk up from `el` to find the closest portal ancestor: prefer
+// the closest Freeform's positioned div; fall back to the slide
+// stage (`.presentation-canvas`) if there's no Freeform ancestor.
+// Pure DOM walk — usable from non-React code (e.g., gesture-start
+// handlers in adapters).
+export function findPortalAncestor(el: Element): HTMLElement | null {
+  const freeform = el.closest('[data-sw-component="Freeform"]');
+  const inner = freeform?.firstElementChild;
+  if (inner instanceof HTMLElement) return inner;
+  const stage = document.querySelector(
+    '.sw-canvas-stage .presentation-canvas',
+  );
+  return stage instanceof HTMLElement ? stage : null;
+}
+
 // Find the portal target for selection visuals on `firstSpan`.
-// Walks up from the span's wrapper: prefer the closest Freeform's
-// positioned div; fall back to the slide stage (`.presentation-
-// canvas`) if there's no Freeform ancestor. Returns null while no
-// selection / no canvas mounted.
+// Looks up the span's wrapper and walks up via findPortalAncestor.
+// Returns null while no selection / no canvas mounted.
 export function useSelectionPortal(
   firstSpan?: SourceRange,
 ): HTMLElement | null {
@@ -49,20 +62,11 @@ export function useSelectionPortal(
     const wrapper = document.querySelector(
       `.sw-canvas-stage [data-sw-span-start="${firstSpan.start}"][data-sw-span-end="${firstSpan.end}"]`,
     );
-    // Freeform-anchored path (existing): closest Freeform's
-    // positioned div.
-    const freeform = wrapper?.closest('[data-sw-component="Freeform"]');
-    const freeformInner = freeform?.firstElementChild;
-    if (freeformInner instanceof HTMLElement) {
-      setEl(freeformInner);
+    if (!wrapper) {
+      setEl(null);
       return;
     }
-    // Slide-stage fallback: `.presentation-canvas` is `position:
-    // relative` and stable across slide navigation.
-    const stage = document.querySelector(
-      '.sw-canvas-stage .presentation-canvas',
-    );
-    setEl(stage instanceof HTMLElement ? stage : null);
+    setEl(findPortalAncestor(wrapper));
   }, [firstSpan?.start, firstSpan?.end]);
   return el;
 }

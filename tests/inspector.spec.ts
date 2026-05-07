@@ -226,6 +226,29 @@ test('slide-level VStack (no Freeform ancestor) is selectable + inspectable', as
   ).toHaveCount(1);
 });
 
+test('selection outline survives slide nav away and back', async ({ page }) => {
+  // Bug fix verification: SelectionLayer + GestureOverlayLayer key
+  // on activeIdx so their hook state (ResizeObserver subscriptions,
+  // cached portal targets, cached bounds) resets on slide nav. The
+  // standalone canvas only mounts the active slide; without the
+  // remount, observers stayed subscribed to detached DOM after
+  // nav-back and bounds never re-measured.
+  await page.goto('/canvas.html?fixture=two-slides');
+  // Select the shape on slide 1 via the hierarchy panel.
+  await page.locator('.sw-hierarchy-node').first().click();
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
+  // Navigate to slide 2 — selection state persists, but the
+  // outline shouldn't render here because the selected element
+  // belongs to slide 1.
+  await page.locator('.sw-thumb').nth(1).click();
+  await expect(page.locator('.sw-thumb').nth(1)).toHaveClass(/active/);
+  // Navigate back to slide 1. The outline must render again — the
+  // remount-on-activeIdx forces fresh DOM lookups + measurement.
+  await page.locator('.sw-thumb').nth(0).click();
+  await expect(page.locator('.sw-thumb').nth(0)).toHaveClass(/active/);
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
+});
+
 test('switching slides updates the hierarchy tree', async ({ page }) => {
   await page.goto('/canvas.html?fixture=two-slides');
   await expect(page.locator('.sw-hierarchy-node')).toHaveCount(1);
