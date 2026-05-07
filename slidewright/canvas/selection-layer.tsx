@@ -31,7 +31,7 @@ import type { ShapeData } from '../runtime/loader.js';
 
 import { spanKey } from './gesture-context.js';
 import type { SourceRange } from './host.js';
-import { isLayoutMeta } from './layout-meta.js';
+import { isLayoutAdapter } from './layout-adapter.js';
 import type {
   BoxResizeDirection,
   Bounds,
@@ -106,7 +106,7 @@ export function SelectionLayer({
     const key = spanKey(span);
     const data = shapes.get(key);
     if (!data) continue;
-    if (isLayoutMeta(data.canvas)) {
+    if (isLayoutAdapter(data.canvas)) {
       const bounds = layoutBounds.get(key);
       if (!bounds) continue;
       items.push({ kind: 'layout', span, key, bounds });
@@ -305,7 +305,7 @@ function useMeasuredLayoutBounds(
     for (const span of selected) {
       const key = spanKey(span);
       const data = shapes.get(key);
-      if (!data || !isLayoutMeta(data.canvas)) continue;
+      if (!data || !isLayoutAdapter(data.canvas)) continue;
       const bounds = measureLayoutBounds(span, portalTarget);
       if (bounds) next.set(key, bounds);
     }

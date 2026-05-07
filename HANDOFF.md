@@ -17,7 +17,7 @@ The bet: bidirectional projectional editing of a typed component tree, with stab
   - `deck.sw` — DSL source.
   - `index.tsx` — entry for the Vite-served `Presentation` app at `/` (existing v0.0 demo).
   - `registry.ts` — host-agnostic component registry + static color tokens; imported by both `index.tsx` and the canvas.
-  - `components/` — `TitleSlide.tsx`, `ContentSlide.tsx`, `CardRow.tsx`, `VStack.tsx`, `HStack.tsx`, `Freeform.tsx`, `Box.tsx`, `TextBox.tsx`, `Arrow.tsx`. Each `Box` / `TextBox` / `Arrow` exports a `canvas: ShapeAdapter` (drag / resize / handle behavior — see **`slidewright/canvas/shape-adapter.ts`**). `VStack` / `HStack` export `canvas: LayoutMeta` (selectable + inspectable in v0.4 tight cut, no gestures yet — see **`slidewright/canvas/layout-meta.ts`**).
+  - `components/` — `TitleSlide.tsx`, `ContentSlide.tsx`, `CardRow.tsx`, `VStack.tsx`, `HStack.tsx`, `Freeform.tsx`, `Box.tsx`, `TextBox.tsx`, `Arrow.tsx`. Each `Box` / `TextBox` / `Arrow` exports a `canvas: ShapeAdapter` (drag / resize / handle behavior — see **`slidewright/canvas/shape-adapter.ts`**). `VStack` / `HStack` export `canvas: LayoutAdapter` (selectable + inspectable today; gesture-related methods optional — see **`slidewright/canvas/layout-adapter.ts`**).
 - **`src/`** — Vite-served apps + the existing slide scaffold.
   - `Presentation.jsx`, `Slide.jsx`, `CodeBlock.jsx` — the existing scaffold (kbd nav, popout notes, scaling, print).
   - `App.jsx` — wires `decks/v0-reference/index.tsx` into the `Presentation` runtime (the v0.0 demo).
@@ -33,11 +33,11 @@ The bet: bidirectional projectional editing of a typed component tree, with stab
   - **`canvas/`** — host-agnostic canvas UI.
     - `host.ts` — `Host` interface.
     - `App.tsx` — top-level canvas component. State + effects for source / selection / gestures / nav / layout. After the v0.3 refactor, gesture state is React-driven: per-pointermove `setGesture` updates dx/dy; the loader's `ShapeProjection` wrapper consumes a gesture context and re-renders shapes with adjusted params; selection visuals are React components portaled into the active Freeform.
-    - `shape-adapter.ts` — declarative ShapeAdapter contract: `calculateBounds`, `applyGesture`, `Handles` (React component), `commit`, plus opaque-delta plumbing (`buildTemplate`, `combineTemplate`). `ShapeDelta` has three arms — `translate` and `transform` are framework-known universals; `opaque` carries the adapter's bespoke payload (`unknown` to the framework). Pure functions / React components. No imperative DOM hooks.
+    - `shape-adapter.ts` — declarative ShapeAdapter contract: `calculateBounds`, `applyGesture`, `Handles` (React component), `commit`, plus opaque-delta plumbing (`buildGestureState` runs once at gesture start to capture stable state; `combineGestureState` runs per pointermove to derive the per-frame delta). `ShapeDelta` has three arms — `translate` and `transform` are framework-known universals; `opaque` carries the adapter's bespoke payload (`unknown` to the framework). Pure functions / React components. No imperative DOM hooks.
     - `gesture-context.tsx` — React context channel carrying the per-shape delta map (`Map<spanKey, ShapeDelta>`) from App down to `ShapeProjection`s deep in the slide tree.
     - `shape-projection.tsx` — the loader's `wrapShape` callback. Each component invocation gets rendered through a `ShapeProjection` that consumes the gesture context, calls `adapter.applyGesture(params, delta)`, then renders the shape's React component with adjusted params. The result: shape position is a pure function of `(source params + active delta)`.
     - `selection-layer.tsx` — React component that renders all selection visuals (per-shape outlines, group bbox, handles). Iterates the loader's shape registry. Branches per item: shapes use `adapter.calculateBounds` from gesture-adjusted params; layouts (HStack / VStack) DOM-measure bounds via the loader's wrapper. Portals into the active Freeform's positioned div.
-    - `layout-meta.ts` — `LayoutMeta` discriminator + `isLayoutMeta` type guard for non-shape selectable components (HStack / VStack today). Stays sparse on purpose; grows when the reorder follow-up + wider-cut gesture work pin down what a real LayoutAdapter needs.
+    - `layout-adapter.ts` — `LayoutAdapter` contract for non-shape selectable components (HStack / VStack today). `kind: 'layout'` discriminator is required; all gesture-related methods (`interceptChildDrag`, `Handles`, `buildGestureState` / `combineGestureState`, `applyGesture`, `commit`, `GestureOverlay`) are optional, so a layout adapter can opt into reorder / gap-drag / future insertion gestures piecewise. `isLayoutAdapter` type guard for use-site discrimination.
     - `rect-adapter.ts` — `makeRectAdapter({ width, height })` factory shared by Box, TextBox, and any future HTML-rectangle shape.
     - `ScaledCanvas.tsx` — 1920x1080 design surface auto-fitted via CSS transform; pointerdown dispatch (selectable / draggable / create-tool); double-click → text-edit or selection-sync.
     - `ast-edits.ts` — pure AST helpers (locators, constructors, mutators) plus `commitSourceEdit` (the parse → mutate → emit → reparse → setSource pipeline) plus `computeArrowGeometry`. No React.
@@ -133,7 +133,7 @@ Two items from the original v0.3 list were deferred to v0.4: **click into named 
 
 v0.4 is being delivered in three cuts:
 
-- **Tight cut (landed).** Opaque-delta refactor + HStack / VStack as selectable + inspectable layout primitives. Stacks-inside-Freeforms work end-to-end: click a stack to select, see its `spacing` param in the inspector, edit + commit + undo. New `slidewright/canvas/layout-meta.ts` carries the `{ kind: 'layout' }` discriminator that gets stacks into the loader's shapes registry alongside ShapeAdapter entries; selection-layer DOM-measures their bounds. No gestures on stacks (no body-drag, no resize, no gap-drag).
+- **Tight cut (landed).** Opaque-delta refactor + HStack / VStack as selectable + inspectable layout primitives. Stacks-inside-Freeforms work end-to-end: click a stack to select, see its `spacing` param in the inspector, edit + commit + undo. `slidewright/canvas/layout-adapter.ts` carries the `LayoutAdapter` contract; for the tight cut, stacks export only the `kind: 'layout'` discriminator (all gesture methods optional). Selection-layer DOM-measures their bounds. No gestures on stacks yet (no body-drag, no resize, no gap-drag, no reorder).
 - **Reorder (immediate next).** Drag a child within an HStack / VStack to a new index. Promotes the layout-shaped specialness into a real `LayoutAdapter` contract (parent-owned commit, drop-zone descriptor, reorder commit). This is when we'll learn what the contract actually needs.
 - **Wider cut (deferred).** Gap-dragging to adjust `spacing`. Slot-targeted insertion gestures (drag-from-toolbar, click-empty-slot-then-pick). Empty-slot placeholders. Click-into-named-slots typed selection. Component toolbar overhaul.
 
@@ -160,23 +160,23 @@ The full tree-sitter rationale lived in this file at v0.1 and is preserved in gi
 ```
 ScaledCanvas pointerdown (or adapter Handles pointerdown)
       ↓
-App builds a per-shape `DeltaTemplate` map. Three arms:
+App builds a per-shape `GestureState` map. Three arms:
   - body drag → `{kind:'translate'}` (universal).
   - group resize → `{kind:'transform'}` per member (universal;
     group bbox + direction live on gestureMeta.groupResize).
-  - per-shape Handles drag → `{kind:'opaque',template}` where the
-    template was produced by adapter.buildTemplate(init) — opaque
-    to the framework.
+  - per-shape Handles drag → `{kind:'opaque',payload}` where the
+    payload was produced by adapter.buildGestureState(init) —
+    opaque to the framework.
       ↓
-App.setGesture({ templates, pointerStart, scale, dx:0, dy:0, ... })
+App.setGesture({ states, pointerStart, scale, dx:0, dy:0, ... })
       ↓
 useEffect attaches document.pointermove / pointerup
       ↓
 pointermove: dx, dy = (clientX/Y - pointerStart) / scale; setGesture
-react renders. gestureDeltas memo turns each template into a
-ShapeDelta — translate / transform are framework-derived, opaque
-arms call adapter.combineTemplate(template, dx, dy). The map flows
-through the GestureProvider context. ShapeProjection wrappers
+react renders. gestureDeltas memo turns each gesture state into a
+ShapeDelta — translate / transform are framework-derived; opaque
+arms call adapter.combineGestureState(payload, dx, dy). The map
+flows through the GestureProvider context. ShapeProjection wrappers
 consume their delta and call adapter.applyGesture(params, delta).
 React reconciles DOM. SelectionLayer reads the same data and renders
 outlines / group bbox / handles at adjusted positions.
@@ -206,7 +206,7 @@ The v0.4 tight cut landed (see "v0.4 status" above). What's left:
 - A drop-zone descriptor — visual indicator at each insertion gap, parent-rendered.
 - A `ReorderDelta` (or its opaque-arm equivalent) carrying source / target index.
 
-The architectural call (extend `ShapeAdapter` vs. introduce `LayoutAdapter`) lands here, informed by what reorder actually demands. Today's `slidewright/canvas/layout-meta.ts` is intentionally sparse (just a discriminator); promote it to a real interface when the methods are pinned down.
+The architectural call landed in favor of `LayoutAdapter` (parallel to `ShapeAdapter`), with optional gesture methods so layouts can opt into reorder / gap-drag / future insertion piecewise. See `slidewright/canvas/layout-adapter.ts`.
 
 **Wider cut: gestures + slot mechanics.** Picked up after reorder lands.
 
@@ -219,7 +219,7 @@ The architectural call (extend `ShapeAdapter` vs. introduce `LayoutAdapter`) lan
 - **Component toolbar overhaul** — today's tool palette is four hardcoded buttons (`select` / `box` / `textbox` / `arrow`). Once slotted layouts and composites become first-class, the toolbar needs categorization, search, and slot-aware filtering (only surface components whose `produces` matches the targeted slot type). The registry needs to expose per-component metadata (icon, category) for the toolbar to consume. Effectively a prerequisite for the layout-DM story below — you can't add a layout via direct manipulation without a way to summon it.
 
 - **Layout add / configure via direct manipulation** — adding a layout component into a slot, configuring its params, populating its children. Decomposes into:
-  - **Insertion gestures** — drag-from-toolbar-into-slot, click-empty-slot-then-pick, etc. With the opaque-delta refactor in place, these live in the layout adapter's `buildTemplate` / `combineTemplate` / `applyGesture` / `commit` rather than touching App.tsx.
+  - **Insertion gestures** — drag-from-toolbar-into-slot, click-empty-slot-then-pick, etc. With the opaque-delta refactor in place, these live in the layout adapter's `buildGestureState` / `combineGestureState` / `applyGesture` / `commit` rather than touching App.tsx.
   - **Slot-typed acceptance** — only allow drops into slots whose type matches the inserted component's `produces`. Ties into empty-slot placeholders above.
   - **Param configuration via gesture** — drag the gap between two `VStack` children to adjust `spacing`; drag a divider to change a `Grid` column width; drag an `HStack`'s alignment guide. Gestures bound to specific layout params, not just spatial position. The inspector covers the same params from the keyboard side; the gesture surface is the direct-manipulation peer.
 
@@ -239,7 +239,7 @@ The architectural call (extend `ShapeAdapter` vs. introduce `LayoutAdapter`) lan
 
 ### Gestures
 
-- **Shift to lock aspect ratio** during single-shape and group resize. Constraint applied at `templateToDelta` time: clamp `sy` to `sx` (or vice versa) per direction. Doesn't require the matrix generalization below.
+- **Shift to lock aspect ratio** during single-shape and group resize. Constraint applied at `gestureStateToDelta` time: clamp `sy` to `sx` (or vice versa) per direction. Doesn't require the matrix generalization below.
 
 - **Rotation** on single-shape and group selections. Forces `TransformDelta` to grow from axis-aligned `{sx, sy, tx, ty}` to a full 2x3 matrix `{a, b, c, d, tx, ty}` (`a = cos, b = -sin, c = sin, d = cos`). Adapter bounds — currently axis-aligned — would need to compute oriented bounding boxes or stop being axis-aligned.
 

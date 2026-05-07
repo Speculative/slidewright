@@ -11,9 +11,10 @@
 // The bespoke gesture for rects is `box-resize` — drag one of 8
 // corner / edge handles. It flows through the framework's
 // opaque-delta channel: RectHandles emits `{ kind: 'opaque', span,
-// init: RectInit }`; framework calls adapter.buildTemplate(init)
-// to capture a RectTemplate; per-frame combineTemplate produces a
-// RectDelta; applyGesture / commit cast through the opaque arm.
+// init: RectInit }`; framework calls
+// adapter.buildGestureState(init) to capture a RectGestureState;
+// per-frame combineGestureState produces a RectDelta; applyGesture
+// / commit cast through the opaque arm.
 
 import { createElement, type ReactElement } from 'react';
 
@@ -44,9 +45,9 @@ export interface Rect {
 // ─── Rect-adapter's internal opaque-channel types ────────────────
 //
 // `RectInit` is what RectHandles emits via startGesture's opaque
-// arm. `RectTemplate` is captured by buildTemplate at gesture-
-// start. `RectDelta` is what combineTemplate produces per frame
-// and applyGesture / commit consume from the opaque arm.
+// arm. `RectGestureState` is captured by buildGestureState at
+// gesture-start. `RectDelta` is what combineGestureState produces
+// per frame and applyGesture / commit consume from the opaque arm.
 
 interface RectInit {
   kind: 'box-resize';
@@ -54,7 +55,7 @@ interface RectInit {
   original: Rect;
 }
 
-interface RectTemplate {
+interface RectGestureState {
   kind: 'box-resize';
   direction: BoxResizeDirection;
   original: Rect;
@@ -219,19 +220,19 @@ export function makeRectAdapter(defaults: { width: number; height: number }): Sh
       return params;
     },
 
-    buildTemplate(init) {
+    buildGestureState(init) {
       const cast = init as RectInit | null;
       if (!cast || cast.kind !== 'box-resize') return null;
-      const template: RectTemplate = {
+      const state: RectGestureState = {
         kind: 'box-resize',
         direction: cast.direction,
         original: cast.original,
       };
-      return template;
+      return state;
     },
 
-    combineTemplate(template, dx, dy) {
-      const cast = template as RectTemplate | null;
+    combineGestureState(state, dx, dy) {
+      const cast = state as RectGestureState | null;
       if (!cast || cast.kind !== 'box-resize') return null;
       const out: RectDelta = {
         kind: 'box-resize',

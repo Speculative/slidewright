@@ -533,17 +533,17 @@ interface ShapeAdapter {
 
   // Opaque-delta plumbing for adapter-bespoke gestures. The
   // Handles component emits an opaque init via startGesture; the
-  // framework hands the init back here, then calls
-  // combineTemplate per frame to produce the per-frame opaque
-  // delta payload. Both signatures are `unknown` because the
-  // framework never inspects them.
-  buildTemplate(init: unknown): unknown;
-  combineTemplate(template: unknown, dx: number, dy: number): unknown;
+  // framework hands the init back to buildGestureState (once at
+  // gesture start), then calls combineGestureState per frame to
+  // produce the per-frame opaque delta. Both are `unknown`
+  // because the framework never inspects them.
+  buildGestureState(init: unknown): unknown;
+  combineGestureState(state: unknown, dx: number, dy: number): unknown;
 
   // React component rendering the shape's selection handles.
   // Each handle's pointerdown emits `{ kind: 'opaque', span,
   // init }` via startGesture, where `init` is the adapter's own
-  // typed init payload (returned to it via buildTemplate).
+  // typed init payload (returned to it via buildGestureState).
   Handles: ComponentType<HandlesProps>;
 
   // Mutate the AST given the final ShapeDelta.
@@ -581,7 +581,7 @@ The shared rect-adapter (`slidewright/canvas/rect-adapter.ts`) factors Box / Tex
 `ShapeDelta` has three arms:
 
 - **`translate`** (body drag, group body drag) and **`transform`** (group resize, future rotation) are framework-known universal kinds. App.tsx hard-codes them because they apply uniformly across every selected shape — body drag dispatches the same translate to all selected shapes; group resize derives one transform per frame from the captured group bbox + cursor and dispatches it to every member.
-- **`opaque`** is the adapter-bespoke arm. The adapter's `Handles` emits `{ kind: 'opaque', span, init }` where `init` carries the adapter's own internal init payload. App calls `adapter.buildTemplate(init)` at gesture-start to capture an opaque template (stored as `unknown`); per-frame `adapter.combineTemplate(template, dx, dy)` produces the opaque delta payload (also `unknown`). The framework wraps it as `{ kind: 'opaque', delta }` and feeds it to `applyGesture` (rendering) and `commit`. The framework never inspects the adapter's payload.
+- **`opaque`** is the adapter-bespoke arm. The adapter's `Handles` emits `{ kind: 'opaque', span, init }` where `init` carries the adapter's own internal init payload. App calls `adapter.buildGestureState(init)` at gesture-start to capture stable per-gesture state (stored as `unknown`); per-frame `adapter.combineGestureState(state, dx, dy)` produces the opaque delta payload (also `unknown`). The framework wraps it as `{ kind: 'opaque', delta }` and feeds it to `applyGesture` (rendering) and `commit`. The framework never inspects the adapter's payload.
 
 Today's bespoke gestures: `box-resize` (rect-adapter — Box / TextBox), `arrow-endpoint` (Arrow). Future bespoke gestures (bezier control points, shadow offset grips, slot-targeted operations on layout adapters) carry their own internal types behind the same opaque channel — no App.tsx edits required to add them.
 

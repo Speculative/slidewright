@@ -57,7 +57,7 @@ import type {
 import { resizeRect } from './rect-adapter.js';
 import { GestureProvider, spanKey } from './gesture-context.js';
 import { wrapShape } from './shape-projection.js';
-import { isLayoutMeta } from './layout-meta.js';
+import { isLayoutAdapter } from './layout-adapter.js';
 import { SelectionLayer } from './selection-layer.js';
 import { DiagnosticsPanel } from './DiagnosticsPanel.js';
 import { SlideStrip } from './SlideStrip.js';
@@ -153,7 +153,7 @@ export function prepareSlide(wrappedSlide: ReactElement): ReactElement {
 //
 // Split into two pieces:
 //   - `gestureMeta` — set once at gesture-start, cleared at end.
-//     Carries pointer captures, the per-shape delta templates, and
+//     Carries pointer captures, the per-shape gesture states, and
 //     metadata commit needs.
 //   - `gestureLive` — pointer-derived `dx, dy`. Updated per
 //     pointermove via `setGestureLive`.
@@ -165,7 +165,7 @@ export function prepareSlide(wrappedSlide: ReactElement): ReactElement {
 // does NOT cause the effect to re-run, avoiding per-frame
 // remove/add of document listeners.
 
-// Per-shape gesture template. Three arms:
+// Per-shape gesture state. Three arms:
 //   - `translate` — body drag / group body drag. Per-frame delta is
 //     the universal `{ kind: 'translate', dx, dy }`; same for every
 //     selected shape.
@@ -173,17 +173,17 @@ export function prepareSlide(wrappedSlide: ReactElement): ReactElement {
 //     derived each frame from gestureMeta.groupResize (single source
 //     of truth for the whole group, since every member sees the same
 //     transform).
-//   - `opaque` — adapter-bespoke gesture. The template was produced
-//     by `adapter.buildTemplate(init)` at gesture-start; per-frame
-//     `adapter.combineTemplate(template, dx, dy)` produces the
-//     opaque delta payload. The framework treats this as `unknown`.
-type DeltaTemplate =
+//   - `opaque` — adapter-bespoke gesture. The payload was produced
+//     by `adapter.buildGestureState(init)` at gesture-start; per-
+//     frame `adapter.combineGestureState(payload, dx, dy)` produces
+//     the opaque delta. The framework treats both as `unknown`.
+type GestureState =
   | { kind: 'translate' }
   | { kind: 'transform' }
-  | { kind: 'opaque'; template: unknown };
+  | { kind: 'opaque'; payload: unknown };
 
 interface GestureMeta {
-  templates: ReadonlyMap<string, DeltaTemplate>;
+  states: ReadonlyMap<string, GestureState>;
   spans: ReadonlyArray<SourceRange>;
   pointerStartX: number;
   pointerStartY: number;
@@ -194,7 +194,7 @@ interface GestureMeta {
   // Set when this is a group-resize gesture. The framework uses the
   // captured group bbox + direction to compute a single transform
   // each frame, then replicates that transform to every member's
-  // template.
+  // gesture state.
   groupResize?: {
     direction: BoxResizeDirection;
     original: { x: number; y: number; width: number; height: number };
@@ -474,7 +474,7 @@ export function App({
       }
       // External edit. Three responses:
       //   1. Cancel any in-progress gesture (its captured spans /
-      //      templates point at a stale AST).
+      //      gesture states point at a stale AST).
       //   2. Clear the canvas-side undo/redo stacks — external
       //      edits are barriers per SLIDEWRIGHT.md / Undo/redo.
       //   3. Preserve selection by (slideIdx, childIdx,
@@ -656,7 +656,7 @@ export function App({
       label,
       spans,
       slideIdx,
-      templates,
+      states,
       groupResize,
     } = gestureMeta;
 
@@ -686,12 +686,12 @@ export function App({
         let any = false;
         for (const span of spans) {
           const key = spanKey(span);
-          const template = templates.get(key);
-          if (!template) continue;
+          const state = states.get(key);
+          if (!state) continue;
           const data = stateRef.current?.shapes.get(key);
           if (!data) continue;
           const adapter = data.canvas as ShapeAdapter;
-          const finalDelta = templateToDelta(template, dx, dy, groupResize, adapter);
+          const finalDelta = gestureStateToDelta(state, dx, dy, groupResize, adapter);
           const out = adapter.commit(ast, span, finalDelta, slideIdx);
           if (!out) continue;
           any = true;
@@ -840,7 +840,7 @@ export function App({
           // be selected by direct click but not by marquee — their
           // bounds are flow-laid and they often span the whole slide
           // area, making marquee selection counterintuitive.
-          if (isLayoutMeta(data.canvas)) continue;
+          if (isLayoutAdapter(data.canvas)) continue;
           const adapter = data.canvas as ShapeAdapter;
           const b = adapter.calculateBounds(data.params);
           if (!b) continue;
@@ -970,21 +970,21 @@ export function App({
 
   // ─── Derived gesture deltas (for context distribution) ──────────
   //
-  // Turns gesture state's `templates + dx/dy` into a Map<spanKey,
+  // Turns gesture state's `states + dx/dy` into a Map<spanKey,
   // ShapeDelta> that the GestureProvider hands down to every
   // ShapeProjection wrapper and to the SelectionLayer. Opaque-arm
-  // templates need their adapter to produce the per-frame delta;
+  // entries need their adapter to produce the per-frame delta;
   // looked up from the live shapes registry.
   const gestureDeltas = useMemo<ReadonlyMap<string, ShapeDelta>>(() => {
     if (!gestureMeta || !state) return EMPTY_DELTAS;
     const out = new Map<string, ShapeDelta>();
-    for (const [key, template] of gestureMeta.templates) {
+    for (const [key, gestureState] of gestureMeta.states) {
       const data = state.shapes.get(key);
       const adapter = (data?.canvas as ShapeAdapter | undefined) ?? null;
       out.set(
         key,
-        templateToDelta(
-          template,
+        gestureStateToDelta(
+          gestureState,
           gestureLive.dx,
           gestureLive.dy,
           gestureMeta.groupResize,
@@ -1000,27 +1000,28 @@ export function App({
   // Two HandleGestureInit kinds:
   //   - `group-resize` — emitted by SelectionLayer's GroupHandles
   //     when 2+ shapes are selected. Framework-known: per-shape
-  //     templates are `{ kind: 'transform' }` markers and the actual
-  //     matrix is derived each frame from gestureMeta.groupResize.
+  //     gesture states are `{ kind: 'transform' }` markers and the
+  //     actual matrix is derived each frame from
+  //     gestureMeta.groupResize.
   //   - `opaque` — emitted by an adapter's per-shape Handles. Carries
   //     the shape's span plus the adapter's internal init payload.
-  //     We look up the adapter and call its buildTemplate to capture
-  //     a per-shape opaque template; per-frame combineTemplate
-  //     produces the opaque delta.
+  //     We look up the adapter and call its buildGestureState to
+  //     capture a per-shape opaque payload; per-frame
+  //     combineGestureState produces the opaque delta.
   const startGesture: StartGesture = useCallback(
     (init, event) => {
       const slideIdx = activeIdxRef.current;
       if (init.kind === 'group-resize') {
-        const templates = new Map<string, DeltaTemplate>();
+        const states = new Map<string, GestureState>();
         const spans: SourceRange[] = [];
         for (const m of init.members) {
           const span: SourceRange = { start: m.start, end: m.end };
-          templates.set(spanKey(span), { kind: 'transform' });
+          states.set(spanKey(span), { kind: 'transform' });
           spans.push(span);
         }
-        if (templates.size === 0) return;
+        if (states.size === 0) return;
         setGestureMeta({
-          templates,
+          states,
           spans,
           pointerStartX: event.clientX,
           pointerStartY: event.clientY,
@@ -1034,17 +1035,17 @@ export function App({
         return;
       }
       // Opaque arm. Look up the adapter via the span the Handles
-      // component carried; ask it to build a per-shape template.
+      // component carried; ask it to build a per-shape gesture state.
       const span = init.span;
       const key = spanKey(span);
       const data = stateRef.current?.shapes.get(key);
       if (!data) return;
       const adapter = data.canvas as ShapeAdapter | undefined;
       if (!adapter) return;
-      const template = adapter.buildTemplate(init.init);
-      if (template == null) return;
+      const payload = adapter.buildGestureState(init.init);
+      if (payload == null) return;
       setGestureMeta({
-        templates: new Map([[key, { kind: 'opaque', template }]]),
+        states: new Map([[key, { kind: 'opaque', payload }]]),
         spans: [{ start: span.start, end: span.end }],
         pointerStartX: event.clientX,
         pointerStartY: event.clientY,
@@ -1255,29 +1256,29 @@ function preserveSelectionAcrossExternalEdit(
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
-function templateToDelta(
-  template: DeltaTemplate,
+function gestureStateToDelta(
+  state: GestureState,
   dx: number,
   dy: number,
   groupResize: GestureMeta['groupResize'] | undefined,
   adapter: ShapeAdapter | null,
 ): ShapeDelta {
-  if (template.kind === 'translate') {
+  if (state.kind === 'translate') {
     return { kind: 'translate', dx, dy };
   }
-  if (template.kind === 'transform') {
+  if (state.kind === 'transform') {
     // Group resize. Without group context, fall back to identity —
-    // shouldn't happen in practice (transform templates only get
+    // shouldn't happen in practice (transform states only get
     // created together with groupResize), but stay safe.
     if (!groupResize) return { kind: 'transform', sx: 1, sy: 1, tx: 0, ty: 0 };
     return groupResizeToTransform(groupResize, dx, dy);
   }
-  // Opaque arm — the adapter combines its captured template with
-  // the cursor delta to produce the per-frame opaque payload.
+  // Opaque arm — the adapter combines its captured payload with
+  // the cursor delta to produce the per-frame opaque delta.
   if (!adapter) return { kind: 'opaque', delta: null };
   return {
     kind: 'opaque',
-    delta: adapter.combineTemplate(template.template, dx, dy),
+    delta: adapter.combineGestureState(state.payload, dx, dy),
   };
 }
 
@@ -1317,8 +1318,8 @@ function groupResizeToTransform(
 
 // Body-drag dispatch. Decides whether the drag is single-shape or
 // group (based on the clicked shape's membership in the current
-// selection), builds a translate-template per affected shape, sets
-// gesture state.
+// selection), builds a translate gesture state per affected shape,
+// sets gestureMeta.
 function startBodyDrag(
   target: DragStart,
   selected: ReadonlyArray<SourceRange>,
@@ -1334,28 +1335,28 @@ function startBodyDrag(
     isInSelection && selected.length > 1
       ? Array.from(selected)
       : [targetSpan];
-  // Build a translate-template per affected shape. The same
-  // template applies to every shape in a group drag — they all
+  // Build a translate gesture state per affected shape. The same
+  // state applies to every shape in a group drag — they all
   // translate by the same dx/dy. Layouts (HStack / VStack) in the
   // selection are skipped: tight cut doesn't gesture on them, and
   // their commit path doesn't have a `translate` arm. Without this
   // filter, group-dragging a shape while a layout is also selected
   // would crash trying to call adapter.commit on the layout.
-  const templates = new Map<string, DeltaTemplate>();
+  const states = new Map<string, GestureState>();
   const spans: SourceRange[] = [];
   let slideIdx = 0;
   for (const span of dragSpans) {
     const key = spanKey(span);
     const data = shapes.get(key);
     if (!data) continue;
-    if (isLayoutMeta(data.canvas)) continue;
-    templates.set(key, { kind: 'translate' });
+    if (isLayoutAdapter(data.canvas)) continue;
+    states.set(key, { kind: 'translate' });
     spans.push(span);
     slideIdx = data.slideIdx;
   }
-  if (templates.size === 0) return;
+  if (states.size === 0) return;
   setGestureMeta({
-    templates,
+    states,
     spans,
     pointerStartX: target.pointerStartX,
     pointerStartY: target.pointerStartY,

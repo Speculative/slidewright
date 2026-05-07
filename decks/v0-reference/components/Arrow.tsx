@@ -117,7 +117,7 @@ interface ArrowInit {
   fixedY: number;
 }
 
-interface ArrowTemplate {
+interface ArrowGestureState {
   kind: 'arrow-endpoint';
   endpoint: 1 | 2;
   originalX: number;
@@ -196,10 +196,10 @@ export const canvas: ShapeAdapter = {
     return params;
   },
 
-  buildTemplate(init) {
+  buildGestureState(init) {
     const cast = init as ArrowInit | null;
     if (!cast || cast.kind !== 'arrow-endpoint') return null;
-    const template: ArrowTemplate = {
+    const state: ArrowGestureState = {
       kind: 'arrow-endpoint',
       endpoint: cast.endpoint,
       originalX: cast.originalX,
@@ -207,11 +207,11 @@ export const canvas: ShapeAdapter = {
       fixedX: cast.fixedX,
       fixedY: cast.fixedY,
     };
-    return template;
+    return state;
   },
 
-  combineTemplate(template, dx, dy) {
-    const cast = template as ArrowTemplate | null;
+  combineGestureState(state, dx, dy) {
+    const cast = state as ArrowGestureState | null;
     if (!cast || cast.kind !== 'arrow-endpoint') return null;
     const out: ArrowDelta = {
       kind: 'arrow-endpoint',

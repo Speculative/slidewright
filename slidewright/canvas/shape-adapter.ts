@@ -48,12 +48,16 @@
 //     the framework's `startGesture` callback with an opaque
 //     HandleGestureInit blob carrying the adapter's internal init
 //     payload. The framework hands the payload back to the same
-//     adapter's `buildTemplate`.
-//   - `buildTemplate(init)` / `combineTemplate(template, dx, dy)`
-//     — opaque-delta plumbing for the adapter's own bespoke
-//     gestures. The framework treats both template and the
-//     resulting delta as `unknown`; only the adapter knows their
-//     internal shape.
+//     adapter's `buildGestureState`.
+//   - `buildGestureState(init)` / `combineGestureState(state, dx,
+//     dy)` — opaque-delta plumbing for the adapter's own bespoke
+//     gestures. `buildGestureState` runs once at gesture start
+//     and captures whatever the adapter wants to remember for the
+//     gesture's duration (e.g., source rect, original endpoint).
+//     `combineGestureState` runs per pointermove and combines that
+//     captured state with the live cursor delta to produce the
+//     per-frame opaque delta. The framework treats both as
+//     `unknown`; only the adapter knows their internal shape.
 //   - `commit(ast, span, finalDelta, slideIdx)` — mutate the AST
 //     given the final ShapeDelta. Returns optional preserveSelection
 //     so the host round-trip restores selection on the post-emit
@@ -117,7 +121,7 @@ export interface TransformDelta {
 }
 
 // Adapter-bespoke gesture. The framework treats `delta` as opaque
-// — it's whatever shape the adapter's `combineTemplate` returns,
+// — it's whatever shape the adapter's `combineGestureState` returns,
 // and the adapter's `applyGesture` / `commit` know how to cast it.
 export interface OpaqueDelta {
   kind: 'opaque';
@@ -136,7 +140,7 @@ export type ShapeDelta = TranslateDelta | TransformDelta | OpaqueDelta;
 // group-handle layer in SelectionLayer, not by per-shape adapters)
 // and adapter-emitted `opaque` carrying the shape's span plus the
 // adapter's internal init payload (which the framework hands back
-// to `adapter.buildTemplate`).
+// to `adapter.buildGestureState`).
 export type StartGesture = (
   init: HandleGestureInit,
   event: PointerEvent,
@@ -162,7 +166,7 @@ export type HandleGestureInit =
       // `{ kind: 'box-resize', direction, original }` or
       // `{ kind: 'arrow-endpoint', endpoint, originalX, originalY,
       // fixedX, fixedY }`). The framework looks up the adapter via
-      // the span and calls adapter.buildTemplate(init).
+      // the span and calls adapter.buildGestureState(init).
       kind: 'opaque';
       span: ShapeSpan;
       init: unknown;
@@ -200,28 +204,29 @@ export interface ShapeAdapter {
   // ─── Opaque-delta plumbing for adapter-bespoke gestures ────────
   //
   // When an adapter's Handles emits `{ kind: 'opaque', span, init
-  // }`, the framework calls `adapter.buildTemplate(init)` to get
-  // an opaque template, and `adapter.combineTemplate(template, dx,
-  // dy)` per pointermove to derive the per-frame opaque delta
-  // (which the framework then wraps as `{ kind: 'opaque', delta:
-  // ... }` and feeds to applyGesture / commit).
+  // }`, the framework calls `adapter.buildGestureState(init)` to
+  // capture stable per-gesture state, and
+  // `adapter.combineGestureState(state, dx, dy)` per pointermove
+  // to derive the per-frame opaque delta (which the framework then
+  // wraps as `{ kind: 'opaque', delta: ... }` and feeds to
+  // applyGesture / commit).
   //
   // Both signatures are `unknown` because the framework never
   // inspects the contents — only the adapter does. Adapters that
   // emit no opaque inits can return null / no-op from these.
 
-  // Convert a Handles-emitted init to a stable per-shape template
-  // captured at gesture-start. Templates are immutable for the
-  // gesture's duration; per-frame deltas come from
-  // `combineTemplate`.
-  buildTemplate(init: unknown): unknown;
+  // Convert a Handles-emitted init to a stable per-gesture state
+  // captured at gesture-start. The captured state is immutable for
+  // the gesture's duration; per-frame deltas come from
+  // `combineGestureState`.
+  buildGestureState(init: unknown): unknown;
 
-  // Per-frame: combine the captured template with the cursor delta
-  // (in design-space pixels) to produce an opaque delta. Returned
-  // value flows to `applyGesture` (rendering) and at gesture-end to
-  // `commit`.
-  combineTemplate(
-    template: unknown,
+  // Per-frame: combine the captured gesture state with the cursor
+  // delta (in design-space pixels) to produce an opaque delta.
+  // Returned value flows to `applyGesture` (rendering) and at
+  // gesture-end to `commit`.
+  combineGestureState(
+    state: unknown,
     dx: number,
     dy: number,
   ): unknown;
