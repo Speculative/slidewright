@@ -4,6 +4,7 @@
 
 import type { ReactNode } from 'react';
 import type { ComponentMeta, ComponentRenderProps } from '../../../slidewright/runtime/contract.js';
+import type { LayoutAdapter } from '../../../slidewright/canvas/layout-adapter.js';
 
 export const slidewright: ComponentMeta = {
   produces: 'block',
@@ -17,6 +18,12 @@ export const slidewright: ComponentMeta = {
   },
   protocols: {},
 };
+
+// Selectable + inspectable composite. No gesture methods today;
+// the discriminator alone is enough for click-into-slots drilling
+// to recognize CardRow as a real selection target between its
+// parent stack and its inner slots (eyebrow / heading / body).
+export const canvas: LayoutAdapter = { kind: 'layout' };
 
 export default function CardRow({ slots, params }: ComponentRenderProps) {
   const color = (params.color as string | undefined) ?? 'purple';

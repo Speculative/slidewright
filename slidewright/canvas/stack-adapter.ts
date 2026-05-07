@@ -38,6 +38,7 @@ import type {
   LayoutAdapter,
 } from './layout-adapter.js';
 import {
+  flexChildWrappers,
   measureLayoutSnapshot,
   useLayoutMeasurement,
 } from './layout-measurement.js';
@@ -290,12 +291,12 @@ function captureReorderInit(
   if (snap.children.length === 0) return null;
 
   // Find the dragged child's index — which wrapper element has the
-  // matching span attrs. The wrappers (which carry the data-sw-span
-  // attrs) are flexEl.children in DOM order, matching the snapshot's
-  // children-bounds array order.
-  const wrappers = Array.from(snap.layoutEl.children).filter(
-    (n): n is HTMLElement => n instanceof HTMLElement,
-  );
+  // matching span attrs. With slot instrumentation, the children-
+  // slot wraps the per-child component wrappers in a single
+  // `data-sw-slot-name="children"` span; flexChildWrappers walks
+  // past that to give the component wrappers in their flex order
+  // (matching the snapshot's children-bounds array order).
+  const wrappers = flexChildWrappers(snap.layoutEl);
   let sourceIdx = -1;
   for (let i = 0; i < wrappers.length; i++) {
     const w = wrappers[i]!;

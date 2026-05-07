@@ -89,9 +89,14 @@ export function measureLayoutSnapshot(
     height: layoutRect.height / scale,
   };
 
+  // Children may be wrapped by a slot wrapper (data-sw-slot-name)
+  // between the flex container and the actual component wrappers
+  // — slot instrumentation adds one such layer for list slots.
+  // Walk through it to find the component wrappers that are the
+  // visual flex items.
+  const childWrappers = flexChildWrappers(layoutEl);
   const children: Bounds[] = [];
-  for (const w of Array.from(layoutEl.children)) {
-    if (!(w instanceof HTMLElement)) continue;
+  for (const w of childWrappers) {
     const inner = w.firstElementChild;
     if (!(inner instanceof HTMLElement)) continue;
     const r = inner.getBoundingClientRect();
@@ -160,6 +165,30 @@ export function useLayoutMeasurement(
   }, [span.start, span.end]);
 
   return snapshot;
+}
+
+// Walk past slot wrappers (data-sw-slot-name) between the flex
+// container and its visual children. With slot instrumentation,
+// the children-slot for HStack/VStack adds one layer of slot
+// wrapper between the user's flex div and the per-child component
+// wrappers. The slot wrapper is `display: contents` so flex still
+// treats the actual component wrappers as flex items, but DOM-wise
+// `flexEl.children` is just the slot wrapper. This helper returns
+// the component-wrapper-level children.
+export function flexChildWrappers(flexEl: HTMLElement): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  for (const child of Array.from(flexEl.children)) {
+    if (!(child instanceof HTMLElement)) continue;
+    // If this is a slot wrapper, descend into it.
+    if (child.hasAttribute('data-sw-slot-name')) {
+      for (const inner of Array.from(child.children)) {
+        if (inner instanceof HTMLElement) out.push(inner);
+      }
+    } else {
+      out.push(child);
+    }
+  }
+  return out;
 }
 
 function snapshotsEqual(

@@ -19,12 +19,16 @@ import type { ReactElement } from 'react';
 import type { ShapeData } from '../runtime/loader.js';
 import type { SlotFill, Value } from '../runtime/ast.js';
 import type { SourceRange } from './host.js';
+import {
+  componentTarget,
+  type SelectionTarget,
+} from './selection-target.js';
 
 interface HierarchyPanelProps {
   shapes: ReadonlyMap<string, ShapeData>;
   activeIdx: number;
-  selected: readonly SourceRange[];
-  onSelect: (range: SourceRange, modifiers: { shift: boolean }) => void;
+  selected: readonly SelectionTarget[];
+  onSelect: (target: SelectionTarget, modifiers: { shift: boolean }) => void;
   onJumpToSource: (range: SourceRange) => void;
 }
 
@@ -49,7 +53,12 @@ export function HierarchyPanel({
   const isSelected = (data: ShapeData): boolean => {
     const start = data.comp.span.start.offset;
     const end = data.comp.span.end.offset;
-    return selected.some((s) => s.start === start && s.end === end);
+    return selected.some(
+      (s) =>
+        s.kind === 'component' &&
+        s.span.start === start &&
+        s.span.end === end,
+    );
   };
 
   return (
@@ -79,7 +88,7 @@ export function HierarchyPanel({
                   data-sw-span-start={range.start}
                   data-sw-span-end={range.end}
                   onClick={(e) =>
-                    onSelect(range, { shift: e.shiftKey })
+                    onSelect(componentTarget(range), { shift: e.shiftKey })
                   }
                   onDoubleClick={() => onJumpToSource(range)}
                 >
@@ -100,64 +109,105 @@ export function HierarchyPanel({
 }
 
 interface PropertiesPanelProps {
-  // Single-selected shape (when selection is exactly one shape that
-  // resolves in the registry). null when nothing is selected; the
-  // panel renders a placeholder. multiCount > 1 short-circuits to a
-  // multi-select hint instead of rendering rows.
-  shape: ShapeData | null;
+  // Resolved single-selected component shape — null for slot
+  // selections, non-component targets, or no selection.
+  componentShape: ShapeData | null;
+  // Resolved slot context — non-null when the single-selected
+  // target is a slot. Includes the slot's fill (for value
+  // rendering / editing) and the parent shape (for header context).
+  slotInfo: SlotInfo | null;
+  // Count of all selected items. > 1 short-circuits to a multi-
+  // select hint regardless of kind.
   multiCount: number;
   source: string;
   onCommit: (newSource: string, newSelections?: SourceRange[]) => void;
 }
 
+export interface SlotInfo {
+  slotName: string;
+  fill: SlotFill;
+  parentShape: ShapeData;
+}
+
 export function PropertiesPanel({
-  shape,
+  componentShape,
+  slotInfo,
   multiCount,
   source,
   onCommit,
 }: PropertiesPanelProps): ReactElement {
-  const header = shape ? `${shape.comp.name} #${shape.childIdx}` : 'Properties';
+  if (multiCount > 1) {
+    return (
+      <PanelFrame header="Properties">
+        <div className="sw-inspector-panel-empty">
+          ({multiCount} selected — multi-edit not supported yet)
+        </div>
+      </PanelFrame>
+    );
+  }
+  if (slotInfo) {
+    return <SlotPropertiesView slotInfo={slotInfo} source={source} onCommit={onCommit} />;
+  }
+  if (componentShape) {
+    return <ComponentPropertiesView shape={componentShape} source={source} onCommit={onCommit} />;
+  }
+  return (
+    <PanelFrame header="Properties">
+      <div className="sw-inspector-panel-empty">(no selection)</div>
+    </PanelFrame>
+  );
+}
 
+function PanelFrame({
+  header,
+  children,
+}: {
+  header: string;
+  children: ReactElement;
+}): ReactElement {
+  return (
+    <div className="sw-inspector-panel sw-properties-panel">
+      <div className="sw-inspector-panel-header">{header}</div>
+      <div className="sw-inspector-panel-body">{children}</div>
+    </div>
+  );
+}
+
+function ComponentPropertiesView({
+  shape,
+  source,
+  onCommit,
+}: {
+  shape: ShapeData;
+  source: string;
+  onCommit: (newSource: string, newSelections?: SourceRange[]) => void;
+}): ReactElement {
+  const header = `${shape.comp.name} #${shape.childIdx}`;
   // Wrap commit to preserve selection on the same shape across the
   // edit. The edit happens inside this shape's body, so the shape's
   // start offset is unchanged and the end shifts by the source-
   // length delta. Without this, the subscribe handler treats the
   // commit as having no pending selection and clears.
-  const wrappedCommit = shape
-    ? (newSource: string): void => {
-        const delta = newSource.length - source.length;
-        const newRange: SourceRange = {
-          start: shape.comp.span.start.offset,
-          end: shape.comp.span.end.offset + delta,
-        };
-        onCommit(newSource, [newRange]);
-      }
-    : (newSource: string): void => onCommit(newSource);
-
-  let body: ReactElement;
-  if (multiCount > 1) {
-    body = (
-      <div className="sw-inspector-panel-empty">
-        ({multiCount} selected — multi-edit not supported yet)
-      </div>
+  const wrappedCommit = (newSource: string): void => {
+    const delta = newSource.length - source.length;
+    const newRange: SourceRange = {
+      start: shape.comp.span.start.offset,
+      end: shape.comp.span.end.offset + delta,
+    };
+    onCommit(newSource, [newRange]);
+  };
+  if (shape.comp.fills.length === 0) {
+    return (
+      <PanelFrame header={header}>
+        <div className="sw-inspector-panel-empty">(no parameters)</div>
+      </PanelFrame>
     );
-  } else if (!shape) {
-    body = (
-      <div className="sw-inspector-panel-empty">(no selection)</div>
-    );
-  } else if (shape.comp.fills.length === 0) {
-    body = (
-      <div className="sw-inspector-panel-empty">(no parameters)</div>
-    );
-  } else {
-    body = (
+  }
+  return (
+    <PanelFrame header={header}>
       <div className="sw-properties-rows">
         {shape.comp.fills.map((fill) => (
           <PropertyRow
-            // Keying on (slideIdx, childIdx, name) keeps the row's
-            // local draft state across span shifts that follow a
-            // commit on this same shape — without it, every commit
-            // unmounts the input and the user loses focus mid-edit.
             key={`${shape.slideIdx}-${shape.childIdx}-${fill.name}`}
             fill={fill}
             source={source}
@@ -165,14 +215,46 @@ export function PropertiesPanel({
           />
         ))}
       </div>
-    );
-  }
+    </PanelFrame>
+  );
+}
 
+function SlotPropertiesView({
+  slotInfo,
+  source,
+  onCommit,
+}: {
+  slotInfo: SlotInfo;
+  source: string;
+  onCommit: (newSource: string, newSelections?: SourceRange[]) => void;
+}): ReactElement {
+  const { slotName, fill, parentShape } = slotInfo;
+  const header = `Slot: ${slotName}`;
+  // Slot-target selection-preservation across commit not yet
+  // wired (would need to recompute the SlotFill's post-emit span
+  // from the parent's new AST). For now, commit drops slot
+  // selection — same behavior as a delete on a slot. Acceptable
+  // since the only slot-level edits today are inline string /
+  // primitive edits via PropertyRow, where focus survives on its
+  // own.
+  const wrappedCommit = (newSource: string): void => onCommit(newSource);
   return (
-    <div className="sw-inspector-panel sw-properties-panel">
-      <div className="sw-inspector-panel-header">{header}</div>
-      <div className="sw-inspector-panel-body">{body}</div>
-    </div>
+    <PanelFrame header={header}>
+      <div className="sw-properties-rows">
+        <div className="sw-property-row sw-property-row-meta">
+          <span className="sw-property-key">in</span>
+          <span className="sw-property-value sw-property-value-readonly">
+            {parentShape.comp.name} #{parentShape.childIdx}
+          </span>
+        </div>
+        <PropertyRow
+          key={`${parentShape.slideIdx}-${parentShape.childIdx}-${slotName}`}
+          fill={fill}
+          source={source}
+          onCommit={wrappedCommit}
+        />
+      </div>
+    </PanelFrame>
   );
 }
 

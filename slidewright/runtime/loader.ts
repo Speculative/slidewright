@@ -483,7 +483,29 @@ function renderComponent(comp: Component, ctx: LoadCtx): ReactNode {
   for (const [slotName, schema] of Object.entries(loaded.meta.slots)) {
     const fill = fills.get(slotName);
     if (!fill) continue;
-    slots[slotName] = resolveSlotValue(schema.type, fill.value, ctx);
+    const resolved = resolveSlotValue(schema.type, fill.value, ctx);
+    // Wrap renderable slot values (text / block / slide / array<X>
+    // of those) with a `data-sw-slot-name` span so the canvas can
+    // dispatch clicks to the slot. Other slot types (image as URL,
+    // scalars) aren't React-renderable as wrapping children, so
+    // they pass through unwrapped — selection on them is deferred
+    // (image needs a different identification approach; scalars
+    // are conceptually params, edited via inspector).
+    if (isRenderableSlotType(schema.type)) {
+      slots[slotName] = createElement(
+        'span',
+        {
+          'data-sw-slot-name': slotName,
+          'data-sw-slot-span-start': fill.span.start.offset,
+          'data-sw-slot-span-end': fill.span.end.offset,
+          style: { display: 'contents' },
+          key: `slot-${slotName}-${fill.span.start.offset}`,
+        },
+        resolved as ReactNode,
+      );
+    } else {
+      slots[slotName] = resolved;
+    }
   }
 
   for (const [paramName, schema] of Object.entries(loaded.meta.params ?? {})) {
@@ -558,6 +580,19 @@ function renderSpanAsNode(comp: Component, ctx: LoadCtx): ReactNode {
     },
     inner,
   );
+}
+
+// Is this slot type rendered as React content (so wrapping it in
+// a slot span is meaningful for click dispatch)? Text / block /
+// slide and arrays of those resolve to ReactNodes we can wrap.
+// Image, scalars, and tokens resolve to non-React values (URL
+// strings, numbers, etc.) — wrapping them would break the user
+// component's expectation that `slots.headshot` is a string, etc.
+function isRenderableSlotType(type: SlotType): boolean {
+  const inner = type.startsWith('array<')
+    ? (type.slice(6, -1) as SlotType)
+    : type;
+  return inner === 'text' || inner === 'block' || inner === 'slide';
 }
 
 // ── Value resolution by slot type ──────────────────────────────────────

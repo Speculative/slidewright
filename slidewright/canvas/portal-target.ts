@@ -59,9 +59,17 @@ export function useSelectionPortal(
       setEl(null);
       return;
     }
-    const wrapper = document.querySelector(
-      `.sw-canvas-stage [data-sw-span-start="${firstSpan.start}"][data-sw-span-end="${firstSpan.end}"]`,
-    );
+    // The selection's span lives on either a component wrapper
+    // (`data-sw-span-*`) or a slot wrapper (`data-sw-slot-span-*`).
+    // Try both — whichever matches gives a wrapper to walk up
+    // from for the portal-ancestor lookup.
+    const wrapper =
+      document.querySelector(
+        `.sw-canvas-stage [data-sw-span-start="${firstSpan.start}"][data-sw-span-end="${firstSpan.end}"]`,
+      ) ??
+      document.querySelector(
+        `.sw-canvas-stage [data-sw-slot-span-start="${firstSpan.start}"][data-sw-slot-span-end="${firstSpan.end}"]`,
+      );
     if (!wrapper) {
       setEl(null);
       return;

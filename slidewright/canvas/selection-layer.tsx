@@ -37,6 +37,7 @@ import {
   findPortalAncestor,
   useSelectionPortal,
 } from './portal-target.js';
+import type { SelectionTarget } from './selection-target.js';
 import type {
   BoxResizeDirection,
   Bounds,
@@ -51,7 +52,7 @@ const GROUP_DIRECTIONS: BoxResizeDirection[] = [
 ];
 
 interface SelectionLayerProps {
-  selected: SourceRange[];
+  selected: SelectionTarget[];
   shapes: ReadonlyMap<string, ShapeData>;
   gestureDeltas: ReadonlyMap<string, ShapeDelta>;
   // Whether to render handles. Currently false during creation
@@ -63,7 +64,7 @@ interface SelectionLayerProps {
   startGesture: StartGesture;
 }
 
-// Selectable items split into two kinds:
+// Selectable items split into three kinds:
 //   - 'shape' — has a ShapeAdapter; bounds come from
 //     adapter.calculateBounds(params); supports Handles + group
 //     resize.
@@ -71,6 +72,10 @@ interface SelectionLayerProps {
 //     Bounds DOM-measured from the loader's wrapper. Handles are
 //     optional (gap-drag grips when implemented); excluded from
 //     group-resize handle rendering.
+//   - 'slot' — a named slot fill on a component (e.g.,
+//     CardRow.body). Bounds DOM-measured from the slot wrapper's
+//     content via Range API. No Handles, no group resize.
+//     Visually distinct (teal dashed border + slot name label).
 type SelectionItem =
   | {
       kind: 'shape';
@@ -87,6 +92,14 @@ type SelectionItem =
       adapter: LayoutAdapter;
       params: Record<string, unknown>;
       bounds: Bounds;
+    }
+  | {
+      kind: 'slot';
+      span: SourceRange;
+      parentSpan: SourceRange;
+      slotName: string;
+      key: string;
+      bounds: Bounds;
     };
 
 export function SelectionLayer({
@@ -96,7 +109,7 @@ export function SelectionLayer({
   renderHandles,
   startGesture,
 }: SelectionLayerProps): ReactElement | null {
-  const portalTarget = useSelectionPortal(selected[0]);
+  const portalTarget = useSelectionPortal(selected[0]?.span);
   // Layout bounds come from DOM measurement, not from params. Doing
   // it inline in render reads the DOM *before* React's commit phase
   // flushes layout-affecting source changes (e.g., a stack's
@@ -104,11 +117,27 @@ export function SelectionLayer({
   // in a layout effect after commit (before paint) and stash in
   // state — render reads the stashed values.
   const layoutBounds = useMeasuredLayoutBounds(selected, shapes, portalTarget);
+  const slotBounds = useMeasuredSlotBounds(selected, portalTarget);
 
   if (selected.length === 0) return null;
 
   const items: SelectionItem[] = [];
-  for (const span of selected) {
+  for (const target of selected) {
+    if (target.kind === 'slot') {
+      const key = slotKey(target);
+      const bounds = slotBounds.get(key);
+      if (!bounds) continue;
+      items.push({
+        kind: 'slot',
+        span: target.span,
+        parentSpan: target.parentSpan,
+        slotName: target.slotName,
+        key,
+        bounds,
+      });
+      continue;
+    }
+    const span = target.span;
     const key = spanKey(span);
     const data = shapes.get(key);
     if (!data) continue;
@@ -189,7 +218,11 @@ export function SelectionLayer({
       {items.map((item) => (
         <Fragment key={item.key}>
           <div
-            className="sw-selection-outline"
+            className={
+              item.kind === 'slot'
+                ? 'sw-selection-outline sw-selection-slot'
+                : 'sw-selection-outline'
+            }
             data-sw-overlay-for-start={item.span.start}
             data-sw-overlay-for-end={item.span.end}
             style={{
@@ -199,8 +232,34 @@ export function SelectionLayer({
               width: `${item.bounds.width + 8}px`,
               height: `${item.bounds.height + 8}px`,
               pointerEvents: 'none',
+              ...(item.kind === 'slot'
+                ? {
+                    border: '2px dashed rgba(0, 200, 200, 0.95)',
+                    borderRadius: '3px',
+                  }
+                : null),
             }}
           />
+          {item.kind === 'slot' && (
+            <div
+              className="sw-selection-slot-label"
+              style={{
+                position: 'absolute',
+                left: `${item.bounds.left - 4}px`,
+                top: `${item.bounds.top - 24}px`,
+                background: 'rgba(0, 200, 200, 0.95)',
+                color: '#fff',
+                fontSize: '14px',
+                fontFamily: 'system-ui, sans-serif',
+                padding: '2px 8px',
+                borderRadius: '3px 3px 0 0',
+                pointerEvents: 'none',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {item.slotName}
+            </div>
+          )}
           {showHandles && item.kind === 'shape' && (
             <item.adapter.Handles
               params={item.params}
@@ -318,7 +377,7 @@ function handleAt(
 // observer fires on layout commits regardless of which React state
 // triggered them, so consumers don't have to enumerate state inputs.
 function useMeasuredLayoutBounds(
-  selected: SourceRange[],
+  selected: SelectionTarget[],
   shapes: ReadonlyMap<string, ShapeData>,
   portalTarget: HTMLElement | null,
 ): ReadonlyMap<string, Bounds> {
@@ -332,7 +391,9 @@ function useMeasuredLayoutBounds(
     }
     const remeasure = (): void => {
       const next = new Map<string, Bounds>();
-      for (const span of selected) {
+      for (const target of selected) {
+        if (target.kind !== 'component') continue;
+        const span = target.span;
         const key = spanKey(span);
         const data = shapes.get(key);
         if (!data || !isLayoutAdapter(data.canvas)) continue;
@@ -348,7 +409,9 @@ function useMeasuredLayoutBounds(
       '.sw-canvas-stage .presentation-canvas',
     );
     if (canvas instanceof HTMLElement) observer.observe(canvas);
-    for (const span of selected) {
+    for (const target of selected) {
+      if (target.kind !== 'component') continue;
+      const span = target.span;
       const key = spanKey(span);
       const data = shapes.get(key);
       if (!data || !isLayoutAdapter(data.canvas)) continue;
@@ -364,6 +427,94 @@ function useMeasuredLayoutBounds(
     return () => observer.disconnect();
   }, [selected, shapes, portalTarget]);
   return layoutBounds;
+}
+
+// Slot bounds — measured via Range API on the slot wrapper's
+// children. Slot wrappers are `display: contents` (no box of
+// their own); the bounding rect is the union of their rendered
+// content. ResizeObserver subscribes to the parent component's
+// rendered root (its size changes when slot content reflows).
+function useMeasuredSlotBounds(
+  selected: SelectionTarget[],
+  portalTarget: HTMLElement | null,
+): ReadonlyMap<string, Bounds> {
+  const [slotBounds, setSlotBounds] = useState<ReadonlyMap<string, Bounds>>(
+    EMPTY_BOUNDS,
+  );
+  useEffect(() => {
+    if (!portalTarget) {
+      setSlotBounds((prev) => (prev.size === 0 ? prev : EMPTY_BOUNDS));
+      return;
+    }
+    const remeasure = (): void => {
+      const next = new Map<string, Bounds>();
+      for (const target of selected) {
+        if (target.kind !== 'slot') continue;
+        const bounds = measureSlotBounds(target, portalTarget);
+        if (bounds) next.set(slotKey(target), bounds);
+      }
+      setSlotBounds((prev) => (boundsMapsEqual(prev, next) ? prev : next));
+    };
+    remeasure();
+
+    const observer = new ResizeObserver(remeasure);
+    const canvas = document.querySelector(
+      '.sw-canvas-stage .presentation-canvas',
+    );
+    if (canvas instanceof HTMLElement) observer.observe(canvas);
+    for (const target of selected) {
+      if (target.kind !== 'slot') continue;
+      // Subscribe to the parent component's rendered root — when
+      // its layout changes (children reflow, spacing edit, etc.),
+      // the slot's bounds shift too.
+      const parentEl = document.querySelector(
+        `.sw-canvas-stage [data-sw-span-start="${target.parentSpan.start}"][data-sw-span-end="${target.parentSpan.end}"]`,
+      );
+      const inner = parentEl?.firstElementChild;
+      if (inner instanceof HTMLElement) observer.observe(inner);
+    }
+    return () => observer.disconnect();
+  }, [selected, portalTarget]);
+  return slotBounds;
+}
+
+function slotKey(target: { parentSpan: SourceRange; slotName: string }): string {
+  return `${target.parentSpan.start}-${target.parentSpan.end}-${target.slotName}`;
+}
+
+// DOM-measure a slot's bounds via Range API. The slot wrapper is
+// `display: contents`; getBoundingClientRect on it returns 0,0,0,0.
+// A Range over the wrapper's contents gives the union bounding box
+// of all the rendered children — text runs, components, etc.
+function measureSlotBounds(
+  target: { span: SourceRange; parentSpan: SourceRange; slotName: string },
+  portalTarget: HTMLElement,
+): Bounds | null {
+  const slotEl = document.querySelector(
+    `.sw-canvas-stage [data-sw-slot-span-start="${target.span.start}"][data-sw-slot-span-end="${target.span.end}"][data-sw-slot-name="${target.slotName}"]`,
+  );
+  if (!(slotEl instanceof HTMLElement)) return null;
+  const canvas = document.querySelector(
+    '.sw-canvas-stage .presentation-canvas',
+  );
+  if (!(canvas instanceof HTMLElement)) return null;
+  const scale = canvas.getBoundingClientRect().width / 1920;
+  if (!Number.isFinite(scale) || scale <= 0) return null;
+  const range = document.createRange();
+  range.selectNodeContents(slotEl);
+  const rect = range.getBoundingClientRect();
+  range.detach?.();
+  // Empty / collapsed slots render as 0×0 rects — drop them so the
+  // outline doesn't appear at the parent's origin (placeholder
+  // rendering for empty slots is the next milestone's task).
+  if (rect.width === 0 && rect.height === 0) return null;
+  const portalRect = portalTarget.getBoundingClientRect();
+  return {
+    left: (rect.left - portalRect.left) / scale,
+    top: (rect.top - portalRect.top) / scale,
+    width: rect.width / scale,
+    height: rect.height / scale,
+  };
 }
 
 const EMPTY_BOUNDS: ReadonlyMap<string, Bounds> = new Map();

@@ -24,6 +24,10 @@ import type {
 } from 'react';
 
 import type { SourceRange } from './host.js';
+import {
+  findTargetIndex,
+  type SelectionTarget,
+} from './selection-target.js';
 
 const DESIGN_W = 1920;
 const DESIGN_H = 1080;
@@ -124,19 +128,33 @@ interface Props {
   // lifecycle — handler attaches its own move/up listeners.
   onCreateStart?: (target: CreateStart) => void;
   // Fired when pointer goes down in Select mode. Argument is the
-  // selectable shape's source range (or null if the click landed
-  // on the canvas background — clear selection there) plus
-  // modifier state. The host decides what to do with the click —
-  // replace, toggle (shift), or keep (drag of existing selection).
+  // resolved selection target (or null if the click landed on
+  // canvas background — clear selection there) plus modifier
+  // state. ScaledCanvas resolves the target via its drill rule
+  // (chain-walk, drill on consecutive clicks); the host just
+  // applies replace / toggle / keep based on modifiers.
   onSelectShape?: (
-    range: SourceRange | null,
+    target: SelectionTarget | null,
     modifiers: { shift: boolean },
   ) => void;
+  // Current selection state — used for the drill comparison.
+  // Each click compares the click's chain to this; if any current
+  // entry is in the chain, drill to next-inner. Otherwise reset
+  // to chain's outermost.
+  currentSelection: ReadonlyArray<SelectionTarget>;
   // Fired when pointer goes down on empty Freeform space in select
   // mode (v0.2.j). The handler renders a marquee preview during
   // pointermove and, on release, sets selection to all shapes
   // intersecting the rectangle.
   onMarqueeStart?: (target: MarqueeStart) => void;
+  // Map keyed by `${start}-${end}` span identifying selectable
+  // components (those with a `canvas` export — the loader
+  // populates the shapes registry from this). The pointerdown
+  // handler walks up the DOM from event.target and selects the
+  // innermost component whose span is in this map. Map (rather
+  // than Set) so we accept the shapes registry directly without
+  // an extra wrapping step.
+  selectableSpans: ReadonlyMap<string, unknown>;
   // Fired when pointer goes down on a component whose immediate
   // parent is also a component (v0.4 reorder). The handler looks
   // up the parent's adapter; if it's a LayoutAdapter with
@@ -157,13 +175,141 @@ interface Props {
 const DRAGGABLE_SELECTOR =
   '[data-sw-component="Box"], [data-sw-component="TextBox"], [data-sw-component="Arrow"]';
 
-// Shapes that respond to Select-mode clicks. Wider than the
-// draggable set: Arrow is selectable (for Delete, future endpoint
-// editing) without supporting body drag, and v0.4-tight-cut
-// HStack / VStack are selectable + inspectable but not yet
-// gesture-able.
-const SELECTABLE_SELECTOR =
-  '[data-sw-component="Box"], [data-sw-component="TextBox"], [data-sw-component="Arrow"], [data-sw-component="HStack"], [data-sw-component="VStack"]';
+// Walk up from `target` collecting the alternating component /
+// slot chain — outermost-first. Components are included if their
+// span is in `selectableSpans` (they have a `canvas` export and
+// the loader registered them). Slots are included whenever a
+// `data-sw-slot-name` wrapper appears on the path.
+//
+// Drilling: each successive click without modifiers drills one
+// level inward through this chain. The first click resolves to
+// the chain's outermost; if the current selection is in the
+// chain, the dispatch picks the next-deeper element. Clicking
+// outside any selectable produces an empty chain (clear-selection).
+function buildSelectableChain(
+  target: Element,
+  selectableSpans: ReadonlyMap<string, unknown>,
+): SelectionTarget[] {
+  const chain: SelectionTarget[] = [];
+  let el: Element | null = target;
+  while (el) {
+    if (el instanceof HTMLElement) {
+      // Slot wrapper? data-sw-slot-name present means this is a
+      // slot-fill container the loader stamped.
+      const slotName = el.getAttribute('data-sw-slot-name');
+      if (slotName !== null) {
+        const slotStart = el.getAttribute('data-sw-slot-span-start');
+        const slotEnd = el.getAttribute('data-sw-slot-span-end');
+        // Find the slot's parent component (the next ancestor
+        // carrying data-sw-component). Only include the slot if
+        // the parent is itself selectable — slots on non-
+        // selectable parents (like Freeform's children) aren't
+        // meaningful drill targets.
+        const parentComp = el.parentElement?.closest('[data-sw-component]');
+        if (
+          slotStart &&
+          slotEnd &&
+          parentComp instanceof HTMLElement
+        ) {
+          const pStart = parentComp.getAttribute('data-sw-span-start');
+          const pEnd = parentComp.getAttribute('data-sw-span-end');
+          if (
+            pStart &&
+            pEnd &&
+            selectableSpans.has(`${pStart}-${pEnd}`)
+          ) {
+            chain.push({
+              kind: 'slot',
+              span: {
+                start: parseInt(slotStart, 10),
+                end: parseInt(slotEnd, 10),
+              },
+              parentSpan: {
+                start: parseInt(pStart, 10),
+                end: parseInt(pEnd, 10),
+              },
+              slotName,
+            });
+          }
+        }
+      } else if (el.hasAttribute('data-sw-component')) {
+        const start = el.getAttribute('data-sw-span-start');
+        const end = el.getAttribute('data-sw-span-end');
+        if (start && end && selectableSpans.has(`${start}-${end}`)) {
+          chain.push({
+            kind: 'component',
+            span: {
+              start: parseInt(start, 10),
+              end: parseInt(end, 10),
+            },
+          });
+        }
+      }
+    }
+    el = el.parentElement;
+  }
+  // Walked innermost-first; reverse so chain[0] is the outermost.
+  return chain.reverse();
+}
+
+// Resolve a click against a selectable chain to the next selection
+// target. Drill rule: if any current selection is in the chain,
+// pick the deepest matching index + 1 (drill one level). Otherwise
+// pick the outermost (chain[0]). Empty chain → null (clear).
+function drillSelection(
+  chain: SelectionTarget[],
+  current: ReadonlyArray<SelectionTarget>,
+): SelectionTarget | null {
+  if (chain.length === 0) return null;
+  let drillIdx = -1;
+  for (const sel of current) {
+    const idx = findTargetIndex(chain, sel);
+    if (idx > drillIdx) drillIdx = idx;
+  }
+  if (drillIdx === -1) return chain[0]!;
+  // Drill one further; cap at deepest if at the end already.
+  return chain[drillIdx + 1] ?? chain[drillIdx]!;
+}
+
+// Innermost component target in a chain — last component, ignoring
+// any trailing slot. Used for double-click selection: double-click
+// snaps directly to "the thing under the cursor" rather than
+// drilling one level. Returns null if the chain has no components
+// (slots-only chains shouldn't happen given how slots are filtered,
+// but guarded anyway).
+function innermostComponent(
+  chain: SelectionTarget[],
+): SelectionTarget | null {
+  for (let i = chain.length - 1; i >= 0; i--) {
+    if (chain[i]!.kind === 'component') return chain[i]!;
+  }
+  return null;
+}
+
+// Walk up from `target` to find the innermost selectable component
+// element. Used for body-drag dispatch (drag only fires when the
+// click resolves to a draggable shape; checking against `selectable`
+// keeps us consistent with the chain-walk's selection rules).
+function findSelectable(
+  target: Element,
+  selectableSpans: ReadonlyMap<string, unknown>,
+): HTMLElement | null {
+  let el: Element | null = target;
+  while (el) {
+    if (
+      el instanceof HTMLElement &&
+      el.hasAttribute('data-sw-component')
+    ) {
+      const start = el.getAttribute('data-sw-span-start');
+      const end = el.getAttribute('data-sw-span-end');
+      if (start && end && selectableSpans.has(`${start}-${end}`)) {
+        return el;
+      }
+    }
+    el = el.parentElement;
+  }
+  return null;
+}
 
 export function ScaledCanvas({
   children,
@@ -174,6 +320,8 @@ export function ScaledCanvas({
   onSelectShape,
   onMarqueeStart,
   onChildDragStart,
+  selectableSpans,
+  currentSelection,
   activeTool = 'select',
 }: Props): ReactElement {
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -205,6 +353,20 @@ export function ScaledCanvas({
   const handleDoubleClick = (event: MouseEvent<HTMLDivElement>): void => {
     const target = event.target as Element | null;
     if (!target?.closest) return;
+
+    // Override drilling on double-click: snap selection to the
+    // innermost component under the cursor. Done here (not on
+    // pointerdown via event.detail) because Firefox doesn't
+    // propagate the click count into pointerdown.detail. The trade
+    // is one frame of flicker through chain[1] before dblclick
+    // fires and snaps to innermost; final state is correct
+    // cross-browser.
+    const chain = buildSelectableChain(target, selectableSpans);
+    if (chain.length > 0) {
+      const resolved =
+        innermostComponent(chain) ?? chain[chain.length - 1]!;
+      onSelectShape?.(resolved, { shift: false });
+    }
 
     const textNode = target.closest('[data-sw-text-span-start]');
     if (textNode instanceof HTMLElement && onTextEdit) {
@@ -284,26 +446,34 @@ export function ScaledCanvas({
       // activeTool !== 'select').
     }
 
-    // Select-mode dispatch: emit selection state regardless of
-    // whether the shape is draggable, then start a drag if it is.
-    // Box/TextBox: select + drag. Arrow: select only.
-    // Click on background (no shape ancestor): clear selection.
+    // Select-mode dispatch: build the selectable chain from the
+    // click target, drill against current selection, emit the
+    // resolved target. Click on background (empty chain) → clear.
+    // Shift-click toggles the chain's outermost in multi-select
+    // (skips drilling — multi-select operates on whole-units).
     const modifiers = { shift: event.shiftKey };
-    const selectable = target.closest(SELECTABLE_SELECTOR);
-    if (selectable instanceof HTMLElement) {
-      const start = parseInt(selectable.getAttribute('data-sw-span-start') ?? '', 10);
-      const end = parseInt(selectable.getAttribute('data-sw-span-end') ?? '', 10);
-      if (Number.isFinite(start) && Number.isFinite(end)) {
-        onSelectShape?.({ start, end }, modifiers);
-      }
+    const chain = buildSelectableChain(target, selectableSpans);
+    if (chain.length > 0) {
+      const resolved = modifiers.shift
+        ? chain[0]!
+        : drillSelection(chain, currentSelection);
+      onSelectShape?.(resolved, modifiers);
       // Shift-click is a selection-modifier gesture (toggle), not a
-      // drag-initiating click. Skip the drag dispatch so a shift-
-      // click on a draggable shape doesn't kick off a body drag of
-      // the post-toggle selection on the same pointerdown.
+      // drag-initiating click. Skip the drag dispatch.
       if (modifiers.shift) {
         event.preventDefault();
         return;
       }
+      // Body-drag / layout-intercept only fire if the resolved
+      // target is a component (not slot). Slots aren't draggable.
+      if (resolved && resolved.kind === 'slot') {
+        event.preventDefault();
+        return;
+      }
+      // Existing: identify the innermost selectable component
+      // for body-drag (only fires if resolved component matches
+      // an existing draggable selector match — unchanged).
+      const selectable = findSelectable(target, selectableSpans);
       // Layout-intercept (v0.4 reorder). Walk up to find the
       // innermost component AND its parent component. If the
       // host's onChildDragStart says yes, dispatch returned and
@@ -342,19 +512,27 @@ export function ScaledCanvas({
       if (
         draggable instanceof HTMLElement &&
         draggable === selectable &&
-        onDragStart &&
-        Number.isFinite(start) &&
-        Number.isFinite(end)
+        onDragStart
       ) {
-        event.preventDefault();
-        onDragStart({
-          node: draggable,
-          start,
-          end,
-          pointerStartX: event.clientX,
-          pointerStartY: event.clientY,
-          scale,
-        });
+        const dStart = parseInt(
+          draggable.getAttribute('data-sw-span-start') ?? '',
+          10,
+        );
+        const dEnd = parseInt(
+          draggable.getAttribute('data-sw-span-end') ?? '',
+          10,
+        );
+        if (Number.isFinite(dStart) && Number.isFinite(dEnd)) {
+          event.preventDefault();
+          onDragStart({
+            node: draggable,
+            start: dStart,
+            end: dEnd,
+            pointerStartX: event.clientX,
+            pointerStartY: event.clientY,
+            scale,
+          });
+        }
       }
       return;
     }

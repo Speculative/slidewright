@@ -216,7 +216,9 @@ test('slide-level VStack (no Freeform ancestor) is selectable + inspectable', as
   ).toHaveCount(0);
   // Click the VStack via the hierarchy tree (avoids any
   // child-drag-intercept that a direct canvas click would trigger).
-  await page.locator('.sw-hierarchy-node').first().click();
+  // Filter by component name since the hierarchy now also includes
+  // CardRow (became selectable in the click-into-named-slots cut).
+  await page.locator('.sw-hierarchy-node', { hasText: 'VStack' }).click();
   // Selection outline must render — verifies the slide-stage portal
   // fallback in useSelectionPortal is wired through.
   await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
@@ -224,6 +226,45 @@ test('slide-level VStack (no Freeform ancestor) is selectable + inspectable', as
   await expect(
     page.locator('.sw-property-row').filter({ hasText: 'spacing' }),
   ).toHaveCount(1);
+});
+
+test('clicking inside a CardRow drills through the selectable chain', async ({ page }) => {
+  // Multi-click drilling: each click on the same chain drills one
+  // level inward through the alternating component / slot chain.
+  // First click selects outermost (VStack), then VStack.children
+  // slot, then CardRow, then CardRow.body slot.
+  await page.goto('/canvas.html?fixture=slide-level-vstack');
+  const bodyText = page.locator('.sw-canvas-stage').getByText('Top card content.');
+
+  // 1st click: outermost — VStack.
+  await bodyText.click();
+  await expect(
+    page.locator('.sw-properties-panel .sw-inspector-panel-header'),
+  ).toContainText('VStack');
+  // Component outline (not slot).
+  await expect(page.locator('.sw-selection-outline.sw-selection-slot')).toHaveCount(0);
+
+  // 2nd click: drill to VStack.children slot.
+  await bodyText.click();
+  await expect(page.locator('.sw-selection-slot-label')).toContainText('children');
+  await expect(
+    page.locator('.sw-properties-panel .sw-inspector-panel-header'),
+  ).toContainText('Slot: children');
+
+  // 3rd click: drill to CardRow.
+  await bodyText.click();
+  await expect(
+    page.locator('.sw-properties-panel .sw-inspector-panel-header'),
+  ).toContainText('CardRow');
+  // Outline returns to component (not slot).
+  await expect(page.locator('.sw-selection-slot-label')).toHaveCount(0);
+
+  // 4th click: drill to CardRow.body slot.
+  await bodyText.click();
+  await expect(page.locator('.sw-selection-slot-label')).toContainText('body');
+  await expect(
+    page.locator('.sw-properties-panel .sw-inspector-panel-header'),
+  ).toContainText('Slot: body');
 });
 
 test('selection outline survives slide nav away and back', async ({ page }) => {

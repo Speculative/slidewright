@@ -31,6 +31,12 @@ import { DeckMetaContext } from '../../src/Slide.jsx';
 
 import type { Host, SourceRange } from './host.js';
 import {
+  componentTarget,
+  findTargetIndex,
+  selectionTargetsEqual,
+  type SelectionTarget,
+} from './selection-target.js';
+import {
   ScaledCanvas,
   type CreateStart,
   type DragStart,
@@ -63,7 +69,11 @@ import { GestureOverlayLayer } from './gesture-overlay-layer.js';
 import { DiagnosticsPanel } from './DiagnosticsPanel.js';
 import { SlideStrip } from './SlideStrip.js';
 import { ResizeHandle } from './ResizeHandle.js';
-import { HierarchyPanel, PropertiesPanel } from './InspectorPanels.js';
+import {
+  HierarchyPanel,
+  PropertiesPanel,
+  type SlotInfo,
+} from './InspectorPanels.js';
 import { ToolPalette, type Tool } from './ToolPalette.js';
 
 interface DeckMeta {
@@ -324,13 +334,13 @@ export function App({
   const [activeTool, setActiveTool] = useState<Tool>('select');
   // Selection is always an array. Single-select is length === 1.
   // Multi-select is bounded to one layout context (one Freeform).
-  const [selected, setSelected] = useState<SourceRange[]>([]);
+  const [selected, setSelected] = useState<SelectionTarget[]>([]);
 
   // Selection-preservation across host.setSource. Spans shift after
-  // every emit; gestures stash the new spans here before calling
-  // setSource, and the subscribe handler re-applies on the round-
-  // trip. External edits leave it null and selection clears.
-  const pendingSelectionRef = useRef<SourceRange[] | null>(null);
+  // every emit; gestures stash the post-emit selection here before
+  // calling setSource, and the subscribe handler re-applies on the
+  // round-trip. External edits leave it null and selection clears.
+  const pendingSelectionRef = useRef<SelectionTarget[] | null>(null);
 
   // Live source mirror. Read by gesture commit code (which doesn't
   // have a state closure to current source) and by commitToHost
@@ -387,7 +397,12 @@ export function App({
       redoStackRef.current = [];
       internalSourceChangeRef.current = true;
       if (newSelections && newSelections.length > 0) {
-        pendingSelectionRef.current = newSelections;
+        // Commit-pipeline selections come back as plain SourceRanges
+        // (the AST helpers don't model selection kinds). Wrap as
+        // component targets — every gesture commit today preserves
+        // a component selection (shape body-drag / resize / group
+        // resize / layout reorder).
+        pendingSelectionRef.current = newSelections.map(componentTarget);
       }
       host.setSource?.(newSource);
     },
@@ -835,7 +850,7 @@ export function App({
       // ShapeProjection, so the registry has them all. Filter by
       // active slide so multi-slide decks don't pull selectables
       // from inactive slides.
-      const intersected: SourceRange[] = [];
+      const intersected: SelectionTarget[] = [];
       const shapes = stateRef.current?.shapes;
       const slideIdx = activeIdxRef.current;
       if (shapes) {
@@ -855,20 +870,20 @@ export function App({
             b.top < bottom &&
             b.top + b.height > top
           ) {
-            intersected.push({
-              start: data.comp.span.start.offset,
-              end: data.comp.span.end.offset,
-            });
+            intersected.push(
+              componentTarget({
+                start: data.comp.span.start.offset,
+                end: data.comp.span.end.offset,
+              }),
+            );
           }
         }
       }
       if (shift) {
         setSelected((current) => {
           const out = [...current];
-          for (const r of intersected) {
-            if (!out.some((s) => s.start === r.start && s.end === r.end)) {
-              out.push(r);
-            }
+          for (const t of intersected) {
+            if (findTargetIndex(out, t) === -1) out.push(t);
           }
           return out;
         });
@@ -958,7 +973,11 @@ export function App({
         const result = commitSourceEdit(sourceRef.current, '<delete>', (ast) => {
           let any = false;
           for (const target of targets) {
-            if (removeShapeAtSpan(ast, target)) any = true;
+            // Slot targets aren't deletable as components — clear-
+            // slot semantics is a separate gesture (deferred). Skip
+            // for now; only component selections are deleted.
+            if (target.kind !== 'component') continue;
+            if (removeShapeAtSpan(ast, target.span)) any = true;
           }
           return any ? {} : null;
         });
@@ -1075,11 +1094,30 @@ export function App({
   const errors = state.diagnostics.filter((d) => d.severity === 'error');
   const slide = state.slides[activeIdx];
   const preparedSlide = slide ? prepareSlide(slide) : null;
-  // Single-selected shape for the property panel. Multi-select is
-  // signaled separately via selected.length so the panel can hint
-  // rather than render rows for an arbitrary member.
+  // Set of selectable component spans — populated from the shapes
+  // registry. A component is selectable iff it exports a `canvas`
+  // field (the loader registers it). ScaledCanvas's pointerdown
+  // walk uses this set to find the innermost selectable ancestor
+  // without a hardcoded selector list.
+  const selectableSpans = state.shapes;
+  // Resolved selection context for the property panel. One of
+  // componentShape / slotInfo is non-null when single-selected;
+  // multiCount > 1 short-circuits both to a multi-select hint.
+  const singleTarget = selected.length === 1 ? selected[0]! : null;
   const selectedShape: ShapeData | null =
-    selected.length === 1 ? findShapeForRange(state.shapes, selected[0]!) : null;
+    singleTarget?.kind === 'component'
+      ? findShapeForRange(state.shapes, singleTarget.span)
+      : null;
+  const slotInfo: SlotInfo | null = (() => {
+    if (!singleTarget || singleTarget.kind !== 'slot') return null;
+    const parentShape = findShapeForRange(state.shapes, singleTarget.parentSpan);
+    if (!parentShape) return null;
+    const fill = parentShape.comp.fills.find(
+      (f) => f.name === singleTarget.slotName,
+    );
+    if (!fill) return null;
+    return { slotName: singleTarget.slotName, fill, parentShape };
+  })();
 
   return (
     <DeckMetaContext.Provider
@@ -1111,6 +1149,8 @@ export function App({
             <ToolPalette active={activeTool} onSelect={setActiveTool} />
             <GestureProvider deltas={gestureDeltas}>
               <ScaledCanvas
+                selectableSpans={selectableSpans}
+                currentSelection={selected}
                 onSelectRange={(range: SourceRange) => host.sendSelection(range)}
                 onTextEdit={(target) => setEditing(target)}
                 onDragStart={(target) =>
@@ -1132,8 +1172,8 @@ export function App({
                     shift: target.shift,
                   });
                 }}
-                onSelectShape={(range, modifiers) =>
-                  applySelectionClick(range, modifiers, setSelected)
+                onSelectShape={(target, modifiers) =>
+                  applySelectionClick(target, modifiers, setSelected)
                 }
                 onChildDragStart={(target) => {
                   // Look up the parent component's adapter. If it's
@@ -1212,8 +1252,8 @@ export function App({
                 shapes={state.shapes}
                 activeIdx={activeIdx}
                 selected={selected}
-                onSelect={(range, modifiers) =>
-                  applySelectionClick(range, modifiers, setSelected)
+                onSelect={(target, modifiers) =>
+                  applySelectionClick(target, modifiers, setSelected)
                 }
                 onJumpToSource={(range) => host.sendSelection(range)}
               />
@@ -1230,7 +1270,8 @@ export function App({
               style={{ width: `${propertiesWidth}px` }}
             >
               <PropertiesPanel
-                shape={selectedShape}
+                componentShape={selectedShape}
+                slotInfo={slotInfo}
                 multiCount={selected.length}
                 source={state.source}
                 onCommit={(newSource, newSelections) =>
@@ -1274,10 +1315,10 @@ const EMPTY_SPANS: ReadonlyArray<SourceRange> = [];
 // Stable IDs in source would fix these (per SLIDEWRIGHT.md / IDs
 // in source); deferred to a future revision.
 function preserveSelectionAcrossExternalEdit(
-  prevSelected: SourceRange[],
+  prevSelected: SelectionTarget[],
   prevShapes: ReadonlyMap<string, ShapeData> | undefined,
   nextShapes: ReadonlyMap<string, ShapeData>,
-): SourceRange[] {
+): SelectionTarget[] {
   if (!prevShapes || prevSelected.length === 0) return [];
   // Build a (slideIdx + childIdx + componentName) → newSpan index
   // for the new registry.
@@ -1290,14 +1331,18 @@ function preserveSelectionAcrossExternalEdit(
       end: data.comp.span.end.offset,
     });
   }
-  const out: SourceRange[] = [];
-  for (const span of prevSelected) {
-    const oldKey = spanKey(span);
+  const out: SelectionTarget[] = [];
+  for (const target of prevSelected) {
+    // Slot-target preservation across external edits is deferred —
+    // would need to look up the parent's new span and re-derive the
+    // SlotFill span post-emit. Drop slot selections for now.
+    if (target.kind !== 'component') continue;
+    const oldKey = spanKey(target.span);
     const oldData = prevShapes.get(oldKey);
     if (!oldData || oldData.childIdx < 0) continue;
     const positionKey = `${oldData.slideIdx}-${oldData.childIdx}-${oldData.comp.name}`;
     const newSpan = positionToSpan.get(positionKey);
-    if (newSpan) out.push(newSpan);
+    if (newSpan) out.push(componentTarget(newSpan));
   }
   return out;
 }
@@ -1372,18 +1417,24 @@ function groupResizeToTransform(
 // sets gestureMeta.
 function startBodyDrag(
   target: DragStart,
-  selected: ReadonlyArray<SourceRange>,
+  selected: ReadonlyArray<SelectionTarget>,
   shapes: ReadonlyMap<string, ShapeData>,
   setGestureMeta: (g: GestureMeta) => void,
   setGestureLive: (l: GestureLive) => void,
 ): void {
   const targetSpan = { start: target.start, end: target.end };
-  const isInSelection = selected.some(
+  // Body drag only applies to component selections — slot targets
+  // aren't draggable bodies. Filter to component spans for the
+  // group-drag membership check.
+  const componentSpans: SourceRange[] = selected
+    .filter((s) => s.kind === 'component')
+    .map((s) => s.span);
+  const isInSelection = componentSpans.some(
     (s) => s.start === targetSpan.start && s.end === targetSpan.end,
   );
   const dragSpans =
-    isInSelection && selected.length > 1
-      ? Array.from(selected)
+    isInSelection && componentSpans.length > 1
+      ? componentSpans
       : [targetSpan];
   // Build a translate gesture state per affected shape. The same
   // state applies to every shape in a group drag — they all
@@ -1458,28 +1509,27 @@ function findShapeForRange(
 }
 
 function applySelectionClick(
-  range: SourceRange | null,
+  target: SelectionTarget | null,
   modifiers: { shift: boolean },
   setSelected: (
-    update: SourceRange[] | ((current: SourceRange[]) => SourceRange[]),
+    update:
+      | SelectionTarget[]
+      | ((current: SelectionTarget[]) => SelectionTarget[]),
   ) => void,
 ): void {
-  if (!range) {
+  if (!target) {
     if (!modifiers.shift) setSelected([]);
     return;
   }
-  setSelected((current: SourceRange[]) => {
-    const alreadySelected = current.some(
-      (s) => s.start === range.start && s.end === range.end,
-    );
+  setSelected((current: SelectionTarget[]) => {
+    const idx = findTargetIndex(current, target);
+    const alreadySelected = idx !== -1;
     if (modifiers.shift) {
       return alreadySelected
-        ? current.filter(
-            (s) => !(s.start === range.start && s.end === range.end),
-          )
-        : [...current, range];
+        ? current.filter((_, i) => i !== idx)
+        : [...current, target];
     }
-    return alreadySelected ? current : [range];
+    return alreadySelected ? current : [target];
   });
 }
 
