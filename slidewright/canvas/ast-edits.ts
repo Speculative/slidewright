@@ -318,6 +318,120 @@ export function makeArrowNode(
 
 // ─── Mutators ────────────────────────────────────────────────────
 
+// Materialize a slot fill on a parent component. Used to convert
+// an empty-slot selection into a real SlotFill — the inspector's
+// "type a value" input and the dblclick-on-empty-text-placeholder
+// gesture both pipe through here. Returns true if a fill was added
+// (false if the slot already exists, which means the caller should
+// edit the existing fill instead).
+export function addStringSlotFill(
+  parent: Component,
+  slotName: string,
+  value: string,
+): boolean {
+  if (parent.fills.some((f) => f.name === slotName)) return false;
+  parent.fills.push(makeSlotFill(slotName, makeStringLit(value)));
+  return true;
+}
+
+// ─── Component-path identity ─────────────────────────────────────
+//
+// Source spans aren't stable across the canonical-emitter round-
+// trip — emit reformats the whole source, so even unchanged
+// components get new offsets. Operations that need to identify
+// "the same logical component" before and after a commit (e.g.,
+// dblclick-on-empty-text-slot wants the materialized parent's new
+// span) walk the AST by a path of structural segments from the
+// SourceFile root, which IS stable as long as no surrounding
+// list-reorder happened.
+
+export type PathSegment =
+  | { kind: 'item'; index: number }
+  | { kind: 'fill'; name: string }
+  | { kind: 'implicit'; index: number };
+
+export function pathToComponent(
+  root: SourceFile,
+  target: Component,
+): PathSegment[] | null {
+  for (let i = 0; i < root.items.length; i++) {
+    const result = walkForPath(
+      root.items[i]!,
+      target,
+      [{ kind: 'item', index: i }],
+    );
+    if (result) return result;
+  }
+  return null;
+}
+
+function walkForPath(
+  node: Component | Value,
+  target: Component,
+  path: PathSegment[],
+): PathSegment[] | null {
+  if (node === target) return path;
+  if (node.kind === 'component') {
+    for (const fill of node.fills) {
+      const r = walkForPath(
+        fill.value,
+        target,
+        [...path, { kind: 'fill', name: fill.name }],
+      );
+      if (r) return r;
+    }
+    for (let i = 0; i < node.implicitChildren.length; i++) {
+      const r = walkForPath(
+        node.implicitChildren[i]!,
+        target,
+        [...path, { kind: 'implicit', index: i }],
+      );
+      if (r) return r;
+    }
+    return null;
+  }
+  if (node.kind === 'list') {
+    for (let i = 0; i < node.items.length; i++) {
+      const r = walkForPath(
+        node.items[i]!,
+        target,
+        [...path, { kind: 'item', index: i }],
+      );
+      if (r) return r;
+    }
+  }
+  return null;
+}
+
+export function componentByPath(
+  root: SourceFile,
+  path: PathSegment[],
+): Component | null {
+  if (path.length === 0) return null;
+  const first = path[0]!;
+  if (first.kind !== 'item') return null;
+  let cursor: Component | Value | undefined = root.items[first.index];
+  for (let i = 1; i < path.length; i++) {
+    if (!cursor) return null;
+    const seg = path[i]!;
+    if (seg.kind === 'fill') {
+      if (cursor.kind !== 'component') return null;
+      const comp: Component = cursor;
+      const fill: SlotFill | undefined = comp.fills.find(
+        (f) => f.name === seg.name,
+      );
+      cursor = fill ? fill.value : undefined;
+    } else if (seg.kind === 'item') {
+      if (cursor.kind !== 'list') return null;
+      cursor = cursor.items[seg.index];
+    } else if (seg.kind === 'implicit') {
+      if (cursor.kind !== 'component') return null;
+      cursor = cursor.implicitChildren[seg.index];
+    }
+  }
+  return cursor && cursor.kind === 'component' ? cursor : null;
+}
+
 export function appendShapeToFreeform(
   freeform: Component,
   shape: Component,

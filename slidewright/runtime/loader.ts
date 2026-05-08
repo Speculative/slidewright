@@ -253,9 +253,18 @@ function emit(
   message: string,
   hint?: string,
 ): void {
+  // missing-required-slot is part of the normal editing workflow —
+  // when a user is constructing a slide, optional fills land later
+  // than required ones, and momentarily-incomplete source shouldn't
+  // surface as an error. Demoted to 'warning' so the canvas
+  // diagnostics panel doesn't flag it (the panel filters on
+  // severity === 'error') and the commit pipeline doesn't abort
+  // dependent gestures. Type mismatches, unknown components, and
+  // syntax errors stay 'error'.
+  const severity = kind === 'missing-required-slot' ? 'warning' : 'error';
   ctx.diagnostics.push({
     kind,
-    severity: 'error',
+    severity,
     message,
     hint,
     span,
@@ -482,7 +491,24 @@ function renderComponent(comp: Component, ctx: LoadCtx): ReactNode {
   const fills = byName(comp.fills);
   for (const [slotName, schema] of Object.entries(loaded.meta.slots)) {
     const fill = fills.get(slotName);
-    if (!fill) continue;
+    if (!fill) {
+      // Empty slot — no fill in source. For renderable slot types
+      // we inject a placeholder ReactNode the user can click into
+      // (selection lands on a `kind: 'empty-slot'` target). Phase A
+      // is always-on placeholders; Phase B adds an explicit-empty
+      // sigil that suppresses them. Non-renderable slot types
+      // (image, scalars) stay undefined — the component template
+      // and the inspector handle their absence.
+      if (isRenderableSlotType(schema.type)) {
+        slots[slotName] = createEmptySlotPlaceholder(
+          slotName,
+          schema.type,
+          comp.span.start.offset,
+          comp.span.end.offset,
+        );
+      }
+      continue;
+    }
     const resolved = resolveSlotValue(schema.type, fill.value, ctx);
     // Wrap renderable slot values (text / block / slide / array<X>
     // of those) with a `data-sw-slot-name` span so the canvas can
@@ -579,6 +605,83 @@ function renderSpanAsNode(comp: Component, ctx: LoadCtx): ReactNode {
       'data-sw-span-end': comp.span.end.offset,
     },
     inner,
+  );
+}
+
+// Empty-slot placeholder. Phase A: always-on for any renderable
+// empty slot. Visual signals "here's where content goes" without
+// claiming significant layout — text slots render inline ghost
+// text matching the parent's typography; block / slide slots
+// render a fixed-size dashed box with the slot name. The element
+// carries the same selection attrs filled slots use plus
+// `data-sw-slot-empty="true"` and the parent's span (since there's
+// no own SlotFill span — see SelectionTarget's `empty-slot` kind).
+function createEmptySlotPlaceholder(
+  slotName: string,
+  slotType: SlotType,
+  parentStart: number,
+  parentEnd: number,
+): ReactNode {
+  const inner = slotType.startsWith('array<')
+    ? (slotType.slice(6, -1) as SlotType)
+    : slotType;
+  const isText = inner === 'text';
+  // The slot wrapper is `display: contents` so the parent's
+  // typography / flex still applies to the placeholder visual
+  // inside. The visual element below the wrapper carries the
+  // styling.
+  const dashedBorder = '1px dashed rgba(15, 118, 110, 0.55)';
+  const crosshatch =
+    'repeating-linear-gradient(45deg, transparent 0 8px, rgba(15, 118, 110, 0.06) 8px 9px)';
+  const visual = isText
+    ? createElement(
+        'span',
+        {
+          style: {
+            display: 'inline-block',
+            padding: '2px 6px',
+            border: dashedBorder,
+            background: crosshatch,
+            color: 'rgba(15, 118, 110, 0.7)',
+            fontStyle: 'italic',
+            fontFamily: 'var(--font-body)',
+            borderRadius: 2,
+          },
+        },
+        `${slotName}…`,
+      )
+    : createElement(
+        'div',
+        {
+          style: {
+            width: 200,
+            height: 60,
+            border: dashedBorder,
+            background: crosshatch,
+            borderRadius: 4,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'rgba(15, 118, 110, 0.7)',
+            fontStyle: 'italic',
+            fontFamily: 'var(--font-body)',
+            fontSize: 18,
+          },
+        },
+        slotName,
+      );
+  return createElement(
+    'span',
+    {
+      'data-sw-slot-name': slotName,
+      'data-sw-slot-empty': 'true',
+      'data-sw-slot-parent-start': parentStart,
+      'data-sw-slot-parent-end': parentEnd,
+      'data-sw-slot-type': slotType,
+      style: { display: 'contents' },
+      key: `slot-empty-${slotName}-${parentStart}`,
+    },
+    visual,
   );
 }
 

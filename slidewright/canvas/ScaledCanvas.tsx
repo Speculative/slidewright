@@ -23,6 +23,7 @@ import type {
   ReactNode,
 } from 'react';
 
+import type { SlotType } from '../runtime/contract.js';
 import type { SourceRange } from './host.js';
 import {
   findTargetIndex,
@@ -113,10 +114,26 @@ export interface ChildDragStart {
   event: PointerEvent;
 }
 
+// Empty-text-slot dblclick target. The handler should materialize a
+// SlotFill for the slot and enter text-edit mode on the new span
+// once it renders. ScaledCanvas can't do the materialization itself
+// (it has no access to source / commit pipeline) so the work happens
+// host-side.
+export interface EmptyTextSlotEditTarget {
+  parentSpan: SourceRange;
+  slotName: string;
+}
+
 interface Props {
   children: ReactNode;
   onSelectRange?: (range: SourceRange) => void;
   onTextEdit?: (target: TextEditTarget) => void;
+  // Fired when the user double-clicks an empty *text* slot
+  // placeholder. Routes to a "materialize + enter edit" pipeline
+  // App-side. Other slot types (block, slide) currently fall
+  // through to selection-only on dblclick — insertion is the next
+  // milestone.
+  onEmptyTextSlotEdit?: (target: EmptyTextSlotEditTarget) => void;
   // Fired when pointer goes down on a positioned shape (currently
   // anything matching [data-sw-component="Box"], future shape
   // primitives will share this dispatch). The handler is responsible
@@ -198,38 +215,67 @@ function buildSelectableChain(
       // slot-fill container the loader stamped.
       const slotName = el.getAttribute('data-sw-slot-name');
       if (slotName !== null) {
-        const slotStart = el.getAttribute('data-sw-slot-span-start');
-        const slotEnd = el.getAttribute('data-sw-slot-span-end');
-        // Find the slot's parent component (the next ancestor
-        // carrying data-sw-component). Only include the slot if
-        // the parent is itself selectable — slots on non-
-        // selectable parents (like Freeform's children) aren't
-        // meaningful drill targets.
-        const parentComp = el.parentElement?.closest('[data-sw-component]');
-        if (
-          slotStart &&
-          slotEnd &&
-          parentComp instanceof HTMLElement
-        ) {
-          const pStart = parentComp.getAttribute('data-sw-span-start');
-          const pEnd = parentComp.getAttribute('data-sw-span-end');
+        const isEmpty = el.getAttribute('data-sw-slot-empty') === 'true';
+        if (isEmpty) {
+          // Empty slot — identity is (parentSpan, slotName); the
+          // parent's span attrs are stamped on the placeholder
+          // wrapper directly (no need to walk to a parent
+          // component, since we may be inside one of its inner
+          // wrappers and the data is right here). Slot type lets
+          // the dblclick handler route by type.
+          const pStart = el.getAttribute('data-sw-slot-parent-start');
+          const pEnd = el.getAttribute('data-sw-slot-parent-end');
+          const slotType = el.getAttribute('data-sw-slot-type');
           if (
             pStart &&
             pEnd &&
+            slotType &&
             selectableSpans.has(`${pStart}-${pEnd}`)
           ) {
             chain.push({
-              kind: 'slot',
-              span: {
-                start: parseInt(slotStart, 10),
-                end: parseInt(slotEnd, 10),
-              },
+              kind: 'empty-slot',
               parentSpan: {
                 start: parseInt(pStart, 10),
                 end: parseInt(pEnd, 10),
               },
               slotName,
+              slotType: slotType as SlotType,
             });
+          }
+        } else {
+          const slotStart = el.getAttribute('data-sw-slot-span-start');
+          const slotEnd = el.getAttribute('data-sw-slot-span-end');
+          // Find the slot's parent component (the next ancestor
+          // carrying data-sw-component). Only include the slot if
+          // the parent is itself selectable — slots on non-
+          // selectable parents (like Freeform's children) aren't
+          // meaningful drill targets.
+          const parentComp = el.parentElement?.closest('[data-sw-component]');
+          if (
+            slotStart &&
+            slotEnd &&
+            parentComp instanceof HTMLElement
+          ) {
+            const pStart = parentComp.getAttribute('data-sw-span-start');
+            const pEnd = parentComp.getAttribute('data-sw-span-end');
+            if (
+              pStart &&
+              pEnd &&
+              selectableSpans.has(`${pStart}-${pEnd}`)
+            ) {
+              chain.push({
+                kind: 'slot',
+                span: {
+                  start: parseInt(slotStart, 10),
+                  end: parseInt(slotEnd, 10),
+                },
+                parentSpan: {
+                  start: parseInt(pStart, 10),
+                  end: parseInt(pEnd, 10),
+                },
+                slotName,
+              });
+            }
           }
         }
       } else if (el.hasAttribute('data-sw-component')) {
@@ -315,6 +361,7 @@ export function ScaledCanvas({
   children,
   onSelectRange,
   onTextEdit,
+  onEmptyTextSlotEdit,
   onDragStart,
   onCreateStart,
   onSelectShape,
@@ -345,11 +392,11 @@ export function ScaledCanvas({
 
   // Double-click dispatch:
   //   - text-span ancestor (data-sw-text-span-*) → in-place edit
-  //   - component-span ancestor (data-sw-span-*)  → selection sync
-  // Single clicks happen too easily during navigation; making the
-  // source-affecting actions explicit (double-click) keeps the user
-  // in control of when text becomes editable / when their editor
-  // caret moves.
+  //   - empty text slot placeholder            → materialize + edit
+  // Source-jump (move editor cursor to the clicked range) used to
+  // live here too but conflicted with text-edit on text spans;
+  // it now lives on Ctrl/Cmd+click in handlePointerDown — same
+  // mental model as VS Code's "go to definition."
   const handleDoubleClick = (event: MouseEvent<HTMLDivElement>): void => {
     const target = event.target as Element | null;
     if (!target?.closest) return;
@@ -368,6 +415,36 @@ export function ScaledCanvas({
       onSelectShape?.(resolved, { shift: false });
     }
 
+    // Empty *text* slot? Materialize-and-edit. Pre-empts the
+    // selection-sync fall-through below — there's no real source
+    // span to put the editor caret at yet (the slot doesn't exist
+    // in source), and the subsequent commit will set selection
+    // anyway.
+    const emptySlot = target.closest('[data-sw-slot-empty="true"]');
+    if (
+      emptySlot instanceof HTMLElement &&
+      emptySlot.getAttribute('data-sw-slot-type') === 'text' &&
+      onEmptyTextSlotEdit
+    ) {
+      const pStart = parseInt(
+        emptySlot.getAttribute('data-sw-slot-parent-start') ?? '',
+        10,
+      );
+      const pEnd = parseInt(
+        emptySlot.getAttribute('data-sw-slot-parent-end') ?? '',
+        10,
+      );
+      const slotName = emptySlot.getAttribute('data-sw-slot-name') ?? '';
+      if (Number.isFinite(pStart) && Number.isFinite(pEnd) && slotName) {
+        onEmptyTextSlotEdit({
+          parentSpan: { start: pStart, end: pEnd },
+          slotName,
+        });
+        event.preventDefault();
+        return;
+      }
+    }
+
     const textNode = target.closest('[data-sw-text-span-start]');
     if (textNode instanceof HTMLElement && onTextEdit) {
       const start = parseInt(textNode.getAttribute('data-sw-text-span-start') ?? '', 10);
@@ -382,15 +459,6 @@ export function ScaledCanvas({
         event.preventDefault();
         return;
       }
-    }
-
-    if (!onSelectRange) return;
-    const node = target.closest('[data-sw-span-start]');
-    if (!node) return;
-    const start = parseInt(node.getAttribute('data-sw-span-start') ?? '', 10);
-    const end = parseInt(node.getAttribute('data-sw-span-end') ?? '', 10);
-    if (Number.isFinite(start) && Number.isFinite(end)) {
-      onSelectRange({ start, end });
     }
   };
 
@@ -414,6 +482,23 @@ export function ScaledCanvas({
       (active.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName))
     ) {
       active.blur();
+    }
+
+    // Ctrl/Cmd+click: jump editor cursor to the clicked source span
+    // (same mental model as VS Code "go to definition"). Fires only
+    // when an actual source-bearing element was clicked. preventDefault
+    // suppresses the body-drag / selection that would otherwise follow.
+    if ((event.ctrlKey || event.metaKey) && onSelectRange) {
+      const node = target.closest('[data-sw-span-start]');
+      if (node) {
+        const start = parseInt(node.getAttribute('data-sw-span-start') ?? '', 10);
+        const end = parseInt(node.getAttribute('data-sw-span-end') ?? '', 10);
+        if (Number.isFinite(start) && Number.isFinite(end)) {
+          onSelectRange({ start, end });
+          event.preventDefault();
+          return;
+        }
+      }
     }
 
     // Creation tools take precedence over drag-to-move: any tool
@@ -466,7 +551,10 @@ export function ScaledCanvas({
       }
       // Body-drag / layout-intercept only fire if the resolved
       // target is a component (not slot). Slots aren't draggable.
-      if (resolved && resolved.kind === 'slot') {
+      if (
+        resolved &&
+        (resolved.kind === 'slot' || resolved.kind === 'empty-slot')
+      ) {
         event.preventDefault();
         return;
       }

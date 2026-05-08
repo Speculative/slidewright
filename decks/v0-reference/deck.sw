@@ -81,6 +81,52 @@ Deck {
     }
 
     Slide {
+      label: "Empty slots"
+      notes: """
+        Empty-slot placeholders. Optional slots omitted in source
+        surface as dashed teal boxes (block/slide types) or inline
+        ghost text (text type). Click a placeholder to select the
+        slot — the inspector shows a 'Slot: <name> (empty)' panel.
+        For text slots: type a value + Enter in the inspector to
+        materialize the fill, or double-click the placeholder to
+        enter contentEditable directly. For block / slide slots:
+        the inspector shows a deferred-insertion hint (slot-
+        targeted insertion gestures are next).
+
+        This slide's ContentSlide intentionally omits eyebrow,
+        intro, and body. The CardRow below omits its body slot.
+      """
+      content: ContentSlide {
+        title: "Empty-slot demo"
+      }
+    }
+
+    Slide {
+      label: "Empty slots in a stack"
+      notes: """
+        Two CardRows: one fully filled (for comparison), one with
+        only the eyebrow filled — heading and body show empty text
+        placeholders. Useful for testing empty placeholders inside
+        a layout that itself has gestures (gap-drag, reorder).
+      """
+      content: VStack {
+        spacing: 32
+        children: [
+          CardRow {
+            color:   purple
+            eyebrow: "Filled"
+            heading: "All slots have values."
+            body:    "For comparison."
+          }
+          CardRow {
+            color:   cyan
+            eyebrow: "Partly empty"
+          }
+        ]
+      }
+    }
+
+    Slide {
       label: "Stacks demo"
       notes: """
         Slide-level VStack with flow-laid CardRow children. Click

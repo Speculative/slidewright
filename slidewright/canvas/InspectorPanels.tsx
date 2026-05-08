@@ -18,6 +18,7 @@ import type { ReactElement } from 'react';
 
 import type { ShapeData } from '../runtime/loader.js';
 import type { SlotFill, Value } from '../runtime/ast.js';
+import type { SlotType } from '../runtime/contract.js';
 import type { SourceRange } from './host.js';
 import {
   componentTarget,
@@ -87,10 +88,17 @@ export function HierarchyPanel({
                   aria-selected={sel}
                   data-sw-span-start={range.start}
                   data-sw-span-end={range.end}
-                  onClick={(e) =>
-                    onSelect(componentTarget(range), { shift: e.shiftKey })
-                  }
-                  onDoubleClick={() => onJumpToSource(range)}
+                  onClick={(e) => {
+                    // Ctrl/Cmd+click jumps the editor cursor to the
+                    // shape's source span (VS Code "go to
+                    // definition" mental model). Plain click is
+                    // selection.
+                    if (e.ctrlKey || e.metaKey) {
+                      onJumpToSource(range);
+                      return;
+                    }
+                    onSelect(componentTarget(range), { shift: e.shiftKey });
+                  }}
                 >
                   <span className="sw-hierarchy-node-name">
                     {data.comp.name}
@@ -116,11 +124,25 @@ interface PropertiesPanelProps {
   // target is a slot. Includes the slot's fill (for value
   // rendering / editing) and the parent shape (for header context).
   slotInfo: SlotInfo | null;
+  // Resolved empty-slot context — non-null when the single-selected
+  // target is an empty slot (no fill in source). For text slots,
+  // the inspector shows an input that materializes a fill on
+  // commit; for non-text slots, a "(empty)" hint pending the slot-
+  // targeted insertion-gestures milestone.
+  emptySlotInfo: EmptySlotInfo | null;
   // Count of all selected items. > 1 short-circuits to a multi-
   // select hint regardless of kind.
   multiCount: number;
   source: string;
   onCommit: (newSource: string, newSelections?: SourceRange[]) => void;
+  // Materialize an empty text slot's fill: write `slotName: "<value>"`
+  // into the parent component's body, commit the new source. Used
+  // by the empty-slot inspector view's text input.
+  onMaterializeTextSlot: (
+    parentSpan: SourceRange,
+    slotName: string,
+    value: string,
+  ) => void;
 }
 
 export interface SlotInfo {
@@ -129,12 +151,20 @@ export interface SlotInfo {
   parentShape: ShapeData;
 }
 
+export interface EmptySlotInfo {
+  slotName: string;
+  slotType: SlotType;
+  parentShape: ShapeData;
+}
+
 export function PropertiesPanel({
   componentShape,
   slotInfo,
+  emptySlotInfo,
   multiCount,
   source,
   onCommit,
+  onMaterializeTextSlot,
 }: PropertiesPanelProps): ReactElement {
   if (multiCount > 1) {
     return (
@@ -147,6 +177,14 @@ export function PropertiesPanel({
   }
   if (slotInfo) {
     return <SlotPropertiesView slotInfo={slotInfo} source={source} onCommit={onCommit} />;
+  }
+  if (emptySlotInfo) {
+    return (
+      <EmptySlotPropertiesView
+        info={emptySlotInfo}
+        onMaterializeTextSlot={onMaterializeTextSlot}
+      />
+    );
   }
   if (componentShape) {
     return <ComponentPropertiesView shape={componentShape} source={source} onCommit={onCommit} />;
@@ -214,6 +252,84 @@ function ComponentPropertiesView({
             onCommit={wrappedCommit}
           />
         ))}
+      </div>
+    </PanelFrame>
+  );
+}
+
+function EmptySlotPropertiesView({
+  info,
+  onMaterializeTextSlot,
+}: {
+  info: EmptySlotInfo;
+  onMaterializeTextSlot: (
+    parentSpan: SourceRange,
+    slotName: string,
+    value: string,
+  ) => void;
+}): ReactElement {
+  const { slotName, slotType, parentShape } = info;
+  const header = `Slot: ${slotName} (empty)`;
+  const isText = slotType === 'text';
+  const [draft, setDraft] = useState('');
+  const draftRef = useRef('');
+  const setDraftSync = (v: string): void => {
+    draftRef.current = v;
+    setDraft(v);
+  };
+  const commit = (): void => {
+    const value = draftRef.current;
+    if (value.length === 0) return;
+    const parentSpan: SourceRange = {
+      start: parentShape.comp.span.start.offset,
+      end: parentShape.comp.span.end.offset,
+    };
+    onMaterializeTextSlot(parentSpan, slotName, value);
+    setDraftSync('');
+  };
+  return (
+    <PanelFrame header={header}>
+      <div className="sw-properties-rows">
+        <div className="sw-property-row sw-property-row-meta">
+          <span className="sw-property-key">in</span>
+          <span className="sw-property-value sw-property-value-readonly">
+            {parentShape.comp.name} #{parentShape.childIdx}
+          </span>
+        </div>
+        <div className="sw-property-row sw-property-row-meta">
+          <span className="sw-property-key">type</span>
+          <span className="sw-property-value sw-property-value-readonly">
+            {slotType}
+          </span>
+        </div>
+        {isText ? (
+          <label className="sw-property-row">
+            <span className="sw-property-key">fill</span>
+            <input
+              className="sw-property-value"
+              type="text"
+              value={draft}
+              spellCheck={false}
+              placeholder="type a value…"
+              onChange={(e) => setDraftSync(e.currentTarget.value)}
+              onBlur={commit}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  e.currentTarget.blur();
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setDraftSync('');
+                  e.currentTarget.blur();
+                }
+              }}
+            />
+          </label>
+        ) : (
+          <div className="sw-inspector-panel-empty">
+            (insertion not yet supported for {slotType} slots)
+          </div>
+        )}
       </div>
     </PanelFrame>
   );

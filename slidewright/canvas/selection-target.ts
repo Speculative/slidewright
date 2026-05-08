@@ -1,6 +1,6 @@
 // SelectionTarget — discriminated union for the canvas selection model.
 //
-// Today the canvas can select two kinds of things:
+// Today the canvas can select three kinds of things:
 //   - **components** — a Slidewright component invocation (Box,
 //     VStack, CardRow, etc.). The selection's span is the
 //     component's source span; the selection's behavior comes from
@@ -12,12 +12,20 @@
 //     SLOT (the editing target), distinct from the value that
 //     fills it. Slot selections enable operations like "replace
 //     this slot's content" or "insert into this list slot."
+//   - **empty slots** — a named slot on a component with no fill
+//     in source. No own span (there's no SlotFill node yet).
+//     Identity is `(parentSpan, slotName)`. Editor surfaces these
+//     as placeholders so users can click into them; commits that
+//     fill an empty slot materialize a SlotFill in the parent's
+//     body.
 //
 // Selection state is `SelectionTarget[]` (multi-select supported
-// for components; slot selections are single-only by current
-// scope). Host.sendSelection still takes plain SourceRange — the
-// host doesn't need to know about kinds.
+// for components; slot / empty-slot selections are single-only by
+// current scope). Host.sendSelection still takes plain SourceRange
+// for filled targets; empty-slot selections don't sync to the
+// editor pane (no source span to put a cursor at).
 
+import type { SlotType } from '../runtime/contract.js';
 import type { SourceRange } from './host.js';
 
 export type SelectionTarget =
@@ -36,26 +44,44 @@ export type SelectionTarget =
       // parentSpan + the parent's slidewright metadata gives us
       // the slot's type for inspector rendering.
       slotName: string;
+    }
+  | {
+      kind: 'empty-slot';
+      // Parent component's source span (identity + commit target).
+      parentSpan: SourceRange;
+      // Slot name within the parent's schema.
+      slotName: string;
+      // Slot's declared type — carried on the target so the canvas
+      // dblclick handler can route by type without re-resolving the
+      // parent's schema (text → materialize-and-edit; others → no-op
+      // for now, deferred to slot-targeted insertion).
+      slotType: SlotType;
     };
 
 // Two targets refer to the same selectable thing? Component
-// targets compare by span; slot targets compare by the (parent,
-// name) pair (the span is derived from those, so it's equivalent
-// to compare any of the three).
+// targets compare by span; slot / empty-slot targets compare by
+// the (parentSpan, slotName) pair — the slot's own span (when it
+// has one) is derived from the same pair, so the (parent, name)
+// comparison is the canonical identity for both.
 export function selectionTargetsEqual(
   a: SelectionTarget,
   b: SelectionTarget,
 ): boolean {
   if (a.kind !== b.kind) return false;
-  if (a.span.start !== b.span.start || a.span.end !== b.span.end) return false;
-  if (a.kind === 'slot' && b.kind === 'slot') {
+  if (a.kind === 'component' && b.kind === 'component') {
+    return a.span.start === b.span.start && a.span.end === b.span.end;
+  }
+  if (
+    (a.kind === 'slot' || a.kind === 'empty-slot') &&
+    (b.kind === 'slot' || b.kind === 'empty-slot')
+  ) {
     return (
       a.parentSpan.start === b.parentSpan.start &&
       a.parentSpan.end === b.parentSpan.end &&
       a.slotName === b.slotName
     );
   }
-  return true;
+  return false;
 }
 
 // Index of a target in a list, or -1 if not present.

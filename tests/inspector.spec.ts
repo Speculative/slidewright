@@ -68,13 +68,13 @@ test('canvas selection highlights the corresponding tree row', async ({ page }) 
   await expect(page.locator('.sw-hierarchy-node.selected')).toHaveCount(1);
 });
 
-test('double-clicking a tree row moves the editor caret to the source span', async ({ page }) => {
+test('Ctrl-clicking a tree row moves the editor caret to the source span', async ({ page }) => {
   await page.goto('/canvas.html?fixture=single-box');
   await expect(
     page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
   ).toBeVisible();
   // Pull the expected span from the tree row's data attrs (matches
-  // the wrapper attrs used by the canvas double-click test).
+  // the wrapper attrs used by the canvas Ctrl-click test).
   const span = await page.evaluate(() => {
     const row = document.querySelector('.sw-hierarchy-node');
     if (!row) throw new Error('hierarchy node not found');
@@ -83,7 +83,10 @@ test('double-clicking a tree row moves the editor caret to the source span', asy
       end: parseInt(row.getAttribute('data-sw-span-end') ?? '', 10),
     };
   });
-  await page.locator('.sw-hierarchy-node').first().dblclick();
+  await page
+    .locator('.sw-hierarchy-node')
+    .first()
+    .click({ modifiers: ['ControlOrMeta'] });
   const sel = await page.evaluate(() => {
     const ta = document.querySelector('.sw-editor-pane') as HTMLTextAreaElement | null;
     if (!ta) throw new Error('editor pane not found');

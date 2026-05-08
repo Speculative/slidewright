@@ -100,6 +100,18 @@ type SelectionItem =
       slotName: string;
       key: string;
       bounds: Bounds;
+    }
+  | {
+      // Empty slot — no fill in source, no own span. Visually
+      // identical to 'slot' (teal dashed + slot-name label) since
+      // it represents the same selectable thing; the difference is
+      // that commits route through "materialize a new SlotFill"
+      // instead of "edit existing fill."
+      kind: 'empty-slot';
+      parentSpan: SourceRange;
+      slotName: string;
+      key: string;
+      bounds: Bounds;
     };
 
 export function SelectionLayer({
@@ -109,7 +121,17 @@ export function SelectionLayer({
   renderHandles,
   startGesture,
 }: SelectionLayerProps): ReactElement | null {
-  const portalTarget = useSelectionPortal(selected[0]?.span);
+  // Portal lookup wants any span on a real DOM wrapper. Filled
+  // targets carry their own span; empty-slot targets fall back to
+  // the parent component's span (the slot wrapper is inside that
+  // component's wrapper, so the same Freeform-or-stage ancestor
+  // applies).
+  const firstTarget = selected[0];
+  const firstSpan =
+    firstTarget && firstTarget.kind === 'empty-slot'
+      ? firstTarget.parentSpan
+      : firstTarget?.span;
+  const portalTarget = useSelectionPortal(firstSpan);
   // Layout bounds come from DOM measurement, not from params. Doing
   // it inline in render reads the DOM *before* React's commit phase
   // flushes layout-affecting source changes (e.g., a stack's
@@ -130,6 +152,19 @@ export function SelectionLayer({
       items.push({
         kind: 'slot',
         span: target.span,
+        parentSpan: target.parentSpan,
+        slotName: target.slotName,
+        key,
+        bounds,
+      });
+      continue;
+    }
+    if (target.kind === 'empty-slot') {
+      const key = slotKey(target);
+      const bounds = slotBounds.get(key);
+      if (!bounds) continue;
+      items.push({
+        kind: 'empty-slot',
         parentSpan: target.parentSpan,
         slotName: target.slotName,
         key,
@@ -215,16 +250,20 @@ export function SelectionLayer({
 
   return createPortal(
     <>
-      {items.map((item) => (
+      {items.map((item) => {
+        const isSlotKind =
+          item.kind === 'slot' || item.kind === 'empty-slot';
+        const overlaySpan = item.kind === 'empty-slot' ? null : item.span;
+        return (
         <Fragment key={item.key}>
           <div
             className={
-              item.kind === 'slot'
+              isSlotKind
                 ? 'sw-selection-outline sw-selection-slot'
                 : 'sw-selection-outline'
             }
-            data-sw-overlay-for-start={item.span.start}
-            data-sw-overlay-for-end={item.span.end}
+            data-sw-overlay-for-start={overlaySpan?.start}
+            data-sw-overlay-for-end={overlaySpan?.end}
             style={{
               position: 'absolute',
               left: `${item.bounds.left - 4}px`,
@@ -232,7 +271,7 @@ export function SelectionLayer({
               width: `${item.bounds.width + 8}px`,
               height: `${item.bounds.height + 8}px`,
               pointerEvents: 'none',
-              ...(item.kind === 'slot'
+              ...(isSlotKind
                 ? {
                     border: '2px dashed rgba(0, 200, 200, 0.95)',
                     borderRadius: '3px',
@@ -240,7 +279,7 @@ export function SelectionLayer({
                 : null),
             }}
           />
-          {item.kind === 'slot' && (
+          {isSlotKind && (
             <div
               className="sw-selection-slot-label"
               style={{
@@ -275,7 +314,8 @@ export function SelectionLayer({
             />
           )}
         </Fragment>
-      ))}
+        );
+      })}
       {groupBox && (
         <div
           className="sw-selection-group"
@@ -449,7 +489,7 @@ function useMeasuredSlotBounds(
     const remeasure = (): void => {
       const next = new Map<string, Bounds>();
       for (const target of selected) {
-        if (target.kind !== 'slot') continue;
+        if (target.kind !== 'slot' && target.kind !== 'empty-slot') continue;
         const bounds = measureSlotBounds(target, portalTarget);
         if (bounds) next.set(slotKey(target), bounds);
       }
@@ -463,7 +503,7 @@ function useMeasuredSlotBounds(
     );
     if (canvas instanceof HTMLElement) observer.observe(canvas);
     for (const target of selected) {
-      if (target.kind !== 'slot') continue;
+      if (target.kind !== 'slot' && target.kind !== 'empty-slot') continue;
       // Subscribe to the parent component's rendered root — when
       // its layout changes (children reflow, spacing edit, etc.),
       // the slot's bounds shift too.
@@ -486,13 +526,20 @@ function slotKey(target: { parentSpan: SourceRange; slotName: string }): string 
 // `display: contents`; getBoundingClientRect on it returns 0,0,0,0.
 // A Range over the wrapper's contents gives the union bounding box
 // of all the rendered children — text runs, components, etc.
+// Filled slots are looked up by their own slot-span; empty slots
+// (no own span) are looked up by (parent span, slot name).
 function measureSlotBounds(
-  target: { span: SourceRange; parentSpan: SourceRange; slotName: string },
+  target: SelectionTarget & { kind: 'slot' | 'empty-slot' },
   portalTarget: HTMLElement,
 ): Bounds | null {
-  const slotEl = document.querySelector(
-    `.sw-canvas-stage [data-sw-slot-span-start="${target.span.start}"][data-sw-slot-span-end="${target.span.end}"][data-sw-slot-name="${target.slotName}"]`,
-  );
+  const slotEl =
+    target.kind === 'slot'
+      ? document.querySelector(
+          `.sw-canvas-stage [data-sw-slot-span-start="${target.span.start}"][data-sw-slot-span-end="${target.span.end}"][data-sw-slot-name="${target.slotName}"]`,
+        )
+      : document.querySelector(
+          `.sw-canvas-stage [data-sw-slot-empty="true"][data-sw-slot-parent-start="${target.parentSpan.start}"][data-sw-slot-parent-end="${target.parentSpan.end}"][data-sw-slot-name="${target.slotName}"]`,
+        );
   if (!(slotEl instanceof HTMLElement)) return null;
   const canvas = document.querySelector(
     '.sw-canvas-stage .presentation-canvas',

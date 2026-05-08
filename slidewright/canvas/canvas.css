@@ -463,6 +463,41 @@ input.sw-property-value:focus {
   font-style: italic;
 }
 
+/* Empty editable-text spans (data-sw-text-span-*) need a visible
+ * hit target so:
+ *   (a) the caret renders when contentEditable focuses an empty
+ *       inline span — without min-height, browsers don't draw it.
+ *   (b) the user can click back into a text field they've fully
+ *       deleted; otherwise an empty inline span has zero size and
+ *       becomes unreachable.
+ * The :empty selector applies only when the span has no children;
+ * once the user types, the placeholder visual disappears
+ * automatically. */
+[data-sw-text-span-start]:empty {
+  display: inline-block;
+  min-width: 40px;
+  padding: 0 6px;
+  border: 1px dashed rgba(15, 118, 110, 0.55);
+  background: repeating-linear-gradient(
+    45deg,
+    transparent 0 8px,
+    rgba(15, 118, 110, 0.06) 8px 9px
+  );
+  border-radius: 2px;
+  vertical-align: baseline;
+  cursor: text;
+}
+/* Inline-block with no content collapses vertically — `min-height`
+ * with `em` doesn't pick up the parent's line-height. A zero-width
+ * space pseudo-content gives the inline-block a real text baseline,
+ * so the empty placeholder's height matches whatever a typed
+ * character would produce in the surrounding line-box. Once the
+ * user types, the span has real children, :empty stops matching,
+ * and the pseudo vanishes. */
+[data-sw-text-span-start]:empty::before {
+  content: '\200B';
+}
+
 .sw-editor-pane {
   /* Height comes from the bottom-strip flex parent; width comes from
    * the bottom-col-flex wrapper. The pane itself just fills its slot. */

@@ -119,7 +119,7 @@ test('source edit that moves a Box is reflected in the canvas', async ({
 
 // ─── Canvas → editor selection ───────────────────────────────────
 
-test('double-click on a shape moves the editor caret to its source range', async ({
+test('Ctrl-click on a shape moves the editor caret to its source range', async ({
   page,
 }) => {
   await page.goto('/canvas.html?fixture=single-box');
@@ -140,14 +140,14 @@ test('double-click on a shape moves the editor caret to its source range', async
       end: parseInt(wrapper.getAttribute('data-sw-span-end') ?? '', 10),
     };
   });
-  // Double-click the rendered Box. The canvas's selection-sync
-  // dispatch posts the range upstream, host.sendSelection fires,
-  // EditorPane's onSelection listener calls
-  // textarea.setSelectionRange.
+  // Ctrl/Cmd-click the rendered Box (VS Code "go to definition"
+  // mental model). The canvas's selection-sync dispatch posts the
+  // range upstream, host.sendSelection fires, EditorPane's
+  // onSelection listener calls textarea.setSelectionRange.
   await page
     .locator('.sw-canvas-stage [data-sw-component="Box"] > div')
     .first()
-    .dblclick();
+    .click({ modifiers: ['ControlOrMeta'] });
   // selectionStart/end should match the wrapper's source range.
   // EditorPane uses 'backward' direction so the caret is at start;
   // selectionStart is what we care about for caret position.

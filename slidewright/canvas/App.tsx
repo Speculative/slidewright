@@ -24,7 +24,9 @@ import {
 import type { ReactElement, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
+import { emit } from '../runtime/emitter.js';
 import { loadDeck, type ShapeData } from '../runtime/loader.js';
+import { parse } from '../runtime/parser.js';
 import type { Diagnostic } from '../runtime/diagnostics.js';
 import { components, staticTokens } from '../../decks/v0-reference/registry.js';
 import { DeckMetaContext } from '../../src/Slide.jsx';
@@ -40,16 +42,21 @@ import {
   ScaledCanvas,
   type CreateStart,
   type DragStart,
+  type EmptyTextSlotEditTarget,
   type TextEditTarget,
 } from './ScaledCanvas.js';
 import {
+  addStringSlotFill,
   appendShapeToFreeform,
   commitSourceEdit,
+  componentByPath,
   findActiveSlideFreeform,
+  findComponentAtSpan,
   findStringAt,
   makeArrowNode,
   makeBoxNode,
   makeTextBoxNode,
+  pathToComponent,
   removeShapeAtSpan,
   type PreserveSelection,
 } from './ast-edits.js';
@@ -72,6 +79,7 @@ import { ResizeHandle } from './ResizeHandle.js';
 import {
   HierarchyPanel,
   PropertiesPanel,
+  type EmptySlotInfo,
   type SlotInfo,
 } from './InspectorPanels.js';
 import { ToolPalette, type Tool } from './ToolPalette.js';
@@ -327,6 +335,16 @@ export function App({
     ),
   );
   const [editing, setEditing] = useState<TextEditTarget | null>(null);
+  // Set when the user dblclicks an empty text-slot placeholder.
+  // The handler commits an empty `slotName: ""` fill, then queues
+  // this baton so a follow-up effect (after the commit re-renders
+  // and the new text-edit span exists in DOM) can dispatch the
+  // text-edit gesture on it. Identity is `(parentStart, slotName)`
+  // — parent.start is unchanged across the inside-body insertion.
+  const pendingTextEditRef = useRef<{
+    parentStart: number;
+    slotName: string;
+  } | null>(null);
   const [createPreview, setCreatePreview] = useState<CreatePreview | null>(null);
   const [marquee, setMarquee] = useState<MarqueeState | null>(null);
   const [gestureMeta, setGestureMeta] = useState<GestureMeta | null>(null);
@@ -407,6 +425,86 @@ export function App({
       host.setSource?.(newSource);
     },
     [host],
+  );
+
+  // Materialize an empty text slot: write `slotName: "<value>"` into
+  // the parent component's body, then commit. The parent component
+  // is preserved as the post-commit selection (the slot now exists
+  // and a follow-up click can drill into it). Used by the empty-
+  // slot inspector and (below) by the dblclick-on-empty-text-
+  // placeholder gesture.
+  //
+  // Source spans aren't stable across the canonical-emitter round-
+  // trip (the formatter rewrites whitespace), so we capture the
+  // parent's structural path-from-root pre-commit and walk the same
+  // path on the post-emit reparse to recover its new span.
+  // Returns the parent's new SourceRange, or null on any failure.
+  const materializeTextSlot = useCallback(
+    (
+      parentSpan: SourceRange,
+      slotName: string,
+      value: string,
+    ): SourceRange | null => {
+      const preParse = parse(sourceRef.current, '<materialize-slot-pre>');
+      if (preParse.diagnostics.some((d) => d.severity === 'error')) return null;
+      const oldParent = findComponentAtSpan(
+        preParse.ast,
+        parentSpan.start,
+        parentSpan.end,
+      );
+      if (!oldParent) return null;
+      const path = pathToComponent(preParse.ast, oldParent);
+      if (!path) return null;
+      // Mutate in place on the same AST, then emit + reparse to
+      // recover the post-format span.
+      if (!addStringSlotFill(oldParent, slotName, value)) return null;
+      const newSource = emit(preParse.ast);
+      const postParse = parse(newSource, '<materialize-slot-post>');
+      if (postParse.diagnostics.some((d) => d.severity === 'error')) {
+        // Post-emit parse failed — push the source through anyway
+        // (the diagnostics panel will surface the issue) but skip
+        // selection preservation since we can't locate the parent.
+        commitToHost(newSource);
+        return null;
+      }
+      const newParent = componentByPath(postParse.ast, path);
+      if (!newParent) {
+        commitToHost(newSource);
+        return null;
+      }
+      const newParentRange: SourceRange = {
+        start: newParent.span.start.offset,
+        end: newParent.span.end.offset,
+      };
+      commitToHost(newSource, [newParentRange]);
+      return newParentRange;
+    },
+    [commitToHost],
+  );
+
+  // Dblclick on empty text placeholder: materialize an empty fill
+  // (so the source has a SlotFill with `""`), and queue a baton
+  // that the post-commit effect (below) consumes to enter text-
+  // edit mode on the freshly rendered span. Block / slide empty
+  // slots aren't materialized via dblclick — that needs an
+  // insertion picker (slot-targeted insertion gestures, deferred).
+  const startEmptyTextSlotEdit = useCallback(
+    (target: EmptyTextSlotEditTarget): void => {
+      const { parentSpan, slotName } = target;
+      // Materialize first so we can capture the parent's NEW span
+      // (post-format). materializeTextSlot calls commitToHost
+      // synchronously; the host.subscribe handler queues a setState
+      // but the re-render hasn't happened yet, so we still have a
+      // window to set pendingTextEditRef before the post-commit
+      // useEffect fires.
+      const newParentRange = materializeTextSlot(parentSpan, slotName, '');
+      if (!newParentRange) return;
+      pendingTextEditRef.current = {
+        parentStart: newParentRange.start,
+        slotName,
+      };
+    },
+    [materializeTextSlot],
   );
 
   useEffect(() => {
@@ -599,6 +697,56 @@ export function App({
 
   useEffect(() => {
     sourceRef.current = state?.source ?? '';
+  }, [state]);
+
+  // Pending text-edit baton drainer. Fires after every state
+  // update; if the previous tick queued an empty-text-slot
+  // materialization, the new tree now contains the freshly-
+  // rendered text-edit span — find it via (parentStart, slotName)
+  // and enter edit mode on it. parentStart is stable across the
+  // inside-body insertion (only the parent's end shifts).
+  //
+  // The lookup is retried on the next animation frame if the
+  // first attempt comes up empty — React commits before paint
+  // and rAF queues for the next frame, so by then any deferred
+  // child rendering (portals, layout-effect-driven children) has
+  // also flushed. Without this retry, an unlucky scheduling can
+  // leave pendingTextEditRef set with no further state change to
+  // trigger another pass.
+  useEffect(() => {
+    const pending = pendingTextEditRef.current;
+    if (!pending) return;
+
+    const tryEnter = (): boolean => {
+      const parentEl = document.querySelector(
+        `.sw-canvas-stage [data-sw-component][data-sw-span-start="${pending.parentStart}"]`,
+      );
+      if (!(parentEl instanceof HTMLElement)) return false;
+      const slotEl = parentEl.querySelector(
+        `[data-sw-slot-name="${pending.slotName}"]:not([data-sw-slot-empty])`,
+      );
+      if (!(slotEl instanceof HTMLElement)) return false;
+      const textSpan = slotEl.querySelector('[data-sw-text-span-start]');
+      if (!(textSpan instanceof HTMLElement)) return false;
+      const start = parseInt(
+        textSpan.getAttribute('data-sw-text-span-start') ?? '',
+        10,
+      );
+      const end = parseInt(
+        textSpan.getAttribute('data-sw-text-span-end') ?? '',
+        10,
+      );
+      if (!Number.isFinite(start) || !Number.isFinite(end)) return false;
+      pendingTextEditRef.current = null;
+      setEditing({ node: textSpan, start, end, originalText: '' });
+      return true;
+    };
+
+    if (tryEnter()) return;
+    const raf = requestAnimationFrame(() => {
+      tryEnter();
+    });
+    return () => cancelAnimationFrame(raf);
   }, [state]);
 
   // Text-edit gesture (contentEditable). Different lifecycle from
@@ -1118,6 +1266,16 @@ export function App({
     if (!fill) return null;
     return { slotName: singleTarget.slotName, fill, parentShape };
   })();
+  const emptySlotInfo: EmptySlotInfo | null = (() => {
+    if (!singleTarget || singleTarget.kind !== 'empty-slot') return null;
+    const parentShape = findShapeForRange(state.shapes, singleTarget.parentSpan);
+    if (!parentShape) return null;
+    return {
+      slotName: singleTarget.slotName,
+      slotType: singleTarget.slotType,
+      parentShape,
+    };
+  })();
 
   return (
     <DeckMetaContext.Provider
@@ -1153,6 +1311,7 @@ export function App({
                 currentSelection={selected}
                 onSelectRange={(range: SourceRange) => host.sendSelection(range)}
                 onTextEdit={(target) => setEditing(target)}
+                onEmptyTextSlotEdit={startEmptyTextSlotEdit}
                 onDragStart={(target) =>
                   startBodyDrag(target, selected, state.shapes, setGestureMeta, setGestureLive)
                 }
@@ -1272,11 +1431,13 @@ export function App({
               <PropertiesPanel
                 componentShape={selectedShape}
                 slotInfo={slotInfo}
+                emptySlotInfo={emptySlotInfo}
                 multiCount={selected.length}
                 source={state.source}
                 onCommit={(newSource, newSelections) =>
                   commitToHost(newSource, newSelections)
                 }
+                onMaterializeTextSlot={materializeTextSlot}
               />
             </div>
             <ResizeHandle
