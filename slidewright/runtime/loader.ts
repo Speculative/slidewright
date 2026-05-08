@@ -447,13 +447,12 @@ function wrapWithSpan(comp: Component, element: ReactNode): ReactElement {
 function wrapEditableString(
   lit: StringLit,
   resolved: string,
-  key?: number,
 ): ReactNode {
   if (lit.multiline) return resolved;
   return createElement(
     'span',
     {
-      key: key,
+      key: `text-${lit.span.start.offset}`,
       'data-sw-text-span-start': lit.span.start.offset,
       'data-sw-text-span-end': lit.span.end.offset,
     },
@@ -752,9 +751,9 @@ function resolveTextValue(value: Value, ctx: LoadCtx): ReactNode {
     return wrapEditableString(value, resolved);
   }
   if (value.kind === 'list') {
-    const parts: ReactNode[] = value.items.map((v, i) => {
+    const parts: ReactNode[] = value.items.map((v) => {
       if (v.kind === 'string') {
-        return wrapEditableString(v, v.value, i);
+        return wrapEditableString(v, v.value);
       }
       if (v.kind === 'component' && v.name === 'Span') {
         return renderSpanAsNode(v, ctx);
@@ -781,7 +780,13 @@ function resolveTextValue(value: Value, ctx: LoadCtx): ReactNode {
       );
       return '';
     });
-    return createElement(Fragment, { key: cellKey(value) }, ...parts.map((p, i) => createElement(Fragment, { key: i }, p)));
+    // parts already carry their own span-derived keys (text spans
+    // from wrapEditableString, Span elements from renderSpanAsNode).
+    // Plain strings (name_ref / fallback) are exempt from the key
+    // requirement. Spread directly under the outer Fragment — the
+    // earlier inner Fragment(key=i) wrap caused collisions with
+    // other integer-keyed elements elsewhere in the tree.
+    return createElement(Fragment, { key: cellKey(value) }, ...parts);
   }
   if (value.kind === 'name_ref') {
     const resolved = lookup(ctx.scope, value.name);

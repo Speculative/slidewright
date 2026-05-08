@@ -1370,7 +1370,7 @@ export function App({
                 observers stay subscribed to the previous slide's now-
                 detached DOM and never re-attach on nav-back. */}
               <SelectionLayer
-                key={activeIdx}
+                key={`selection-${activeIdx}`}
                 selected={selected}
                 shapes={state.shapes}
                 gestureDeltas={gestureDeltas}
@@ -1378,7 +1378,7 @@ export function App({
                 startGesture={startGesture}
               />
               <GestureOverlayLayer
-                key={activeIdx}
+                key={`gesture-${activeIdx}`}
                 activeSpans={gestureMeta?.spans ?? EMPTY_SPANS}
                 shapes={state.shapes}
                 gestureDeltas={gestureDeltas}
