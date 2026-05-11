@@ -415,6 +415,41 @@ html, body, #root {
   color: #888;
 }
 
+/* The slide row is the implicit container of everything below. Same
+ * row footprint as the shape rows, but its own class so callers that
+ * count `.sw-hierarchy-node` (shapes) don't pick it up. Visually
+ * distinct via italic name + subtler color. */
+.sw-hierarchy-slide-row {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 3px;
+  cursor: default;
+  user-select: none;
+}
+.sw-hierarchy-slide-row:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+.sw-hierarchy-slide-row.selected {
+  background: rgba(0, 0, 255, 0.12);
+}
+.sw-hierarchy-slide-row.selected:hover {
+  background: rgba(0, 0, 255, 0.18);
+}
+.sw-hierarchy-slide-name {
+  font-family: var(--vscode-editor-font-family, "JetBrains Mono", ui-monospace, monospace);
+  font-size: 12px;
+  color: #555;
+  font-style: italic;
+}
+.sw-hierarchy-slide-meta {
+  font-family: var(--vscode-editor-font-family, "JetBrains Mono", ui-monospace, monospace);
+  font-size: 11px;
+  color: #888;
+}
+
 /* Properties panel — key/value rows. Two-column grid keeps keys
  * aligned and values flexible. */
 .sw-properties-rows {

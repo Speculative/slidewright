@@ -25,7 +25,11 @@ import type { ReactElement, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 import { emit } from '../runtime/emitter.js';
-import { loadDeck, type ShapeData } from '../runtime/loader.js';
+import {
+  loadDeck,
+  type ShapeData,
+  type SlideAstData,
+} from '../runtime/loader.js';
 import { parse } from '../runtime/parser.js';
 import type { Diagnostic } from '../runtime/diagnostics.js';
 import { components, staticTokens } from '../../decks/v0-reference/registry.js';
@@ -101,6 +105,11 @@ interface RenderState {
   // and gesture rendering iterate this without re-walking the slide
   // tree or the DOM.
   shapes: ReadonlyMap<string, ShapeData>;
+  // Parallel to `slides` — one entry per top-level Slide invocation,
+  // carrying its AST + meta. The inspector reads
+  // `slidesData[activeIdx]` to render slide-level properties and to
+  // show the slide as the first row in the hierarchy.
+  slidesData: SlideAstData[];
 }
 
 // Pre-Section slides in the existing scaffold show "Setup" in the
@@ -566,6 +575,7 @@ export function App({
           meta: { name: result.meta.name, subtitle: result.meta.subtitle },
           source,
           shapes: result.shapes,
+          slidesData: result.slidesData,
         };
         // Read activeIdx via ref (not closure) so this effect's
         // deps don't include `activeIdx` — every slide-change
@@ -1276,6 +1286,11 @@ export function App({
       parentShape,
     };
   })();
+  // Active slide's AST + meta. Powers the hierarchy slide row and
+  // the property panel's slide-selected / default-no-selection
+  // views. Null when the deck has no slides (e.g., empty source).
+  const activeSlide: SlideAstData | null =
+    state.slidesData[activeIdx] ?? null;
 
   return (
     <DeckMetaContext.Provider
@@ -1410,6 +1425,7 @@ export function App({
               <HierarchyPanel
                 shapes={state.shapes}
                 activeIdx={activeIdx}
+                activeSlide={activeSlide}
                 selected={selected}
                 onSelect={(target, modifiers) =>
                   applySelectionClick(target, modifiers, setSelected)
@@ -1432,6 +1448,7 @@ export function App({
                 componentShape={selectedShape}
                 slotInfo={slotInfo}
                 emptySlotInfo={emptySlotInfo}
+                activeSlide={activeSlide}
                 multiCount={selected.length}
                 source={state.source}
                 onCommit={(newSource, newSelections) =>
@@ -1494,9 +1511,14 @@ function preserveSelectionAcrossExternalEdit(
   }
   const out: SelectionTarget[] = [];
   for (const target of prevSelected) {
-    // Slot-target preservation across external edits is deferred —
-    // would need to look up the parent's new span and re-derive the
-    // SlotFill span post-emit. Drop slot selections for now.
+    // Slide-target identity is "the active slide" — no span — so it
+    // survives external edits unchanged. Slot-target preservation
+    // is deferred (would need to re-derive the post-emit SlotFill
+    // span); drop those for now.
+    if (target.kind === 'slide') {
+      out.push(target);
+      continue;
+    }
     if (target.kind !== 'component') continue;
     const oldKey = spanKey(target.span);
     const oldData = prevShapes.get(oldKey);

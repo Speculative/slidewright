@@ -130,7 +130,9 @@ export function SelectionLayer({
   const firstSpan =
     firstTarget && firstTarget.kind === 'empty-slot'
       ? firstTarget.parentSpan
-      : firstTarget?.span;
+      : firstTarget && firstTarget.kind !== 'slide'
+        ? firstTarget.span
+        : undefined;
   const portalTarget = useSelectionPortal(firstSpan);
   // Layout bounds come from DOM measurement, not from params. Doing
   // it inline in render reads the DOM *before* React's commit phase
@@ -170,6 +172,11 @@ export function SelectionLayer({
         key,
         bounds,
       });
+      continue;
+    }
+    if (target.kind === 'slide') {
+      // Slide targets never render an outline — the slide is the
+      // canvas itself, not a thing within it.
       continue;
     }
     const span = target.span;

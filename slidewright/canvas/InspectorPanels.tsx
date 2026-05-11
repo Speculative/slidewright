@@ -16,18 +16,29 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 
-import { isRenderableSlotType, type ShapeData } from '../runtime/loader.js';
+import {
+  isRenderableSlotType,
+  type ShapeData,
+  type SlideAstData,
+} from '../runtime/loader.js';
 import type { SlotFill, Value } from '../runtime/ast.js';
 import type { ComponentMeta, SlotType } from '../runtime/contract.js';
 import type { SourceRange } from './host.js';
 import {
   componentTarget,
+  slideTarget,
   type SelectionTarget,
 } from './selection-target.js';
 
 interface HierarchyPanelProps {
   shapes: ReadonlyMap<string, ShapeData>;
   activeIdx: number;
+  // The active slide's AST + meta. Rendered as the first row of the
+  // hierarchy with no indentation change — the slide is the
+  // implicit container of everything below it, so it doesn't earn
+  // an indent level. Falls back to null when the deck has no slides
+  // (e.g., during partial loads). When null, the row is omitted.
+  activeSlide: SlideAstData | null;
   selected: readonly SelectionTarget[];
   onSelect: (target: SelectionTarget, modifiers: { shift: boolean }) => void;
   onJumpToSource: (range: SourceRange) => void;
@@ -36,6 +47,7 @@ interface HierarchyPanelProps {
 export function HierarchyPanel({
   shapes,
   activeIdx,
+  activeSlide,
   selected,
   onSelect,
   onJumpToSource,
@@ -62,55 +74,87 @@ export function HierarchyPanel({
     );
   };
 
+  const slideSelected = selected.some((s) => s.kind === 'slide');
+  const slideLabel = activeSlide ? readSlideLabel(activeSlide) : null;
+
   return (
     <div className="sw-inspector-panel sw-hierarchy-panel">
       <div className="sw-inspector-panel-header">Hierarchy</div>
       <div className="sw-inspector-panel-body">
-        {items.length === 0 ? (
-          <div className="sw-inspector-panel-empty">
-            (no shapes on this slide)
-          </div>
-        ) : (
-          <ul className="sw-hierarchy-tree" role="tree">
-            {items.map((data) => {
-              const range: SourceRange = {
-                start: data.comp.span.start.offset,
-                end: data.comp.span.end.offset,
-              };
-              const sel = isSelected(data);
-              return (
-                <li
-                  key={`${range.start}-${range.end}`}
-                  className={
-                    'sw-hierarchy-node' + (sel ? ' selected' : '')
+        <ul className="sw-hierarchy-tree" role="tree">
+          {activeSlide ? (
+            <li
+              key="slide"
+              className={
+                'sw-hierarchy-slide-row' + (slideSelected ? ' selected' : '')
+              }
+              role="treeitem"
+              aria-selected={slideSelected}
+              data-sw-slide-row="true"
+              onClick={(e) => {
+                if (e.ctrlKey || e.metaKey) {
+                  onJumpToSource({
+                    start: activeSlide.comp.span.start.offset,
+                    end: activeSlide.comp.span.end.offset,
+                  });
+                  return;
+                }
+                onSelect(slideTarget(), { shift: e.shiftKey });
+              }}
+            >
+              <span className="sw-hierarchy-slide-name">
+                {activeSlide.comp.name}
+              </span>
+              {slideLabel ? (
+                <span className="sw-hierarchy-slide-meta">· {slideLabel}</span>
+              ) : (
+                <span className="sw-hierarchy-slide-meta">#{activeIdx + 1}</span>
+              )}
+            </li>
+          ) : null}
+          {items.length === 0 ? (
+            <li className="sw-inspector-panel-empty">
+              (no shapes on this slide)
+            </li>
+          ) : null}
+          {items.map((data) => {
+            const range: SourceRange = {
+              start: data.comp.span.start.offset,
+              end: data.comp.span.end.offset,
+            };
+            const sel = isSelected(data);
+            return (
+              <li
+                key={`${range.start}-${range.end}`}
+                className={
+                  'sw-hierarchy-node' + (sel ? ' selected' : '')
+                }
+                role="treeitem"
+                aria-selected={sel}
+                data-sw-span-start={range.start}
+                data-sw-span-end={range.end}
+                onClick={(e) => {
+                  // Ctrl/Cmd+click jumps the editor cursor to the
+                  // shape's source span (VS Code "go to
+                  // definition" mental model). Plain click is
+                  // selection.
+                  if (e.ctrlKey || e.metaKey) {
+                    onJumpToSource(range);
+                    return;
                   }
-                  role="treeitem"
-                  aria-selected={sel}
-                  data-sw-span-start={range.start}
-                  data-sw-span-end={range.end}
-                  onClick={(e) => {
-                    // Ctrl/Cmd+click jumps the editor cursor to the
-                    // shape's source span (VS Code "go to
-                    // definition" mental model). Plain click is
-                    // selection.
-                    if (e.ctrlKey || e.metaKey) {
-                      onJumpToSource(range);
-                      return;
-                    }
-                    onSelect(componentTarget(range), { shift: e.shiftKey });
-                  }}
-                >
-                  <span className="sw-hierarchy-node-name">
-                    {data.comp.name}
-                  </span>
-                  <span className="sw-hierarchy-node-meta">
-                    #{data.childIdx}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+                  onSelect(componentTarget(range), { shift: e.shiftKey });
+                }}
+              >
+                <span className="sw-hierarchy-node-name">
+                  {data.comp.name}
+                </span>
+                <span className="sw-hierarchy-node-meta">
+                  #{data.childIdx}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
       </div>
     </div>
   );
@@ -130,6 +174,11 @@ interface PropertiesPanelProps {
   // commit; for non-text slots, a "(empty)" hint pending the slot-
   // targeted insertion-gestures milestone.
   emptySlotInfo: EmptySlotInfo | null;
+  // The active slide's AST + meta. Used when the single-selected
+  // target has kind 'slide' OR when nothing is selected (the
+  // default panel state is "showing the slide"). Null when there's
+  // no slide to display.
+  activeSlide: SlideAstData | null;
   // Count of all selected items. > 1 short-circuits to a multi-
   // select hint regardless of kind.
   multiCount: number;
@@ -161,6 +210,7 @@ export function PropertiesPanel({
   componentShape,
   slotInfo,
   emptySlotInfo,
+  activeSlide,
   multiCount,
   source,
   onCommit,
@@ -188,6 +238,13 @@ export function PropertiesPanel({
   }
   if (componentShape) {
     return <ComponentPropertiesView shape={componentShape} source={source} onCommit={onCommit} />;
+  }
+  // No specific selection — fall through to the slide. This makes
+  // "nothing selected" mean "I'm editing the slide", which matches
+  // how users think about the inspector when they've just dismissed
+  // a shape selection.
+  if (activeSlide) {
+    return <SlidePropertiesView slide={activeSlide} source={source} onCommit={onCommit} />;
   }
   return (
     <PanelFrame header="Properties">
@@ -266,6 +323,46 @@ function ComponentPropertiesView({
 function omitEligibleForFill(meta: ComponentMeta, fillName: string): boolean {
   const slot = meta.slots[fillName];
   return slot !== undefined && isRenderableSlotType(slot.type);
+}
+
+function SlidePropertiesView({
+  slide,
+  source,
+  onCommit,
+}: {
+  slide: SlideAstData;
+  source: string;
+  onCommit: (newSource: string, newSelections?: SourceRange[]) => void;
+}): ReactElement {
+  const label = readSlideLabel(slide);
+  const header = label ? `${slide.comp.name} · ${label}` : slide.comp.name;
+  // Preserve the slide selection across edits — the slide kind has
+  // no span identity, so we pass an empty newSelections to mean
+  // "keep current". The wrapper-commit-shape-range trick used for
+  // ComponentPropertiesView doesn't apply here.
+  const wrappedCommit = (newSource: string): void => onCommit(newSource);
+  if (slide.comp.fills.length === 0) {
+    return (
+      <PanelFrame header={header}>
+        <div className="sw-inspector-panel-empty">(no parameters)</div>
+      </PanelFrame>
+    );
+  }
+  return (
+    <PanelFrame header={header}>
+      <div className="sw-properties-rows">
+        {slide.comp.fills.map((fill) => (
+          <PropertyRow
+            key={`slide-${fill.name}`}
+            fill={fill}
+            source={source}
+            onCommit={wrappedCommit}
+            omitEligible={omitEligibleForFill(slide.meta, fill.name)}
+          />
+        ))}
+      </div>
+    </PanelFrame>
+  );
 }
 
 function EmptySlotPropertiesView({
@@ -529,6 +626,18 @@ function isEditableValue(v: Value): boolean {
 
 function readValueSource(v: Value, source: string): string {
   return source.slice(v.span.start.offset, v.span.end.offset);
+}
+
+// Pull the slide's `label` slot/param fill out of source, if any,
+// and return its decoded string value for display in the hierarchy.
+// Returns null when there's no label or the label isn't a string
+// literal (the inspector's display channel can't represent name_refs
+// / components meaningfully in this one-line context).
+function readSlideLabel(slide: SlideAstData): string | null {
+  const fill = slide.comp.fills.find((f) => f.name === 'label');
+  if (!fill) return null;
+  if (fill.value.kind !== 'string') return null;
+  return fill.value.value;
 }
 
 function sliceReplace(

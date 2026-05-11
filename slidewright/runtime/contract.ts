@@ -154,4 +154,15 @@ export const BUILTIN_META: Record<string, ComponentMeta> = {
       height: { type: 'number' },
     },
   },
+  Slide: {
+    produces: 'slide',
+    slots: {
+      content: { type: 'slide', required: true },
+      notes: { type: 'text', required: false },
+    },
+    params: {
+      label: { type: 'string' },
+      chromeless: { type: 'boolean', default: false },
+    },
+  },
 };

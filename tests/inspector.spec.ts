@@ -98,14 +98,63 @@ test('Ctrl-clicking a tree row moves the editor caret to the source span', async
 
 // ─── Property panel ──────────────────────────────────────────────
 
-test('property panel shows placeholder when nothing is selected', async ({ page }) => {
+test('property panel shows the slide when nothing else is selected', async ({ page }) => {
+  // No-selection state falls through to the active slide — the
+  // panel shows the slide's label / notes / content rows so the
+  // user has somewhere to land by default.
   await page.goto('/canvas.html?fixture=single-box');
   await expect(
     page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
   ).toBeVisible();
   await expect(
-    page.locator('.sw-properties-panel .sw-inspector-panel-empty'),
-  ).toContainText('no selection');
+    page.locator('.sw-properties-panel .sw-inspector-panel-header'),
+  ).toContainText('Slide');
+  await expect(
+    page.locator('.sw-property-row', { hasText: /^label/ }),
+  ).toHaveCount(1);
+});
+
+test('hierarchy shows the active slide as the first row, distinct from shape rows', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-box');
+  await expect(
+    page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
+  ).toBeVisible();
+  const slideRow = page.locator('.sw-hierarchy-slide-row');
+  await expect(slideRow).toHaveCount(1);
+  await expect(slideRow).toContainText('Slide');
+  // Slide row is NOT also counted as a shape row.
+  await expect(page.locator('.sw-hierarchy-node')).toHaveCount(1);
+});
+
+test('clicking the slide row selects the slide without drawing a canvas outline', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-box');
+  await expect(
+    page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
+  ).toBeVisible();
+  const slideRow = page.locator('.sw-hierarchy-slide-row');
+  await slideRow.click();
+  // Slide row picks up `.selected` class.
+  await expect(slideRow).toHaveClass(/selected/);
+  // Property panel switches to slide header.
+  await expect(
+    page.locator('.sw-properties-panel .sw-inspector-panel-header'),
+  ).toContainText('Slide');
+  // No outline drawn on the canvas — slide is the container itself.
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(0);
+});
+
+test('editing the slide label commits to source', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-box');
+  await expect(
+    page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
+  ).toBeVisible();
+  await page.locator('.sw-hierarchy-slide-row').click();
+  const labelRow = page.locator('.sw-property-row', { hasText: /^label/ }).first();
+  const labelInput = labelRow.locator('input.sw-property-value');
+  await labelInput.fill('"Renamed"');
+  await labelInput.press('Enter');
+  const src = await page.locator('.sw-editor-pane').inputValue();
+  expect(src).toMatch(/label:\s*"Renamed"/);
 });
 
 test('property panel renders rows for the selected shape', async ({ page }) => {

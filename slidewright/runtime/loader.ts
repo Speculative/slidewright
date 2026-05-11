@@ -99,6 +99,18 @@ export interface LoadDeckResult {
   // The runtime layer doesn't know what a ShapeAdapter is, so the
   // entry's `canvas` field is typed as `unknown`. Canvas casts.
   shapes: ReadonlyMap<string, ShapeData>;
+  // Parallel to `slides: ReactElement[]` — one entry per slide,
+  // same index. Carries the slide's AST component (the `Slide { ...
+  // }` invocation, or a custom slide-producing component used at
+  // the top level) plus its meta. The inspector reads this to
+  // render slide-level properties (label, notes, etc.) as the
+  // default panel when nothing else is selected.
+  slidesData: SlideAstData[];
+}
+
+export interface SlideAstData {
+  comp: Component;
+  meta: ComponentMeta;
 }
 
 export interface ShapeData {
@@ -147,13 +159,20 @@ export function loadDeck(input: LoadDeckInput): LoadDeckResult {
     cellSeq: 0,
     wrapShape: input.wrapShape ?? defaultWrapShape,
     shapes: new Map(),
+    slidesData: [],
     currentSlideIdx: -1,
   };
 
   // Find the top-level Deck invocation. We accept exactly one for v0.0.
   const deck = findDeck(ast, ctx);
   if (!deck) {
-    return { meta: DEFAULT_META, slides: [], diagnostics, shapes: ctx.shapes };
+    return {
+      meta: DEFAULT_META,
+      slides: [],
+      diagnostics,
+      shapes: ctx.shapes,
+      slidesData: ctx.slidesData,
+    };
   }
 
   const meta = renderDeckMeta(deck, ctx);
@@ -169,7 +188,13 @@ export function loadDeck(input: LoadDeckInput): LoadDeckResult {
   for (const data of ctx.shapes.values()) {
     data.childIdx = computeChildIdxInFreeform(ast, data);
   }
-  return { meta, slides, diagnostics, shapes: ctx.shapes };
+  return {
+    meta,
+    slides,
+    diagnostics,
+    shapes: ctx.shapes,
+    slidesData: ctx.slidesData,
+  };
 }
 
 function computeChildIdxInFreeform(
@@ -219,6 +244,11 @@ interface LoadCtx {
   cellSeq: number;
   wrapShape: WrapShape;
   shapes: Map<string, ShapeData>;
+  // Parallel to the eventual `slides: ReactElement[]` output. One
+  // entry pushed per top-level slide (Slide builtin or custom slide
+  // component) during renderDeckSlides; surfaces as
+  // LoadDeckResult.slidesData.
+  slidesData: SlideAstData[];
   // The slide index currently being rendered. Set by
   // renderDeckSlides as it iterates; used to tag each shape with
   // its parent slide for canvas-side commit logic.
@@ -380,6 +410,10 @@ function renderSlide(comp: Component, ctx: LoadCtx, idx: number): ReactElement |
     );
     return null;
   }
+  // Record custom slide-producing components in slidesData too, so
+  // the inspector treats them the same as builtin Slides. Their own
+  // meta drives the property panel.
+  ctx.slidesData.push({ comp, meta: loaded.meta });
   const inner = renderComponent(comp, ctx);
   if (!inner) return null;
   return wrapWithSpan(
@@ -390,7 +424,11 @@ function renderSlide(comp: Component, ctx: LoadCtx, idx: number): ReactElement |
 
 function renderBuiltinSlide(comp: Component, ctx: LoadCtx, idx: number): ReactElement | null {
   const fills = byName(comp.fills);
-  validateNoUnknown(comp, ['content', 'label', 'notes', 'chromeless'], ctx);
+  validateAgainstMeta(comp, BUILTIN_META.Slide!, ctx);
+  // Record the slide's AST + meta so the inspector can render its
+  // properties as the default panel state. Pushed in slide-index
+  // order (matches `slides: ReactElement[]`).
+  ctx.slidesData.push({ comp, meta: BUILTIN_META.Slide! });
   const contentFill = fills.get('content');
   if (!contentFill) {
     emit(

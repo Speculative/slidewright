@@ -1,6 +1,6 @@
 // SelectionTarget — discriminated union for the canvas selection model.
 //
-// Today the canvas can select three kinds of things:
+// Today the canvas can select four kinds of things:
 //   - **components** — a Slidewright component invocation (Box,
 //     VStack, CardRow, etc.). The selection's span is the
 //     component's source span; the selection's behavior comes from
@@ -18,6 +18,13 @@
 //     as placeholders so users can click into them; commits that
 //     fill an empty slot materialize a SlotFill in the parent's
 //     body.
+//   - **slide** — the active slide as an implicit container. Has
+//     no span (the slide is the active-index abstraction, not a
+//     fixed node); the inspector reads `slidesData[activeIdx]`
+//     when this kind is selected. Selection-layer does not draw an
+//     outline for slide targets — the slide is the canvas itself,
+//     not a thing within the canvas. Also serves as the default
+//     inspector context when nothing else is selected.
 //
 // Selection state is `SelectionTarget[]` (multi-select supported
 // for components; slot / empty-slot selections are single-only by
@@ -56,7 +63,8 @@ export type SelectionTarget =
       // parent's schema (text → materialize-and-edit; others → no-op
       // for now, deferred to slot-targeted insertion).
       slotType: SlotType;
-    };
+    }
+  | { kind: 'slide' };
 
 // Two targets refer to the same selectable thing? Component
 // targets compare by span; slot / empty-slot targets compare by
@@ -81,6 +89,7 @@ export function selectionTargetsEqual(
       a.slotName === b.slotName
     );
   }
+  if (a.kind === 'slide' && b.kind === 'slide') return true;
   return false;
 }
 
@@ -100,4 +109,8 @@ export function findTargetIndex(
 // SourceRanges into the selection state.
 export function componentTarget(span: SourceRange): SelectionTarget {
   return { kind: 'component', span };
+}
+
+export function slideTarget(): SelectionTarget {
+  return { kind: 'slide' };
 }
