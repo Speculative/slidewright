@@ -101,6 +101,7 @@ type Shape =
   | { kind: 'number'; value: number }
   | { kind: 'boolean'; value: boolean }
   | { kind: 'null' }
+  | { kind: 'omit' }
   | { kind: 'list'; items: Shape[] }
   | { kind: 'name_ref'; name: string };
 
@@ -125,6 +126,8 @@ function shapeOf(node: Node | Value): Shape {
       return { kind: 'boolean', value: node.value };
     case 'null':
       return { kind: 'null' };
+    case 'omit':
+      return { kind: 'omit' };
     case 'list':
       return { kind: 'list', items: node.items.map(shapeOf) as Shape[] };
     case 'name_ref':

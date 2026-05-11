@@ -425,7 +425,7 @@ html, body, #root {
 
 .sw-property-row {
   display: grid;
-  grid-template-columns: minmax(80px, 35%) 1fr;
+  grid-template-columns: minmax(80px, 35%) 1fr auto;
   align-items: center;
   gap: 8px;
   padding: 2px 0;
@@ -461,6 +461,37 @@ input.sw-property-value:focus {
 .sw-property-value-readonly {
   color: #888;
   font-style: italic;
+}
+
+input.sw-property-value:disabled {
+  background: #f5f5f5;
+  color: #888;
+  font-style: italic;
+}
+
+.sw-property-omit-toggle {
+  font-family: var(--vscode-editor-font-family, "JetBrains Mono", ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 6px;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  background: #fff;
+  color: #888;
+  cursor: pointer;
+}
+.sw-property-omit-toggle:hover {
+  color: #333;
+  border-color: #888;
+}
+.sw-property-omit-toggle.active {
+  background: rgba(15, 118, 110, 0.85);
+  color: #fff;
+  border-color: rgba(15, 118, 110, 0.85);
+}
+.sw-property-omit-toggle.active:hover {
+  background: rgba(15, 118, 110, 1);
+  border-color: rgba(15, 118, 110, 1);
 }
 
 /* Empty editable-text spans (data-sw-text-span-*) need a visible

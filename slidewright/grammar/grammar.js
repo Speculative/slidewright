@@ -68,7 +68,8 @@ module.exports = grammar({
   // Trivia eaten between any two grammar tokens.
   extras: ($) => [/\s/, $.line_comment, $.block_comment],
 
-  // The token used for keyword resolution (`true`, `false`, `null`).
+  // The token used for keyword resolution (`true`, `false`, `null`,
+  // `omit`).
   word: ($) => $.lower_ident,
 
   rules: {
@@ -106,6 +107,7 @@ module.exports = grammar({
         $.number,
         $.boolean,
         $.null_lit,
+        $.omit_lit,
         $.list,
         $.component,
         $.name_ref,
@@ -150,6 +152,11 @@ module.exports = grammar({
     boolean: () => choice('true', 'false'),
 
     null_lit: () => 'null',
+
+    // Intentional-empty sigil. `slotName: omit` declares the slot is
+    // meant to be empty; the loader suppresses the empty-slot
+    // placeholder for it. Distinct from `null` (a nullable value).
+    omit_lit: () => 'omit',
 
     // ── Comments ────────────────────────────────────────────────────────
     line_comment: () => token(seq('//', /[^\n]*/)),

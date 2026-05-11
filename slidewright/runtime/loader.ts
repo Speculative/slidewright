@@ -107,6 +107,10 @@ export interface ShapeData {
   // Only present when the component declared one (so the registry
   // is naturally filtered to gesture-able shapes).
   canvas: unknown;
+  // The component's declared meta (slots / params schema). The
+  // inspector reads this to distinguish slots from params and to
+  // route the omit-toggle to renderable slots only.
+  meta: ComponentMeta;
   // Resolved params for the shape — the same map the loader hands
   // to its React render. Adapters use these as the source-driven
   // baseline that gestures transform.
@@ -490,15 +494,16 @@ function renderComponent(comp: Component, ctx: LoadCtx): ReactNode {
   const fills = byName(comp.fills);
   for (const [slotName, schema] of Object.entries(loaded.meta.slots)) {
     const fill = fills.get(slotName);
-    if (!fill) {
-      // Empty slot — no fill in source. For renderable slot types
-      // we inject a placeholder ReactNode the user can click into
-      // (selection lands on a `kind: 'empty-slot'` target). Phase A
-      // is always-on placeholders; Phase B adds an explicit-empty
-      // sigil that suppresses them. Non-renderable slot types
-      // (image, scalars) stay undefined — the component template
-      // and the inspector handle their absence.
-      if (isRenderableSlotType(schema.type)) {
+    if (!fill || fill.value.kind === 'omit') {
+      // No fill OR an explicit `omit` sigil. For renderable slot
+      // types with no fill, inject a placeholder ReactNode the user
+      // can click into (selection lands on a `kind: 'empty-slot'`
+      // target). The `omit` sigil suppresses that placeholder —
+      // the user has acknowledged the slot is intentionally empty.
+      // Non-renderable slot types (image, scalars) stay undefined
+      // either way; the component template and inspector handle
+      // their absence.
+      if (!fill && isRenderableSlotType(schema.type)) {
         slots[slotName] = createEmptySlotPlaceholder(
           slotName,
           schema.type,
@@ -535,7 +540,7 @@ function renderComponent(comp: Component, ctx: LoadCtx): ReactNode {
 
   for (const [paramName, schema] of Object.entries(loaded.meta.params ?? {})) {
     const fill = fills.get(paramName);
-    if (fill) {
+    if (fill && fill.value.kind !== 'omit') {
       params[paramName] = resolveSlotValue(schema.type, fill.value, ctx);
     } else if (schema.default !== undefined) {
       params[paramName] = schema.default;
@@ -566,6 +571,7 @@ function renderComponent(comp: Component, ctx: LoadCtx): ReactNode {
     ctx.shapes.set(key, {
       comp,
       canvas: loaded.canvas,
+      meta: loaded.meta,
       params,
       slideIdx: ctx.currentSlideIdx,
       childIdx: -1, // populated post-rendering by computeChildIdxInFreeform
@@ -690,7 +696,7 @@ function createEmptySlotPlaceholder(
 // Image, scalars, and tokens resolve to non-React values (URL
 // strings, numbers, etc.) — wrapping them would break the user
 // component's expectation that `slots.headshot` is a string, etc.
-function isRenderableSlotType(type: SlotType): boolean {
+export function isRenderableSlotType(type: SlotType): boolean {
   const inner = type.startsWith('array<')
     ? (type.slice(6, -1) as SlotType)
     : type;

@@ -73,6 +73,10 @@ Bad {
     name: 'inline comma form',
     src: `Card { color: purple, eyebrow: "Representation", heading: "x" }`,
   },
+  {
+    name: 'null and omit sigils parse distinctly',
+    src: `Slide { caption: null, notes: omit }`,
+  },
 ];
 
 let failures = 0;

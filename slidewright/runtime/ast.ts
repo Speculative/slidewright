@@ -33,6 +33,7 @@ export type Value =
   | NumberLit
   | BooleanLit
   | NullLit
+  | OmitLit
   | ListLit
   | NameRef
   | Component;
@@ -88,6 +89,16 @@ export interface BooleanLit {
 
 export interface NullLit {
   kind: 'null';
+  span: Span;
+}
+
+// Intentional-empty sigil. `slotName: omit` declares that the slot is
+// meant to be empty; the loader treats it like "no fill" for rendering
+// but suppresses the empty-slot placeholder. Distinct from `null`
+// (which is the literal null value the user can supply for a nullable
+// slot) and from a missing fill (which surfaces a placeholder).
+export interface OmitLit {
+  kind: 'omit';
   span: Span;
 }
 

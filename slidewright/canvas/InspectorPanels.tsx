@@ -16,9 +16,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 
-import type { ShapeData } from '../runtime/loader.js';
+import { isRenderableSlotType, type ShapeData } from '../runtime/loader.js';
 import type { SlotFill, Value } from '../runtime/ast.js';
-import type { SlotType } from '../runtime/contract.js';
+import type { ComponentMeta, SlotType } from '../runtime/contract.js';
 import type { SourceRange } from './host.js';
 import {
   componentTarget,
@@ -250,11 +250,22 @@ function ComponentPropertiesView({
             fill={fill}
             source={source}
             onCommit={wrappedCommit}
+            omitEligible={omitEligibleForFill(shape.meta, fill.name)}
           />
         ))}
       </div>
     </PanelFrame>
   );
+}
+
+// A fill is omit-eligible iff it names a slot (not a param) AND the
+// slot's type is renderable (text / block / slide / array of those).
+// Renderable slots are the ones the loader generates placeholders
+// for, and `omit` exists to suppress that placeholder. Params have
+// defaults already — `omit` would be source noise.
+function omitEligibleForFill(meta: ComponentMeta, fillName: string): boolean {
+  const slot = meta.slots[fillName];
+  return slot !== undefined && isRenderableSlotType(slot.type);
 }
 
 function EmptySlotPropertiesView({
@@ -368,6 +379,7 @@ function SlotPropertiesView({
           fill={fill}
           source={source}
           onCommit={wrappedCommit}
+          omitEligible={omitEligibleForFill(parentShape.meta, slotName)}
         />
       </div>
     </PanelFrame>
@@ -380,14 +392,21 @@ interface PropertyRowProps {
   fill: SlotFill;
   source: string;
   onCommit: (newSource: string) => void;
+  // Whether the omit toggle should appear on this row. True for
+  // fills naming a renderable slot; false for params and non-
+  // renderable slots (image, scalars) — those have defaults rather
+  // than placeholders, so `omit` has nothing to suppress.
+  omitEligible: boolean;
 }
 
 function PropertyRow({
   fill,
   source,
   onCommit,
+  omitEligible,
 }: PropertyRowProps): ReactElement {
-  const editable = isEditableValue(fill.value);
+  const isOmit = fill.value.kind === 'omit';
+  const editable = !isOmit && isEditableValue(fill.value);
   const sourceText = readValueSource(fill.value, source);
   const [draft, setDraft] = useState<string>(sourceText);
   // Mirror of `draft` readable synchronously. blur() fires commit
@@ -424,10 +443,33 @@ function PropertyRow({
     onCommit(next);
   };
 
+  // Toggle the slot between its current value and the `omit` sigil.
+  // ON: replace the value span with `omit`. OFF: replace `omit` with
+  // `""` so the input becomes editable and the user can re-type. The
+  // prior value isn't preserved here — undo (Cmd-Z) gets it back.
+  const toggleOmit = (): void => {
+    const replacement = isOmit ? '""' : 'omit';
+    const next = sliceReplace(
+      source,
+      fill.value.span.start.offset,
+      fill.value.span.end.offset,
+      replacement,
+    );
+    onCommit(next);
+  };
+
   return (
-    <label className="sw-property-row">
+    <div className="sw-property-row">
       <span className="sw-property-key">{fill.name}</span>
-      {editable ? (
+      {isOmit ? (
+        <input
+          className="sw-property-value"
+          type="text"
+          value="omit"
+          disabled
+          readOnly
+        />
+      ) : editable ? (
         <input
           className="sw-property-value"
           type="text"
@@ -451,7 +493,24 @@ function PropertyRow({
           {sourceText}
         </span>
       )}
-    </label>
+      {omitEligible ? (
+        <button
+          type="button"
+          className={
+            'sw-property-omit-toggle' + (isOmit ? ' active' : '')
+          }
+          title={
+            isOmit
+              ? 'unmark this slot as intentionally empty'
+              : 'mark this slot as intentionally empty'
+          }
+          aria-pressed={isOmit}
+          onClick={toggleOmit}
+        >
+          omit
+        </button>
+      ) : null}
+    </div>
   );
 }
 

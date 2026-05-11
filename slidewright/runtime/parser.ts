@@ -333,6 +333,9 @@ class Parser {
       case 'null':
         this.advance();
         return { kind: 'null', span: t.span };
+      case 'omit':
+        this.advance();
+        return { kind: 'omit', span: t.span };
       case 'lbrack':
         return this.parseList();
       case 'upper_ident':
@@ -350,7 +353,7 @@ class Parser {
         this.error(
           t.span,
           `expected a value, got ${describe(t)}`,
-          'values are literals (strings, numbers, true/false, null), names, lists, or component invocations',
+          'values are literals (strings, numbers, true/false, null, omit), names, lists, or component invocations',
         );
         return null;
     }

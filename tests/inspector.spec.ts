@@ -198,6 +198,86 @@ test('property edits enter the undo stack', async ({ page }) => {
   expect(after).toBe(before);
 });
 
+test('omit toggle marks a renderable slot as intentionally empty and disables its input', async ({ page }) => {
+  // TextBox has `content` as a `text` slot (renderable → omit-
+  // eligible) and x/y/width/height as params (not eligible).
+  await page.goto('/canvas.html?fixture=single-textbox');
+  await expect(
+    page.locator('.sw-canvas-stage [data-sw-component="TextBox"]'),
+  ).toBeVisible();
+  await page.locator('.sw-hierarchy-node').first().click();
+  const contentRow = page.locator('.sw-property-row', { hasText: /^content/ }).first();
+  const toggle = contentRow.locator('.sw-property-omit-toggle');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await toggle.click();
+  // Source picks up the keyword.
+  const src = await page.locator('.sw-editor-pane').inputValue();
+  expect(src).toMatch(/content:\s*omit/);
+  // Row's input is now disabled and shows the keyword.
+  const input = contentRow.locator('input.sw-property-value');
+  await expect(input).toBeDisabled();
+  await expect(input).toHaveValue('omit');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('omit toggle re-enables editing when flipped off', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-textbox');
+  await expect(
+    page.locator('.sw-canvas-stage [data-sw-component="TextBox"]'),
+  ).toBeVisible();
+  await page.locator('.sw-hierarchy-node').first().click();
+  const contentRow = page.locator('.sw-property-row', { hasText: /^content/ }).first();
+  const toggle = contentRow.locator('.sw-property-omit-toggle');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await toggle.click();
+  // Source replaces the omit keyword with an editable empty-string.
+  const src = await page.locator('.sw-editor-pane').inputValue();
+  expect(src).toMatch(/content:\s*""/);
+  const input = contentRow.locator('input.sw-property-value');
+  await expect(input).toBeEnabled();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('omit toggle entries enter the undo stack', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-textbox');
+  await expect(
+    page.locator('.sw-canvas-stage [data-sw-component="TextBox"]'),
+  ).toBeVisible();
+  const before = await page.locator('.sw-editor-pane').inputValue();
+  await page.locator('.sw-hierarchy-node').first().click();
+  const contentRow = page.locator('.sw-property-row', { hasText: /^content/ }).first();
+  await contentRow.locator('.sw-property-omit-toggle').click();
+  // Move focus to canvas so Cmd-Z routes to the canvas undo handler.
+  await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press('ControlOrMeta+Z');
+  const after = await page.locator('.sw-editor-pane').inputValue();
+  expect(after).toBe(before);
+});
+
+test('omit toggle is hidden on param and non-renderable-slot rows', async ({ page }) => {
+  // single-box: all rows (x, y, width, height, fill) are params.
+  // None should have the omit toggle.
+  await page.goto('/canvas.html?fixture=single-box');
+  await expect(
+    page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
+  ).toBeVisible();
+  await page.locator('.sw-hierarchy-node').first().click();
+  await expect(page.locator('.sw-property-row')).toHaveCount(5);
+  await expect(page.locator('.sw-property-omit-toggle')).toHaveCount(0);
+
+  // single-textbox: x/y/width/height are params; only content is a
+  // renderable slot. So exactly one toggle should be present.
+  await page.goto('/canvas.html?fixture=single-textbox');
+  await expect(
+    page.locator('.sw-canvas-stage [data-sw-component="TextBox"]'),
+  ).toBeVisible();
+  await page.locator('.sw-hierarchy-node').first().click();
+  await expect(page.locator('.sw-property-omit-toggle')).toHaveCount(1);
+  const xRow = page.locator('.sw-property-row', { hasText: /^x/ }).first();
+  await expect(xRow.locator('.sw-property-omit-toggle')).toHaveCount(0);
+});
+
 test('multi-selection shows the multi-edit hint', async ({ page }) => {
   await page.goto('/canvas.html?fixture=two-boxes');
   await expect(page.locator('.sw-hierarchy-node')).toHaveCount(2);

@@ -126,6 +126,8 @@ function emitValueInline(value: Value, level: number): string {
       return value.value ? 'true' : 'false';
     case 'null':
       return 'null';
+    case 'omit':
+      return 'omit';
     case 'name_ref':
       return value.name;
     case 'list':

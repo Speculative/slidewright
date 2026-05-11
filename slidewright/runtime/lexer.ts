@@ -32,6 +32,7 @@ export type TokenKind =
   | 'true'
   | 'false'
   | 'null'
+  | 'omit'
   | 'eof';
 
 export interface Token {
@@ -45,6 +46,7 @@ const RESERVED: Record<string, TokenKind> = {
   true: 'true',
   false: 'false',
   null: 'null',
+  omit: 'omit',
 };
 
 export function tokenize(
