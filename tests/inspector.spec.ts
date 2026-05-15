@@ -455,6 +455,36 @@ test('drag-to-scrub commits a single undo entry per session', async ({ page }) =
   expect(after).toBe(before);
 });
 
+test('drag-to-scrub freezes hierarchy interactivity for the duration of the drag', async ({ page }) => {
+  // While a scrub is in progress, the body gets `sw-scrubbing`,
+  // which hides the cursor and disables pointer events on
+  // hierarchy rows so the cursor traveling over them can't switch
+  // selection mid-drag. On release the class is removed and rows
+  // are clickable again.
+  await page.goto('/canvas.html?fixture=two-boxes');
+  await page.locator('.sw-hierarchy-node').nth(0).click();
+  const xKey = page.locator('.sw-property-row', { hasText: /^x/ }).first()
+    .locator('.sw-property-key');
+  const box = await xKey.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + 20, box!.y, { steps: 3 });
+  // Mid-drag: body carries the scrubbing class.
+  await expect(page.locator('body.sw-scrubbing')).toHaveCount(1);
+  // Hierarchy rows have pointer-events: none, so the cursor can't
+  // hit them. CSS computed-style check.
+  const hierarchyPointerEvents = await page.locator('.sw-hierarchy-node').first()
+    .evaluate((el) => getComputedStyle(el).pointerEvents);
+  expect(hierarchyPointerEvents).toBe('none');
+  await page.mouse.up();
+  // Post-release the class is gone and rows are interactive again.
+  await expect(page.locator('body.sw-scrubbing')).toHaveCount(0);
+  const after = await page.locator('.sw-hierarchy-node').first()
+    .evaluate((el) => getComputedStyle(el).pointerEvents);
+  expect(after).not.toBe('none');
+});
+
 test('drag-to-scrub does not apply to non-numeric rows', async ({ page }) => {
   await page.goto('/canvas.html?fixture=single-box');
   await expect(

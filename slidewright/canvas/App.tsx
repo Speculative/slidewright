@@ -400,6 +400,13 @@ export function App({
   // change we're about to process was driven by us; preserve the
   // undo stacks." Falsy means external — barrier behavior.
   const internalSourceChangeRef = useRef(false);
+  // Shapes map from the immediately-previous subscribe call.
+  // Updated synchronously *inside* the subscribe handler so that
+  // batched scrub previews (multiple subscribes in one React batch)
+  // each see the correct old→new mapping — `stateRef.current` only
+  // updates via useEffect after React commits, which during a
+  // rapid drag lags behind.
+  const lastShapesRef = useRef<ReadonlyMap<string, ShapeData> | undefined>(undefined);
 
   // activeIdx mirror — read inside long-lived closures (notably
   // the host.subscribe callback and commitToHost) so effect deps
@@ -460,23 +467,20 @@ export function App({
     (final: string | null) => {
       const pre = scrubPreSourceRef.current;
       if (pre === null) return;
-      scrubPreSourceRef.current = null;
-      // Cancellation (final === null) restores pre-scrub if we
-      // applied any previews during the session.
-      if (final === null) {
+      // IMPORTANT: keep `scrubPreSourceRef` set through the final
+      // setSource. The subscribe handler reads it to decide
+      // whether to clear selection on an internal source change;
+      // clearing the ref before setSource would let the
+      // round-trip's setSelected fire and unmount the inspector
+      // row (which during scrub also held the locked pointer).
+      // We clear it AFTER the host has been updated.
+      if (final === null || final === pre) {
+        // Cancellation or no-op. Make sure the host reflects pre.
         if (sourceRef.current !== pre) {
           internalSourceChangeRef.current = true;
           host.setSource?.(pre);
         }
-        return;
-      }
-      // No-op (clicked the key without dragging, or dragged back
-      // to the start). Make sure the host shows pre; no undo push.
-      if (final === pre) {
-        if (sourceRef.current !== pre) {
-          internalSourceChangeRef.current = true;
-          host.setSource?.(pre);
-        }
+        scrubPreSourceRef.current = null;
         return;
       }
       // Real change. One undo entry for the whole drag.
@@ -487,6 +491,7 @@ export function App({
       redoStackRef.current = [];
       internalSourceChangeRef.current = true;
       host.setSource?.(final);
+      scrubPreSourceRef.current = null;
     },
     [host],
   );
@@ -651,14 +656,39 @@ export function App({
         // redo leave pending null (no specific shape to restore;
         // `selected` simply clears, which matches what most editors
         // do across undo / redo boundaries). Scrub previews are
-        // also internal but must preserve selection — clearing
-        // mid-drag would unmount the PropertyRow whose key span
-        // holds the captured pointer, breaking subsequent moves.
+        // also internal but require span-tracking — when a numeric
+        // value crosses a digit-count boundary (e.g. 100 → 99) the
+        // splice shortens the source by a char and every span past
+        // the splice shifts. The selection target's pre-scrub span
+        // would then miss the shape in `state.shapes`, the inspector
+        // would fall through to the slide view, and the locked
+        // key span would unmount mid-drag. Reuse the same
+        // position-key lookup as external-edit reconciliation to
+        // re-derive selection spans against the new AST.
+        //
+        // We read `lastShapesRef` (synchronously-tracked) rather
+        // than `prevState.shapes` (stateRef-tracked via useEffect),
+        // because rapid scrub previews can batch multiple subscribe
+        // calls inside a single React commit cycle. stateRef would
+        // be stale across all of them; lastShapesRef updates inline.
+        const prevShapesForPreserve = lastShapesRef.current;
+        lastShapesRef.current = result.shapes;
         if (scrubPreSourceRef.current === null) {
           setSelected(pending ?? []);
+        } else {
+          setSelected((prevSelected) =>
+            preserveSelectionAcrossExternalEdit(
+              prevSelected,
+              prevShapesForPreserve,
+              result.shapes,
+            ),
+          );
         }
         return;
       }
+      // External edits: also keep lastShapesRef current so a later
+      // scrub session starts from the right baseline.
+      lastShapesRef.current = result.shapes;
       // External edit. Three responses:
       //   1. Cancel any in-progress gesture (its captured spans /
       //      gesture states point at a stale AST).

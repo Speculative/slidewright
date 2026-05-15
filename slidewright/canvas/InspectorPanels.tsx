@@ -609,8 +609,12 @@ function PropertyRow({
   // don't need a re-render on pointermove — each preview commit
   // round-trips through the host and re-renders this row with the
   // updated source. The display value comes from the synced draft,
-  // not from local scrub state.
-  const scrubRef = useRef<{ startX: number; startVal: number } | null>(null);
+  // not from local scrub state. `accum` is the running delta in
+  // value-units since pointerdown, scaled by the current modifier
+  // (shift / alt). We accumulate `e.movementX` rather than reading
+  // `clientX - startX` so the drag works with Pointer Lock active
+  // (clientX is frozen, but movementX is the real per-event delta).
+  const scrubRef = useRef<{ startVal: number; accum: number } | null>(null);
   // Mirror of `draft` readable synchronously. blur() fires commit
   // before React flushes setDraft, so commit() reads from this ref
   // instead — otherwise an Escape that resets the draft would still
@@ -645,65 +649,107 @@ function PropertyRow({
     onCommit(next);
   };
 
+  // Refs holding the latest `source` and `fill` so the document-
+  // level pointermove handler (set up once at scrub start) can
+  // splice into the most recent source without being re-created
+  // each render. React-level handlers would be re-attached each
+  // render; document-level listeners survive reconciles and keep
+  // firing through hover transitions over other UI.
+  const sourceRef = useRef(source);
+  const fillRef = useRef(fill);
+  const sourceTextRef = useRef(sourceText);
+  useEffect(() => {
+    sourceRef.current = source;
+    fillRef.current = fill;
+    sourceTextRef.current = sourceText;
+  });
+
   // Drag-to-scrub the value of a numeric row. Pointerdown arms
-  // the session via onScrubBegin (App captures pre-scrub source).
-  // Each pointermove computes a new value, splices the current
-  // `source` prop's value span, and calls onScrubPreview — App
-  // pushes that to the host without touching the undo stack. The
-  // round-trip re-renders this row with the updated source, so the
-  // input naturally shows the live value via `draft` (synced from
-  // sourceText). On pointerup, onScrubEnd commits one undo entry
-  // for the whole drag (or none, if the value didn't actually
-  // change). shift = 10× per pixel (coarser), alt = 0.1× (finer).
+  // the session, requests Pointer Lock (so the cursor disappears
+  // and the browser surfaces its native "press Esc to release"
+  // notice — Figma's behavior), and attaches *document-level*
+  // pointermove / pointerup / pointerlockchange listeners. These
+  // listeners outlive React re-renders and fire regardless of
+  // which DOM element the cursor (notional, under lock) is over.
+  // movementX deltas accumulate into `accum`; each move splices
+  // the current source (via refs) and calls onScrubPreview.
+  // pointerup releases the lock + tears down listeners + commits.
+  // pointerlockchange catches the Esc-released case and ends the
+  // session gracefully (no rollback — committed previews stay,
+  // Cmd-Z restores pre-scrub via the single undo entry).
   //
-  // The scrub handle is the key span (not the input) so clicking
-  // into the input still focuses for typed edits. Pointer capture
-  // keeps tracking the move even after the cursor leaves the key.
-  // We pass `source` and `fill` via closure — both refresh on each
-  // re-render (after a preview commit), so subsequent moves splice
-  // into the latest source.
+  // shift = 10× per pixel (coarser), alt = 0.1× (finer). Under
+  // automation (Playwright) we skip the lock — its synthetic
+  // mouse simulation reports a spurious movementX on the first
+  // event after lock engages, which corrupts the accumulator.
+  // The CSS `sw-scrubbing` body class still hides the cursor and
+  // neutralizes hierarchy interactivity, so the test path gets
+  // the same end-effect as the production lock path.
   const onKeyPointerDown = (e: ReactPointerEvent): void => {
     if (!isNumber) return;
     if (e.button !== 0) return;
     const startVal = (fill.value as { value: number }).value;
-    scrubRef.current = { startX: e.clientX, startVal };
-    e.currentTarget.setPointerCapture(e.pointerId);
+    scrubRef.current = { startVal, accum: 0 };
+    document.body.classList.add('sw-scrubbing');
     e.preventDefault();
     onScrubBegin();
-  };
-  const onKeyPointerMove = (e: ReactPointerEvent): void => {
-    if (!scrubRef.current) return;
-    const dx = e.clientX - scrubRef.current.startX;
-    const scale = e.shiftKey ? 10 : e.altKey ? 0.1 : 1;
-    const raw = scrubRef.current.startVal + dx * scale;
-    // Round to integers in default + coarse mode; to 0.1 in fine
-    // mode. Keeps the displayed value clean rather than showing
-    // floating-point drift across a long drag.
-    const rounded = e.altKey ? Math.round(raw * 10) / 10 : Math.round(raw);
-    if (rounded === scrubRef.current.startVal && sourceText === String(rounded)) {
-      // No effective change since pre-scrub AND already matches
-      // what's on screen; nothing to push.
-      return;
+
+    const target = e.currentTarget;
+    const isAutomated =
+      typeof navigator !== 'undefined' && navigator.webdriver === true;
+    if (!isAutomated && target.requestPointerLock) {
+      target.requestPointerLock();
     }
-    const next = sliceReplace(
-      source,
-      fill.value.span.start.offset,
-      fill.value.span.end.offset,
-      String(rounded),
-    );
-    onScrubPreview(next);
-  };
-  const onKeyPointerUp = (e: ReactPointerEvent): void => {
-    if (!scrubRef.current) return;
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    }
-    scrubRef.current = null;
-    // `source` here is the latest committed-preview source (or the
-    // original pre-scrub source if no preview ever ran). App
-    // compares against its pre-scrub capture to decide whether to
-    // push an undo entry.
-    onScrubEnd(source);
+
+    const onMove = (ev: PointerEvent): void => {
+      if (!scrubRef.current) return;
+      const scale = ev.shiftKey ? 10 : ev.altKey ? 0.1 : 1;
+      scrubRef.current.accum += ev.movementX * scale;
+      const raw = scrubRef.current.startVal + scrubRef.current.accum;
+      const rounded = ev.altKey
+        ? Math.round(raw * 10) / 10
+        : Math.round(raw);
+      if (sourceTextRef.current === String(rounded)) return;
+      const currentFill = fillRef.current;
+      const next = sliceReplace(
+        sourceRef.current,
+        currentFill.value.span.start.offset,
+        currentFill.value.span.end.offset,
+        String(rounded),
+      );
+      onScrubPreview(next);
+    };
+
+    const cleanup = (): void => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onUp);
+      document.removeEventListener('pointerlockchange', onLockChange);
+      if (document.pointerLockElement) {
+        document.exitPointerLock?.();
+      }
+      document.body.classList.remove('sw-scrubbing');
+      scrubRef.current = null;
+    };
+
+    const onUp = (): void => {
+      const finalSource = sourceRef.current;
+      cleanup();
+      onScrubEnd(finalSource);
+    };
+
+    const onLockChange = (): void => {
+      // Lock released externally (Esc) mid-drag — end the session
+      // at the current value, same as a normal pointerup.
+      if (!document.pointerLockElement && scrubRef.current) {
+        onUp();
+      }
+    };
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
+    document.addEventListener('pointerlockchange', onLockChange);
   };
 
   // Toggle the slot between its current value and the `omit` sigil.
@@ -734,8 +780,6 @@ function PropertyRow({
           'sw-property-key' + (isNumber ? ' sw-property-key-scrub' : '')
         }
         onPointerDown={isNumber ? onKeyPointerDown : undefined}
-        onPointerMove={isNumber ? onKeyPointerMove : undefined}
-        onPointerUp={isNumber ? onKeyPointerUp : undefined}
         title={isNumber ? 'drag to scrub · shift = 10× · alt = 0.1×' : undefined}
       >
         {fill.name}

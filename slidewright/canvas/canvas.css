@@ -487,6 +487,28 @@ html, body, #root {
   color: #222;
 }
 
+/* While a drag-to-scrub is in progress, body gets `sw-scrubbing`:
+ *   - cursor hidden everywhere so the pointer doesn't visually
+ *     "drift" off the scrub handle into other UI (Figma's effect
+ *     without the full Pointer Lock dance).
+ *   - hierarchy / shape rows can't repaint their hover state as
+ *     the cursor travels through them — selection looks frozen.
+ *   - hover styling on the omit-toggle / property-row stays
+ *     unaffected; we only suppress the navigational rows where a
+ *     hover-then-click would change selection. */
+body.sw-scrubbing,
+body.sw-scrubbing * {
+  cursor: none !important;
+}
+body.sw-scrubbing .sw-hierarchy-node:hover,
+body.sw-scrubbing .sw-hierarchy-slide-row:hover {
+  background: transparent;
+}
+body.sw-scrubbing .sw-hierarchy-node,
+body.sw-scrubbing .sw-hierarchy-slide-row {
+  pointer-events: none;
+}
+
 .sw-property-value {
   font-family: var(--vscode-editor-font-family, "JetBrains Mono", ui-monospace, monospace);
   font-size: 12px;
