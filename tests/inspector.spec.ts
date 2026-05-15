@@ -382,6 +382,35 @@ test('drag-to-scrub on a numeric key commits a single new value', async ({ page 
   expect(src).toMatch(/x:\s*450/);
 });
 
+test('drag-to-scrub shows live canvas feedback mid-drag (not only on release)', async ({ page }) => {
+  // Each pointermove pushes a preview source to the host without
+  // touching the undo stack; the canvas re-renders so the shape
+  // moves continuously. Drag and inspect the Box's CSS `left` to
+  // confirm.
+  await page.goto('/canvas.html?fixture=single-box');
+  await expect(
+    page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
+  ).toBeVisible();
+  await page.locator('.sw-hierarchy-node').first().click();
+  const xKey = page.locator('.sw-property-row', { hasText: /^x/ }).first()
+    .locator('.sw-property-key');
+  const box = await xKey.boundingBox();
+  expect(box).not.toBeNull();
+  const startX = box!.x + box!.width / 2;
+  const startY = box!.y + box!.height / 2;
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  // Halfway through the drag.
+  await page.mouse.move(startX + 25, startY, { steps: 5 });
+  const midSrc = await page.locator('.sw-editor-pane').inputValue();
+  expect(midSrc).toMatch(/x:\s*425/);
+  // Continue to the end.
+  await page.mouse.move(startX + 50, startY, { steps: 5 });
+  await page.mouse.up();
+  const finalSrc = await page.locator('.sw-editor-pane').inputValue();
+  expect(finalSrc).toMatch(/x:\s*450/);
+});
+
 test('drag-to-scrub click without movement does not commit', async ({ page }) => {
   await page.goto('/canvas.html?fixture=single-box');
   await expect(
@@ -396,6 +425,32 @@ test('drag-to-scrub click without movement does not commit', async ({ page }) =>
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
   await page.mouse.down();
   await page.mouse.up();
+  const after = await page.locator('.sw-editor-pane').inputValue();
+  expect(after).toBe(before);
+});
+
+test('drag-to-scrub commits a single undo entry per session', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-box');
+  await expect(
+    page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
+  ).toBeVisible();
+  const before = await page.locator('.sw-editor-pane').inputValue();
+  await page.locator('.sw-hierarchy-node').first().click();
+  const xKey = page.locator('.sw-property-row', { hasText: /^x/ }).first()
+    .locator('.sw-property-key');
+  const box = await xKey.boundingBox();
+  expect(box).not.toBeNull();
+  const startX = box!.x + box!.width / 2;
+  const startY = box!.y + box!.height / 2;
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + 50, startY, { steps: 10 });
+  await page.mouse.up();
+  // Move focus to canvas so Cmd-Z routes to the canvas handler.
+  await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press('ControlOrMeta+Z');
+  // ONE undo should fully restore — confirming the 10 previews
+  // didn't pollute the stack.
   const after = await page.locator('.sw-editor-pane').inputValue();
   expect(after).toBe(before);
 });

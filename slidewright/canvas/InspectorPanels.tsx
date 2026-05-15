@@ -184,6 +184,16 @@ interface PropertiesPanelProps {
   multiCount: number;
   source: string;
   onCommit: (newSource: string, newSelections?: SourceRange[]) => void;
+  // Drag-to-scrub session lifecycle. PropertyRow calls onScrubBegin
+  // when the user pointerdowns on a numeric key, onScrubPreview on
+  // each pointermove (intermediate source that the host applies
+  // without pushing undo), and onScrubEnd on pointerup. The end
+  // callback receives the final source (commit) or null (cancel);
+  // the App is responsible for pushing one undo entry per scrub
+  // session.
+  onScrubBegin: () => void;
+  onScrubPreview: (newSource: string) => void;
+  onScrubEnd: (finalSource: string | null) => void;
   // Materialize an empty text slot's fill: write `slotName: "<value>"`
   // into the parent component's body, commit the new source. Used
   // by the empty-slot inspector view's text input.
@@ -214,8 +224,12 @@ export function PropertiesPanel({
   multiCount,
   source,
   onCommit,
+  onScrubBegin,
+  onScrubPreview,
+  onScrubEnd,
   onMaterializeTextSlot,
 }: PropertiesPanelProps): ReactElement {
+  const scrubProps = { onScrubBegin, onScrubPreview, onScrubEnd };
   if (multiCount > 1) {
     return (
       <PanelFrame header="Properties">
@@ -226,7 +240,14 @@ export function PropertiesPanel({
     );
   }
   if (slotInfo) {
-    return <SlotPropertiesView slotInfo={slotInfo} source={source} onCommit={onCommit} />;
+    return (
+      <SlotPropertiesView
+        slotInfo={slotInfo}
+        source={source}
+        onCommit={onCommit}
+        scrubProps={scrubProps}
+      />
+    );
   }
   if (emptySlotInfo) {
     return (
@@ -237,14 +258,28 @@ export function PropertiesPanel({
     );
   }
   if (componentShape) {
-    return <ComponentPropertiesView shape={componentShape} source={source} onCommit={onCommit} />;
+    return (
+      <ComponentPropertiesView
+        shape={componentShape}
+        source={source}
+        onCommit={onCommit}
+        scrubProps={scrubProps}
+      />
+    );
   }
   // No specific selection — fall through to the slide. This makes
   // "nothing selected" mean "I'm editing the slide", which matches
   // how users think about the inspector when they've just dismissed
   // a shape selection.
   if (activeSlide) {
-    return <SlidePropertiesView slide={activeSlide} source={source} onCommit={onCommit} />;
+    return (
+      <SlidePropertiesView
+        slide={activeSlide}
+        source={source}
+        onCommit={onCommit}
+        scrubProps={scrubProps}
+      />
+    );
   }
   return (
     <PanelFrame header="Properties">
@@ -268,14 +303,22 @@ function PanelFrame({
   );
 }
 
+interface ScrubProps {
+  onScrubBegin: () => void;
+  onScrubPreview: (newSource: string) => void;
+  onScrubEnd: (finalSource: string | null) => void;
+}
+
 function ComponentPropertiesView({
   shape,
   source,
   onCommit,
+  scrubProps,
 }: {
   shape: ShapeData;
   source: string;
   onCommit: (newSource: string, newSelections?: SourceRange[]) => void;
+  scrubProps: ScrubProps;
 }): ReactElement {
   const header = `${shape.comp.name} #${shape.childIdx}`;
   // Wrap commit to preserve selection on the same shape across the
@@ -308,6 +351,7 @@ function ComponentPropertiesView({
             source={source}
             onCommit={wrappedCommit}
             omitType={omitSlotType(shape.meta, fill.name)}
+            {...scrubProps}
           />
         ))}
       </div>
@@ -366,10 +410,12 @@ function SlidePropertiesView({
   slide,
   source,
   onCommit,
+  scrubProps,
 }: {
   slide: SlideAstData;
   source: string;
   onCommit: (newSource: string, newSelections?: SourceRange[]) => void;
+  scrubProps: ScrubProps;
 }): ReactElement {
   const label = readSlideLabel(slide);
   const header = label ? `${slide.comp.name} · ${label}` : slide.comp.name;
@@ -395,6 +441,7 @@ function SlidePropertiesView({
             source={source}
             onCommit={wrappedCommit}
             omitType={omitSlotType(slide.meta, fill.name)}
+            {...scrubProps}
           />
         ))}
       </div>
@@ -484,10 +531,12 @@ function SlotPropertiesView({
   slotInfo,
   source,
   onCommit,
+  scrubProps,
 }: {
   slotInfo: SlotInfo;
   source: string;
   onCommit: (newSource: string, newSelections?: SourceRange[]) => void;
+  scrubProps: ScrubProps;
 }): ReactElement {
   const { slotName, fill, parentShape } = slotInfo;
   const header = `Slot: ${slotName}`;
@@ -514,6 +563,7 @@ function SlotPropertiesView({
           source={source}
           onCommit={wrappedCommit}
           omitType={omitSlotType(parentShape.meta, slotName)}
+          {...scrubProps}
         />
       </div>
     </PanelFrame>
@@ -532,6 +582,13 @@ interface PropertyRowProps {
   // toggle renders, and the un-omit splice picks a type-shaped
   // default via `unOmitDefault`.
   omitType: SlotType | null;
+  // Drag-to-scrub session lifecycle. PropertyRow drives these on
+  // numeric rows; the App pushes one undo entry per session and
+  // applies intermediate previews without polluting the undo
+  // stack.
+  onScrubBegin: () => void;
+  onScrubPreview: (newSource: string) => void;
+  onScrubEnd: (finalSource: string | null) => void;
 }
 
 function PropertyRow({
@@ -539,20 +596,21 @@ function PropertyRow({
   source,
   onCommit,
   omitType,
+  onScrubBegin,
+  onScrubPreview,
+  onScrubEnd,
 }: PropertyRowProps): ReactElement {
   const isOmit = fill.value.kind === 'omit';
   const isNumber = fill.value.kind === 'number';
   const editable = !isOmit && isEditableValue(fill.value);
   const sourceText = readValueSource(fill.value, source);
   const [draft, setDraft] = useState<string>(sourceText);
-  // Active drag-to-scrub state (numeric rows only). When non-null,
-  // the input shows `current` instead of `draft` and the row is in
-  // scrubbing mode. Pointer events live on the key span (the
-  // dedicated scrub handle), not the input — clicking into the
-  // input still focuses for typed edits.
-  const [scrub, setScrub] = useState<
-    { startX: number; startVal: number; current: number } | null
-  >(null);
+  // Active drag-to-scrub session. Ref instead of state because we
+  // don't need a re-render on pointermove — each preview commit
+  // round-trips through the host and re-renders this row with the
+  // updated source. The display value comes from the synced draft,
+  // not from local scrub state.
+  const scrubRef = useRef<{ startX: number; startVal: number } | null>(null);
   // Mirror of `draft` readable synchronously. blur() fires commit
   // before React flushes setDraft, so commit() reads from this ref
   // instead — otherwise an Escape that resets the draft would still
@@ -587,54 +645,65 @@ function PropertyRow({
     onCommit(next);
   };
 
-  // Drag-to-scrub the value of a numeric row. Pointerdown on the
-  // key arms scrub mode; pointermove updates `scrub.current` and
-  // re-renders so the input shows the live value; pointerup commits
-  // once (so the undo stack gets one entry per drag, not per pixel)
-  // and clears scrub state. A no-op click (pointerdown / pointerup
-  // at the same x) commits nothing — the row stays unchanged. shift
-  // = 10x per pixel (coarser), alt = 0.1x per pixel (finer).
+  // Drag-to-scrub the value of a numeric row. Pointerdown arms
+  // the session via onScrubBegin (App captures pre-scrub source).
+  // Each pointermove computes a new value, splices the current
+  // `source` prop's value span, and calls onScrubPreview — App
+  // pushes that to the host without touching the undo stack. The
+  // round-trip re-renders this row with the updated source, so the
+  // input naturally shows the live value via `draft` (synced from
+  // sourceText). On pointerup, onScrubEnd commits one undo entry
+  // for the whole drag (or none, if the value didn't actually
+  // change). shift = 10× per pixel (coarser), alt = 0.1× (finer).
   //
   // The scrub handle is the key span (not the input) so clicking
   // into the input still focuses for typed edits. Pointer capture
   // keeps tracking the move even after the cursor leaves the key.
+  // We pass `source` and `fill` via closure — both refresh on each
+  // re-render (after a preview commit), so subsequent moves splice
+  // into the latest source.
   const onKeyPointerDown = (e: ReactPointerEvent): void => {
     if (!isNumber) return;
     if (e.button !== 0) return;
     const startVal = (fill.value as { value: number }).value;
-    setScrub({ startX: e.clientX, startVal, current: startVal });
+    scrubRef.current = { startX: e.clientX, startVal };
     e.currentTarget.setPointerCapture(e.pointerId);
     e.preventDefault();
+    onScrubBegin();
   };
   const onKeyPointerMove = (e: ReactPointerEvent): void => {
-    if (!scrub) return;
-    const dx = e.clientX - scrub.startX;
+    if (!scrubRef.current) return;
+    const dx = e.clientX - scrubRef.current.startX;
     const scale = e.shiftKey ? 10 : e.altKey ? 0.1 : 1;
-    const raw = scrub.startVal + dx * scale;
+    const raw = scrubRef.current.startVal + dx * scale;
     // Round to integers in default + coarse mode; to 0.1 in fine
     // mode. Keeps the displayed value clean rather than showing
     // floating-point drift across a long drag.
     const rounded = e.altKey ? Math.round(raw * 10) / 10 : Math.round(raw);
-    if (rounded !== scrub.current) {
-      setScrub({ ...scrub, current: rounded });
+    if (rounded === scrubRef.current.startVal && sourceText === String(rounded)) {
+      // No effective change since pre-scrub AND already matches
+      // what's on screen; nothing to push.
+      return;
     }
+    const next = sliceReplace(
+      source,
+      fill.value.span.start.offset,
+      fill.value.span.end.offset,
+      String(rounded),
+    );
+    onScrubPreview(next);
   };
   const onKeyPointerUp = (e: ReactPointerEvent): void => {
-    if (!scrub) return;
+    if (!scrubRef.current) return;
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
     }
-    if (scrub.current !== scrub.startVal) {
-      const replacement = String(scrub.current);
-      const next = sliceReplace(
-        source,
-        fill.value.span.start.offset,
-        fill.value.span.end.offset,
-        replacement,
-      );
-      onCommit(next);
-    }
-    setScrub(null);
+    scrubRef.current = null;
+    // `source` here is the latest committed-preview source (or the
+    // original pre-scrub source if no preview ever ran). App
+    // compares against its pre-scrub capture to decide whether to
+    // push an undo entry.
+    onScrubEnd(source);
   };
 
   // Toggle the slot between its current value and the `omit` sigil.
@@ -657,9 +726,6 @@ function PropertyRow({
     );
     onCommit(next);
   };
-
-  const displayValue =
-    scrub !== null ? String(scrub.current) : draft;
 
   return (
     <div className="sw-property-row">
@@ -686,7 +752,7 @@ function PropertyRow({
         <input
           className="sw-property-value"
           type="text"
-          value={displayValue}
+          value={draft}
           spellCheck={false}
           onChange={(e) => setDraftSync(e.currentTarget.value)}
           onBlur={commit}

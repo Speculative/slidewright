@@ -436,6 +436,61 @@ export function App({
     [host],
   );
 
+  // Scrub session: a single drag on the inspector's numeric key
+  // emits a stream of source previews on pointermove and one
+  // committed result on pointerup. To keep the undo stack clean
+  // (one entry per drag, not per frame), beginScrub captures the
+  // pre-scrub source as the future undo target; previews call
+  // setSource without touching the undo stack; endScrub pushes a
+  // single undo entry containing the pre-scrub source iff the
+  // final source actually differs.
+  const scrubPreSourceRef = useRef<string | null>(null);
+  const beginScrub = useCallback(() => {
+    scrubPreSourceRef.current = sourceRef.current;
+  }, []);
+  const applyScrubPreview = useCallback(
+    (preview: string) => {
+      if (scrubPreSourceRef.current === null) return;
+      internalSourceChangeRef.current = true;
+      host.setSource?.(preview);
+    },
+    [host],
+  );
+  const endScrub = useCallback(
+    (final: string | null) => {
+      const pre = scrubPreSourceRef.current;
+      if (pre === null) return;
+      scrubPreSourceRef.current = null;
+      // Cancellation (final === null) restores pre-scrub if we
+      // applied any previews during the session.
+      if (final === null) {
+        if (sourceRef.current !== pre) {
+          internalSourceChangeRef.current = true;
+          host.setSource?.(pre);
+        }
+        return;
+      }
+      // No-op (clicked the key without dragging, or dragged back
+      // to the start). Make sure the host shows pre; no undo push.
+      if (final === pre) {
+        if (sourceRef.current !== pre) {
+          internalSourceChangeRef.current = true;
+          host.setSource?.(pre);
+        }
+        return;
+      }
+      // Real change. One undo entry for the whole drag.
+      undoStackRef.current.push({
+        source: pre,
+        slideIdx: activeIdxRef.current,
+      });
+      redoStackRef.current = [];
+      internalSourceChangeRef.current = true;
+      host.setSource?.(final);
+    },
+    [host],
+  );
+
   // Materialize an empty text slot: write `slotName: "<value>"` into
   // the parent component's body, then commit. The parent component
   // is preserved as the post-commit selection (the slot now exists
@@ -595,8 +650,13 @@ export function App({
         // gesture commits stash post-emit spans in pending; undo /
         // redo leave pending null (no specific shape to restore;
         // `selected` simply clears, which matches what most editors
-        // do across undo / redo boundaries).
-        setSelected(pending ?? []);
+        // do across undo / redo boundaries). Scrub previews are
+        // also internal but must preserve selection — clearing
+        // mid-drag would unmount the PropertyRow whose key span
+        // holds the captured pointer, breaking subsequent moves.
+        if (scrubPreSourceRef.current === null) {
+          setSelected(pending ?? []);
+        }
         return;
       }
       // External edit. Three responses:
@@ -1454,6 +1514,9 @@ export function App({
                 onCommit={(newSource, newSelections) =>
                   commitToHost(newSource, newSelections)
                 }
+                onScrubBegin={beginScrub}
+                onScrubPreview={applyScrubPreview}
+                onScrubEnd={endScrub}
                 onMaterializeTextSlot={materializeTextSlot}
               />
             </div>
