@@ -40,7 +40,7 @@ export default function TextBox({ slots, params }: ComponentRenderProps) {
   const width = (params.width as number | undefined) ?? 320;
   const height = (params.height as number | undefined) ?? 120;
   const fontSize = (params.fontSize as number | undefined) ?? 32;
-  const color = (params.color as string | undefined) ?? 'fg';
+  const color = (params.color as string | undefined) ?? 'var(--fg)';
   const content = slots.content as ReactNode | undefined;
   return (
     <div
@@ -54,7 +54,7 @@ export default function TextBox({ slots, params }: ComponentRenderProps) {
         boxSizing: 'border-box',
         fontSize: `${fontSize}px`,
         lineHeight: 1.25,
-        color: `var(--${color})`,
+        color: color,
         fontFamily: 'var(--font-body)',
         overflow: 'hidden',
       }}

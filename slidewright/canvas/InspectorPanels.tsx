@@ -14,15 +14,23 @@
 // Currently single-select only; multi-select shows a hint.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { PointerEvent as ReactPointerEvent, ReactElement } from 'react';
+import type {
+  FocusEvent as ReactFocusEvent,
+  PointerEvent as ReactPointerEvent,
+  ReactElement,
+} from 'react';
 
 import {
   isRenderableSlotType,
   type ShapeData,
   type SlideAstData,
 } from '../runtime/loader.js';
-import type { SlotFill, Value } from '../runtime/ast.js';
-import type { ComponentMeta, SlotType } from '../runtime/contract.js';
+import type { Component, SlotFill, Value } from '../runtime/ast.js';
+import type {
+  ComponentMeta,
+  ComponentRegistry,
+  SlotType,
+} from '../runtime/contract.js';
 import type { SourceRange } from './host.js';
 import {
   componentTarget,
@@ -202,6 +210,24 @@ interface PropertiesPanelProps {
     slotName: string,
     value: string,
   ) => void;
+  // Deck-scope color tokens (`accent`, `magenta`, …). Rendered as
+  // the global swatch row above any color-typed PropertyRow editor.
+  // Click → splices the bare token name into the slot's value span.
+  colorTokens: Record<string, string>;
+  // Distinct color values literally appearing in the active slide's
+  // source (token name_refs + oklch literals, deduped against
+  // `colorTokens` so the per-slide row doesn't echo global swatches).
+  // Walked once per render in App.tsx.
+  slideColors: SlideColor[];
+}
+
+// One per-slide color swatch. `sourceText` is what gets spliced into
+// the target value span on click — `amber` for a name_ref, `oklch(L
+// C H)` for a literal. `cssValue` is what the swatch should be
+// painted as (`var(--amber)` / `oklch(L C H)` respectively).
+export interface SlideColor {
+  sourceText: string;
+  cssValue: string;
 }
 
 export interface SlotInfo {
@@ -228,8 +254,11 @@ export function PropertiesPanel({
   onScrubPreview,
   onScrubEnd,
   onMaterializeTextSlot,
+  colorTokens,
+  slideColors,
 }: PropertiesPanelProps): ReactElement {
   const scrubProps = { onScrubBegin, onScrubPreview, onScrubEnd };
+  const paletteProps: PaletteProps = { colorTokens, slideColors };
   if (multiCount > 1) {
     return (
       <PanelFrame header="Properties">
@@ -246,6 +275,7 @@ export function PropertiesPanel({
         source={source}
         onCommit={onCommit}
         scrubProps={scrubProps}
+        paletteProps={paletteProps}
       />
     );
   }
@@ -264,6 +294,7 @@ export function PropertiesPanel({
         source={source}
         onCommit={onCommit}
         scrubProps={scrubProps}
+        paletteProps={paletteProps}
       />
     );
   }
@@ -278,6 +309,7 @@ export function PropertiesPanel({
         source={source}
         onCommit={onCommit}
         scrubProps={scrubProps}
+        paletteProps={paletteProps}
       />
     );
   }
@@ -309,16 +341,23 @@ interface ScrubProps {
   onScrubEnd: (finalSource: string | null) => void;
 }
 
+interface PaletteProps {
+  colorTokens: Record<string, string>;
+  slideColors: SlideColor[];
+}
+
 function ComponentPropertiesView({
   shape,
   source,
   onCommit,
   scrubProps,
+  paletteProps,
 }: {
   shape: ShapeData;
   source: string;
   onCommit: (newSource: string, newSelections?: SourceRange[]) => void;
   scrubProps: ScrubProps;
+  paletteProps: PaletteProps;
 }): ReactElement {
   const header = `${shape.comp.name} #${shape.childIdx}`;
   // Wrap commit to preserve selection on the same shape across the
@@ -350,13 +389,89 @@ function ComponentPropertiesView({
             fill={fill}
             source={source}
             onCommit={wrappedCommit}
+            slotType={fillSlotType(shape.meta, fill.name)}
             omitType={omitSlotType(shape.meta, fill.name)}
+            paletteProps={paletteProps}
             {...scrubProps}
           />
         ))}
       </div>
     </PanelFrame>
   );
+}
+
+// Returns the slot type of a fill — looking in both `slots` and
+// `params` (params drive most color-typed surfaces today: Box.fill,
+// TextBox.color, Arrow.color, TitleSlide.accentColor). Returns null
+// when the meta declares neither. Used by PropertyRow to decide
+// whether to render the color palette / picker.
+function fillSlotType(meta: ComponentMeta, fillName: string): SlotType | null {
+  return meta.slots[fillName]?.type
+    ?? meta.params?.[fillName]?.type
+    ?? null;
+}
+
+// Walk the active slide's AST and collect every value that fills a
+// `color-token`-typed slot or param. Deduped by source-text form
+// (`amber` vs `oklch(0.7 0.15 240)` are distinct entries) and
+// against the global token row (so a name_ref already covered by a
+// global swatch doesn't appear twice). Output order is insertion
+// order — first appearance in slide source. Used by App.tsx to
+// build the per-slide swatch row.
+export function collectSlideColors(
+  slide: Component,
+  registry: ComponentRegistry,
+  globalTokens: Record<string, string>,
+): SlideColor[] {
+  const seen = new Set<string>();
+  const out: SlideColor[] = [];
+  const visit = (node: Component): void => {
+    const meta = registry[node.name]?.meta;
+    for (const fill of node.fills) {
+      if (meta && fillSlotType(meta, fill.name) === 'color-token') {
+        const swatch = colorFillToSwatch(fill);
+        if (swatch && !seen.has(swatch.sourceText)) {
+          // Skip name_refs that the global row already covers.
+          if (
+            !(
+              fill.value.kind === 'name_ref' &&
+              fill.value.name in globalTokens
+            )
+          ) {
+            seen.add(swatch.sourceText);
+            out.push(swatch);
+          }
+        }
+      }
+      // Recurse into nested components (e.g., a `content: Foo {}`
+      // slot value), list items, and Span runs inside text slots.
+      visitValue(fill.value);
+    }
+    for (const child of node.implicitChildren) visit(child);
+  };
+  const visitValue = (v: Value): void => {
+    if (v.kind === 'component') visit(v);
+    else if (v.kind === 'list') {
+      for (const item of v.items) visitValue(item);
+    }
+  };
+  visit(slide);
+  return out;
+}
+
+function colorFillToSwatch(fill: SlotFill): SlideColor | null {
+  const v = fill.value;
+  if (v.kind === 'name_ref') {
+    return { sourceText: v.name, cssValue: `var(--${v.name})` };
+  }
+  if (v.kind === 'color_oklch') {
+    const text = `oklch(${v.l} ${v.c} ${v.h})`;
+    return { sourceText: text, cssValue: text };
+  }
+  if (v.kind === 'string') {
+    return { sourceText: JSON.stringify(v.value), cssValue: v.value };
+  }
+  return null;
 }
 
 // Returns the slot's type when this fill is omit-eligible — i.e.,
@@ -411,11 +526,13 @@ function SlidePropertiesView({
   source,
   onCommit,
   scrubProps,
+  paletteProps,
 }: {
   slide: SlideAstData;
   source: string;
   onCommit: (newSource: string, newSelections?: SourceRange[]) => void;
   scrubProps: ScrubProps;
+  paletteProps: PaletteProps;
 }): ReactElement {
   const label = readSlideLabel(slide);
   const header = label ? `${slide.comp.name} · ${label}` : slide.comp.name;
@@ -440,7 +557,9 @@ function SlidePropertiesView({
             fill={fill}
             source={source}
             onCommit={wrappedCommit}
+            slotType={fillSlotType(slide.meta, fill.name)}
             omitType={omitSlotType(slide.meta, fill.name)}
+            paletteProps={paletteProps}
             {...scrubProps}
           />
         ))}
@@ -532,11 +651,13 @@ function SlotPropertiesView({
   source,
   onCommit,
   scrubProps,
+  paletteProps,
 }: {
   slotInfo: SlotInfo;
   source: string;
   onCommit: (newSource: string, newSelections?: SourceRange[]) => void;
   scrubProps: ScrubProps;
+  paletteProps: PaletteProps;
 }): ReactElement {
   const { slotName, fill, parentShape } = slotInfo;
   const header = `Slot: ${slotName}`;
@@ -562,7 +683,9 @@ function SlotPropertiesView({
           fill={fill}
           source={source}
           onCommit={wrappedCommit}
+          slotType={fillSlotType(parentShape.meta, slotName)}
           omitType={omitSlotType(parentShape.meta, slotName)}
+          paletteProps={paletteProps}
           {...scrubProps}
         />
       </div>
@@ -576,12 +699,18 @@ interface PropertyRowProps {
   fill: SlotFill;
   source: string;
   onCommit: (newSource: string) => void;
+  // The fill's declared slot type from `meta.slots` OR `meta.params`,
+  // whichever applies. Null when neither declares it (legacy /
+  // unknown slot). Drives the color palette branch and any future
+  // type-specific editor (not the omit toggle — that's `omitType`).
+  slotType: SlotType | null;
   // The fill's declared slot type when this row is omit-eligible
   // (renderable slot in `meta.slots`); null for params and non-
   // renderable slots (image, scalars). When non-null the omit
   // toggle renders, and the un-omit splice picks a type-shaped
   // default via `unOmitDefault`.
   omitType: SlotType | null;
+  paletteProps: PaletteProps;
   // Drag-to-scrub session lifecycle. PropertyRow drives these on
   // numeric rows; the App pushes one undo entry per session and
   // applies intermediate previews without polluting the undo
@@ -595,13 +724,16 @@ function PropertyRow({
   fill,
   source,
   onCommit,
+  slotType,
   omitType,
+  paletteProps,
   onScrubBegin,
   onScrubPreview,
   onScrubEnd,
 }: PropertyRowProps): ReactElement {
   const isOmit = fill.value.kind === 'omit';
   const isNumber = fill.value.kind === 'number';
+  const isColor = slotType === 'color-token' && !isOmit;
   const editable = !isOmit && isEditableValue(fill.value);
   const sourceText = readValueSource(fill.value, source);
   const [draft, setDraft] = useState<string>(sourceText);
@@ -773,6 +905,36 @@ function PropertyRow({
     onCommit(next);
   };
 
+  // Splice a swatch value (`amber` / `oklch(...)` / `"#ff0080"`) into
+  // the current value span. Same path as a text-input commit; the
+  // wrapping component preserves selection across the source round-
+  // trip.
+  const commitColorValue = (sourceText: string): void => {
+    const next = sliceReplace(
+      source,
+      fill.value.span.start.offset,
+      fill.value.span.end.offset,
+      sourceText,
+    );
+    onCommit(next);
+  };
+
+  // Current color value rendered as a CSS string — drives the
+  // "current" indicator border on the matching swatch.
+  const currentCss = isColor ? readColorValueCss(fill.value) : null;
+
+  // Picker open state — true while focus is inside the color row's
+  // value cell (input or any swatch). Closes when focus leaves. The
+  // wrapper handles both via onFocus/onBlur capture with a
+  // relatedTarget check so clicks within the popover keep it open.
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const onColorBlurCapture = (e: ReactFocusEvent<HTMLDivElement>): void => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+      setPickerOpen(false);
+    }
+  };
+  const previewInputRef = useRef<HTMLInputElement | null>(null);
+
   return (
     <div className="sw-property-row">
       <span
@@ -784,7 +946,55 @@ function PropertyRow({
       >
         {fill.name}
       </span>
-      {isOmit ? (
+      {isColor ? (
+        <div
+          className={
+            'sw-color-cell' + (pickerOpen ? ' open' : '')
+          }
+          onFocus={() => setPickerOpen(true)}
+          onBlur={onColorBlurCapture}
+        >
+          <button
+            type="button"
+            className="sw-color-preview"
+            style={{ background: currentCss ?? 'transparent' }}
+            title="open color picker"
+            aria-label="open color picker"
+            // Don't blur the input on mousedown (we want focus to
+            // land on the input via the click handler instead). If
+            // the input is already focused, this is a no-op.
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => previewInputRef.current?.focus()}
+          />
+          <input
+            ref={previewInputRef}
+            className="sw-property-value"
+            type="text"
+            value={draft}
+            spellCheck={false}
+            onChange={(e) => setDraftSync(e.currentTarget.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                e.currentTarget.blur();
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                setDraftSync(sourceText);
+                e.currentTarget.blur();
+              }
+            }}
+          />
+          {pickerOpen ? (
+            <ColorPalette
+              tokens={paletteProps.colorTokens}
+              slideColors={paletteProps.slideColors}
+              currentCss={currentCss}
+              onPick={commitColorValue}
+            />
+          ) : null}
+        </div>
+      ) : isOmit ? (
         <input
           className="sw-property-value"
           type="text"
@@ -816,7 +1026,7 @@ function PropertyRow({
           {sourceText}
         </span>
       )}
-      {omitType !== null ? (
+      {omitType !== null && !isColor ? (
         <button
           type="button"
           className={
@@ -835,6 +1045,173 @@ function PropertyRow({
       ) : null}
     </div>
   );
+}
+
+interface Swatch {
+  sourceText: string;
+  cssValue: string;
+}
+
+function ColorPalette({
+  tokens,
+  slideColors,
+  currentCss,
+  onPick,
+}: {
+  tokens: Record<string, string>;
+  slideColors: SlideColor[];
+  currentCss: string | null;
+  onPick: (sourceText: string) => void;
+}): ReactElement {
+  // Build the two candidate lists. Resolution + dedup happens after
+  // mount so the resolved RGBs are available via the browser's CSS
+  // engine (CSS variable aliases like `accent → blue` aren't
+  // observable from source alone).
+  const tokenCandidates = useMemo<Swatch[]>(
+    () =>
+      Object.keys(tokens).map((name) => ({
+        sourceText: name,
+        cssValue: `var(--${name})`,
+      })),
+    [tokens],
+  );
+  const slideCandidates = useMemo<Swatch[]>(
+    () =>
+      slideColors.map((sc) => ({
+        sourceText: sc.sourceText,
+        cssValue: sc.cssValue,
+      })),
+    [slideColors],
+  );
+  const dedup = useResolvedDedup(tokenCandidates, slideCandidates);
+
+  return (
+    <div className="sw-color-palette">
+      <div
+        className="sw-color-palette-row"
+        role="group"
+        aria-label="global colors"
+      >
+        {dedup.globals.map((sw) => (
+          <SwatchButton
+            key={`tok-${sw.sourceText}`}
+            swatch={sw}
+            isCurrent={currentCss === sw.cssValue}
+            onPick={onPick}
+          />
+        ))}
+      </div>
+      {dedup.slide.length > 0 ? (
+        <div
+          className="sw-color-palette-row sw-color-palette-slide"
+          role="group"
+          aria-label="colors used on this slide"
+        >
+          {dedup.slide.map((sw) => (
+            <SwatchButton
+              key={`slide-${sw.sourceText}`}
+              swatch={sw}
+              isCurrent={currentCss === sw.cssValue}
+              onPick={onPick}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SwatchButton({
+  swatch,
+  isCurrent,
+  onPick,
+}: {
+  swatch: Swatch;
+  isCurrent: boolean;
+  onPick: (sourceText: string) => void;
+}): ReactElement {
+  return (
+    <button
+      type="button"
+      className={'sw-color-swatch' + (isCurrent ? ' current' : '')}
+      style={{ background: swatch.cssValue }}
+      title={swatch.sourceText}
+      aria-label={swatch.sourceText}
+      aria-pressed={isCurrent}
+      // Keep the parent input focused so the popover stays open
+      // across rapid swatch clicks (mousedown blurs whatever's
+      // focused otherwise).
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={() => onPick(swatch.sourceText)}
+    />
+  );
+}
+
+// Resolve each candidate's CSS value to a concrete RGB via an
+// offscreen probe element (CSS-variable aliases like `accent → blue`
+// are only resolvable via the browser's engine). Keep the first
+// occurrence per RGB across both rows so global swatches own the
+// canonical position and per-slide echoes drop out.
+//
+// Returns the original ordering with duplicates removed. The first
+// render before the layout effect fires shows the un-deduped list —
+// a single frame of "extra swatches" that disappear once resolution
+// completes. Acceptable; resolution runs once per palette mount.
+function useResolvedDedup(
+  globals: readonly Swatch[],
+  slide: readonly Swatch[],
+): { globals: Swatch[]; slide: Swatch[] } {
+  type Resolved = { globals: number[]; slide: number[] };
+  const [keep, setKeep] = useState<Resolved | null>(null);
+  useEffect(() => {
+    const probe = document.createElement('div');
+    probe.style.position = 'absolute';
+    probe.style.visibility = 'hidden';
+    probe.style.pointerEvents = 'none';
+    document.body.appendChild(probe);
+    const resolve = (css: string): string => {
+      probe.style.background = '';
+      probe.style.background = css;
+      return getComputedStyle(probe).backgroundColor || css;
+    };
+    const seen = new Set<string>();
+    const globalsKeep: number[] = [];
+    const slideKeep: number[] = [];
+    for (let i = 0; i < globals.length; i++) {
+      const rgb = resolve(globals[i]!.cssValue);
+      if (!seen.has(rgb)) {
+        seen.add(rgb);
+        globalsKeep.push(i);
+      }
+    }
+    for (let i = 0; i < slide.length; i++) {
+      const rgb = resolve(slide[i]!.cssValue);
+      if (!seen.has(rgb)) {
+        seen.add(rgb);
+        slideKeep.push(i);
+      }
+    }
+    probe.remove();
+    setKeep({ globals: globalsKeep, slide: slideKeep });
+  }, [globals, slide]);
+  if (!keep) {
+    return { globals: [...globals], slide: [...slide] };
+  }
+  return {
+    globals: keep.globals.map((i) => globals[i]!),
+    slide: keep.slide.map((i) => slide[i]!),
+  };
+}
+
+// Map a fill's Value to the CSS color string it resolves to (used
+// to drive the "current" swatch indicator). Mirrors the loader's
+// readColorValue path but doesn't error on unsupported kinds —
+// returns null for those.
+function readColorValueCss(v: Value): string | null {
+  if (v.kind === 'name_ref') return `var(--${v.name})`;
+  if (v.kind === 'color_oklch') return `oklch(${v.l} ${v.c} ${v.h})`;
+  if (v.kind === 'string') return v.value;
+  return null;
 }
 
 // Editable when the value is a primitive whose source form is a

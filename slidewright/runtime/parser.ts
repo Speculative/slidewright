@@ -336,6 +336,34 @@ class Parser {
       case 'omit':
         this.advance();
         return { kind: 'omit', span: t.span };
+      case 'color_oklch': {
+        this.advance();
+        // Token text is the full `oklch(L C H)` source. Parse the
+        // three space-separated numbers out of the parens. If
+        // malformed, emit a parse error and return a zeroed
+        // literal so downstream code stays happy. Per SLIDEWRIGHT.md
+        // / Form: we accept whitespace flexibly and don't enforce
+        // value ranges — out-of-gamut OKLCH is a valid literal,
+        // clamped at display time by the browser.
+        const m = t.text.match(
+          /^oklch\(\s*(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s*\)$/,
+        );
+        if (!m) {
+          this.error(
+            t.span,
+            'malformed `oklch(...)` literal',
+            'expected three space-separated numbers, e.g. `oklch(0.7 0.15 240)`',
+          );
+          return { kind: 'color_oklch', l: 0, c: 0, h: 0, span: t.span };
+        }
+        return {
+          kind: 'color_oklch',
+          l: parseFloat(m[1]!),
+          c: parseFloat(m[2]!),
+          h: parseFloat(m[3]!),
+          span: t.span,
+        };
+      }
       case 'lbrack':
         return this.parseList();
       case 'upper_ident':

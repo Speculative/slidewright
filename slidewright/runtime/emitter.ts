@@ -128,6 +128,8 @@ function emitValueInline(value: Value, level: number): string {
       return 'null';
     case 'omit':
       return 'omit';
+    case 'color_oklch':
+      return `oklch(${formatColorNumber(value.l)} ${formatColorNumber(value.c)} ${formatColorNumber(value.h)})`;
     case 'name_ref':
       return value.name;
     case 'list':
@@ -145,6 +147,17 @@ function emitListInline(list: ListLit, level: number): string {
   }
   lines.push(`${indent(level)}]`);
   return lines.join('\n');
+}
+
+// Canonical numeric formatting for OKLCH components. JS's default
+// `String(n)` gives the shortest round-tripping decimal, which is
+// what we want — `0.7` stays `0.7`, `0.123456789` stays exact.
+// Negative zero collapses to plain `0`. Idempotence relies on the
+// parser yielding the same float back; for normal-range L / C / H
+// values that's true.
+function formatColorNumber(n: number): string {
+  if (Object.is(n, -0)) return '0';
+  return String(n);
 }
 
 function emitMultilineString(value: string, level: number): string {

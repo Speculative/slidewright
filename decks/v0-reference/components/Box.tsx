@@ -34,7 +34,10 @@ export default function Box({ params }: ComponentRenderProps) {
   const y = (params.y as number | undefined) ?? 0;
   const width = (params.width as number | undefined) ?? 200;
   const height = (params.height as number | undefined) ?? 200;
-  const fill = (params.fill as string | undefined) ?? 'accent';
+  // CSS color string — `var(--accent)` for token fills, `oklch(...)`
+  // for color literals, or any string verbatim. Resolved by the
+  // loader; consumed directly.
+  const fill = (params.fill as string | undefined) ?? 'var(--accent)';
   return (
     <div
       style={{
@@ -43,7 +46,7 @@ export default function Box({ params }: ComponentRenderProps) {
         top: `${y}px`,
         width: `${width}px`,
         height: `${height}px`,
-        background: `var(--${fill})`,
+        background: fill,
         border: '4px solid var(--fg, #000)',
         boxSizing: 'border-box',
       }}

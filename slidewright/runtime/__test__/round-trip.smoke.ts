@@ -102,6 +102,7 @@ type Shape =
   | { kind: 'boolean'; value: boolean }
   | { kind: 'null' }
   | { kind: 'omit' }
+  | { kind: 'color_oklch'; l: number; c: number; h: number }
   | { kind: 'list'; items: Shape[] }
   | { kind: 'name_ref'; name: string };
 
@@ -128,6 +129,8 @@ function shapeOf(node: Node | Value): Shape {
       return { kind: 'null' };
     case 'omit':
       return { kind: 'omit' };
+    case 'color_oklch':
+      return { kind: 'color_oklch', l: node.l, c: node.c, h: node.h };
     case 'list':
       return { kind: 'list', items: node.items.map(shapeOf) as Shape[] };
     case 'name_ref':
@@ -220,6 +223,20 @@ const cases: { label: string; source: string }[] = [
   {
     label: 'mixed-list',
     source: `Title { title: ["plain " Span { color: accent, content: "fancy" } " plain"] }`,
+  },
+  {
+    label: 'color-literal',
+    source:
+      `Deck {\n` +
+      `  name: "x"\n` +
+      `  slides: [\n` +
+      `    Slide { content: TitleSlide { title: "y" } }\n` +
+      `  ]\n` +
+      `}\n\n` +
+      `Box {\n` +
+      `  fill: oklch(0.7 0.15 240)\n` +
+      `  stroke: oklch(0.5 0.2 30.5)\n` +
+      `}\n`,
   },
   {
     label: 'comments',

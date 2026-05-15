@@ -145,6 +145,61 @@ v0.4 has been delivered in successive cuts:
 - **`slotsState` API + custom omit treatments (landed).** `ComponentRenderProps` gains `slotsState: Record<string, SlotState>` where `SlotState = 'filled' | 'missing' | 'omit'`. Loader populates it during the same iteration that builds `slots` and forwards through `WrapShapeInput` (default wrap + canvas-side `ShapeProjection` both forward to the React render). Components opt in by reading specific names — ignoring it keeps the existing behavior. First consumer: `ContentSlide` reads `slotsState.eyebrow / .intro / .body` and drops the wrapper div when state is `'omit'` (so omit'd slots collapse the layout) while keeping the wrapper when state is `'missing'` (so the loader's placeholder has somewhere to render). `ContentSlide` gains `canvas: { kind: 'layout' }` to be selectable + inspectable; selection-layer suppresses the canvas outline for any component whose `meta.produces === 'slide'` (option 1 from the slide / slide-content design discussion; option 2 — folding slide-content rows into the Slide row entirely — is the long-term direction, see Deferred features).
 - **Wider cut (deferred).** Slot-targeted insertion gestures (drag-from-toolbar, click-empty-slot-then-pick). Component toolbar overhaul.
 
+### Color palette + picker (planned, not yet started)
+
+Goal: replace the current free-text input for `color-token`-typed rows in the inspector with a swatch palette + OKLCH picker. The picker is the first feature that asks the source language to express a *literal* color (not just a named token) — design commitments below cover both the surface syntax and the rendering path.
+
+**Source representation: new `ColorLit` Value kind.**
+
+- Surface syntax: `oklch(L C H)`. Three required space-separated numbers — L ∈ [0, 1] (bare number, not `%`; matches emit form), C ∈ [0, ~0.4 in practice, no enforced cap], H ∈ [0, 360).
+- No alpha, no hex, no other color spaces. Tightly-scoped literal — easy to extend later, hard to walk back.
+- Parser: lexer adds a token kind for `oklch(` (recognized by lookahead — letter sequence followed by open-paren); parser produces an AST node `{ kind: 'color_oklch', l, c, h, span }`. Emitter writes `oklch(L C H)` with whatever numeric formatting the picker chose (likely 3-4 sig figs).
+- Round-trip property tests get extended to cover `ColorLit` fills.
+- `isEditableValue` in `InspectorPanels.tsx` accepts `color_oklch`; readValueSource returns the raw `oklch(…)` span text. The picker UI is the *primary* editor for this kind — plain text input is the fallback.
+- Color-token slot type continues to accept `name_ref` (existing tokens) AND now `color_oklch`. Same slot type, polymorphic value kinds. Components reading the slot pass the value into `var(--<name>)` for the name_ref case or pass through verbatim for the literal case; both end up as valid CSS color values.
+- Reserved-but-not-built: tokens that resolve to ColorLit (declarative `accent = oklch(...)` in the deck source rather than the registry-hardcoded map). Out of v0.4 scope; the design just needs to not preclude it.
+
+**Render path: CSS `oklch()` everywhere, no manual sRGB conversion.**
+
+- Final shape rendering: components emit `style={{ background: 'oklch(L C H)' }}` (or `--fill: oklch(…)`) for ColorLit values, same path as `var(--<name>)` for token values.
+- Picker preview: each cell of the 2D rectangle is colored via the same `oklch()` CSS path. No JS-side OKLCH→sRGB conversion; the browser owns the clamp. Whatever Chrome / Safari render for an out-of-gamut value, the picker shows the same thing — by construction.
+- Browser support gate: `@supports (color: oklch(0 0 0))` — all evergreens since mid-2023. No fallback.
+
+**Picker UI: 2D rectangle (L × C) + hue slider + gamut overlay.**
+
+- Selected hue H drives the 2D plane: X axis = chroma 0 → ~0.4, Y axis = lightness 0 → 1. Implemented as a single CSS conic / linear gradient combo or a small canvas, TBD by perf.
+- **Gamut overlay**: compute the sRGB gamut boundary curve `Cmax(L)` for the current H. Binary-search (`~10` iter) per L-strip (~64-128 rows is enough for a visible curve). Render as an SVG path traced on top of the rectangle. Inside the curve: in-gamut. Outside: the cell still paints via `oklch()` (browser clamps for display), and clicks still register (the literal value the user picks may be out-of-gamut; we don't refuse it).
+- Hue slider: horizontal bar, full 0-360 range, painted via a `linear-gradient` of `oklch(0.7 0.15 0…360)` stops.
+- Recompute boundary on H change only. Cache by H (rounded to 1°) to avoid recomputation during slider drag.
+- Numeric inputs for L / C / H next to the canvas — let users hand-tune without the canvas.
+
+**Palette: two rows above the picker.**
+
+- **Global tokens row**: the deck's named tokens from `decks/v0-reference/registry.ts:staticTokens`. Each rendered as a swatch painted with `background: var(--<name>)`. Click → splices `<token>` (a name_ref) into the value span.
+- **Per-slide colors row**: derived. Walk the active slide's AST, collect every distinct color value (both `name_ref` tokens and `color_oklch` literals) that appears in a `color-token`-typed slot, dedupe by source text. Render as swatches. Click → splices the same value into the *target* slot. Promotion to global tokens deferred (registry today is hardcoded; making it deck-source-derived is its own task — see Deferred features).
+- Empty per-slide row when nothing's been picked yet: just hide the row, don't show empty state.
+
+**Out-of-gamut handling.**
+
+- The picker doesn't refuse out-of-gamut picks. The literal `oklch(L C H)` value is written to source; the browser clamps for display via its CSS Color 4 implementation (chroma compression at constant L+H). Picker preview uses the same path, so what the user sees in the picker matches what they see on the canvas.
+- The boundary overlay communicates "this region of color space isn't actually displayable" — without it, the out-of-gamut zone is visually indistinguishable from a flattened gradient.
+
+**Implementation order (sequenced; commit between cuts).**
+
+1. **AST + parser + emitter for `ColorLit`.** Add to `ast.ts` Value union; lexer + parser recognize `oklch(L C H)`; emitter writes canonical form. Round-trip property test passes for fills containing color literals.
+2. **Renderer side.** Components reading `color-token` slot values handle both `name_ref` and `color_oklch` — write a small helper `resolveColor(value): string` in registry or contract that returns either `var(--name)` or `oklch(L C H)`. Update Box / TextBox / Arrow to use it. Picker isn't built yet; verify by hand-editing a `.sw` file with an `oklch(...)` fill.
+3. **Inspector: palette only.** Render the two-row swatch grid in the property row when slot type is `color-token`. No picker yet; clicks just write `name_ref`s. Validates the layout, the per-slide-scan logic, and the click-to-commit splice.
+4. **Inspector: picker.** Add the 2D rectangle + hue slider + numeric inputs. Compute gamut boundary per-hue (cached). Picking writes a `color_oklch` literal. Picker mounts inline below the palette grid (or as a popover triggered by a "+ custom" swatch — TBD by space).
+5. **Polish.** Drag-on-rectangle should reuse the existing pointer-lock pattern from drag-to-scrub if movement is small relative to canvas size, or just track absolute pointer position. Keyboard support (arrows nudge selected position). Tests: round-trip, palette click, picker click, color-token slot rendering matrix.
+
+**Out of scope for this cut.**
+
+- Hex / RGB / HSL input — OKLCH only.
+- Alpha channel.
+- Promote-per-slide-to-global (registry must become deck-source-derived first).
+- Tokens that resolve to OKLCH literals in source (vs registry-hardcoded names).
+- Color picker for properties that aren't typed as `color-token` (e.g., raw string fills that happen to contain a color).
+
 **Slide-level layouts (no Freeform ancestor) now work.** `slidewright/canvas/portal-target.ts` exposes `findPortalAncestor(el)` (non-hook helper) and `useSelectionPortal` (hook) that do a conditional lookup: prefer the closest Freeform's positioned div (preserves the existing coord system for shapes + layouts inside Freeforms), fall back to the slide stage (`.presentation-canvas`) for layouts at slide-level. Selection visuals + gesture overlays portal into whichever ancestor is appropriate. `layout-measurement.ts` uses the same fallback for measurement reference frames, so DOM measurements stay in the same frame as rendering. The `body: VStack { ... }` pattern (existing slide 3 in the reference deck) and the rebuilt "Stacks demo" slide both work now.
 
 ## Watch for: MutationObserver layer over ResizeObserver

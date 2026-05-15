@@ -22,8 +22,7 @@ export const slidewright: ComponentMeta = {
 };
 
 export default function TitleSlide({ slots, params }: ComponentRenderProps) {
-  const accentToken = (params.accentColor as string | undefined) ?? 'accent';
-  const accent = `var(--${accentToken})`;
+  const accent = (params.accentColor as string | undefined) ?? 'var(--accent)';
   const venue = slots.venue as ReactNode;
   const title = slots.title as ReactNode;
   const subtitle = slots.subtitle as ReactNode | undefined;

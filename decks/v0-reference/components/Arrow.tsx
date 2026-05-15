@@ -45,7 +45,7 @@ export default function Arrow({ params }: ComponentRenderProps) {
   const y1 = (params.y1 as number | undefined) ?? 0;
   const x2 = (params.x2 as number | undefined) ?? 200;
   const y2 = (params.y2 as number | undefined) ?? 200;
-  const color = (params.color as string | undefined) ?? 'fg';
+  const color = (params.color as string | undefined) ?? 'var(--fg)';
   const strokeWidth = (params.strokeWidth as number | undefined) ?? 4;
   const head = computeArrowGeometry(x1, y1, x2, y2, strokeWidth);
   // Hit-area stroke width — keeps thin arrows comfortably
@@ -71,7 +71,7 @@ export default function Arrow({ params }: ComponentRenderProps) {
         y1={y1}
         x2={head.baseX}
         y2={head.baseY}
-        stroke={`var(--${color})`}
+        stroke={color}
         strokeWidth={strokeWidth}
         strokeLinecap="round"
         style={{ pointerEvents: 'none' }}
@@ -91,7 +91,7 @@ export default function Arrow({ params }: ComponentRenderProps) {
       />
       <polygon
         points={head.points}
-        fill={`var(--${color})`}
+        fill={color}
         style={{ pointerEvents: 'visiblePainted' }}
       />
     </svg>

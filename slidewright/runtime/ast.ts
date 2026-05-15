@@ -34,6 +34,7 @@ export type Value =
   | BooleanLit
   | NullLit
   | OmitLit
+  | ColorLit
   | ListLit
   | NameRef
   | Component;
@@ -99,6 +100,23 @@ export interface NullLit {
 // slot) and from a missing fill (which surfaces a placeholder).
 export interface OmitLit {
   kind: 'omit';
+  span: Span;
+}
+
+// OKLCH color literal — `oklch(L C H)`. The picker is the primary
+// editor for this kind. Components reading a `color-token` slot
+// receive the resolved CSS color string (`oklch(L C H)` verbatim);
+// `name_ref` fills resolve to `var(--<name>)` via the deck scope.
+// v0 keeps the surface narrow: three space-separated numbers, no
+// alpha, no hex, no other color spaces. Range conventions: L ∈
+// [0, 1], C ≥ 0 (typical max ~0.4), H ∈ [0, 360). Out-of-range
+// values are written verbatim and clamped at display time by the
+// browser's CSS Color 4 implementation.
+export interface ColorLit {
+  kind: 'color_oklch';
+  l: number;
+  c: number;
+  h: number;
   span: Span;
 }
 

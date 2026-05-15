@@ -83,6 +83,7 @@ import { ResizeHandle } from './ResizeHandle.js';
 import {
   HierarchyPanel,
   PropertiesPanel,
+  collectSlideColors,
   type EmptySlotInfo,
   type SlotInfo,
 } from './InspectorPanels.js';
@@ -1335,6 +1336,21 @@ export function App({
     [],
   );
 
+  // Per-slide color swatches for the inspector palette. Computed
+  // here (rather than after the `if (!state) return …` early exit
+  // below) so hook order stays stable across initial-load and
+  // ready renders — react warns about rendering more hooks on
+  // later renders than earlier ones. Guards on `state` internally.
+  const slideColors = useMemo(
+    () => {
+      const slide = state?.slidesData[activeIdx];
+      return slide
+        ? collectSlideColors(slide.comp, components, staticTokens)
+        : [];
+    },
+    [state, activeIdx],
+  );
+
   if (!state) {
     return <div className="sw-canvas-status">waiting for source…</div>;
   }
@@ -1548,6 +1564,8 @@ export function App({
                 onScrubPreview={applyScrubPreview}
                 onScrubEnd={endScrub}
                 onMaterializeTextSlot={materializeTextSlot}
+                colorTokens={staticTokens}
+                slideColors={slideColors}
               />
             </div>
             <ResizeHandle

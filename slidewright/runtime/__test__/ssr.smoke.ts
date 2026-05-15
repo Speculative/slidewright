@@ -99,7 +99,9 @@ const expected: Array<{ label: string; needles: string[] }> = [
       'left:1240px',
       'var(--amber)',
       'var(--cyan)',
-      'var(--magenta)',
+      // Third box uses an OKLCH literal — smoke-tests that ColorLit
+      // values resolve to a CSS oklch() string at render time.
+      'oklch(0.62 0.22 25)',
     ],
   },
   {

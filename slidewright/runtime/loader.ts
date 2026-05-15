@@ -592,7 +592,16 @@ function renderComponent(comp: Component, ctx: LoadCtx): ReactNode {
     if (fill && fill.value.kind !== 'omit') {
       params[paramName] = resolveSlotValue(schema.type, fill.value, ctx);
     } else if (schema.default !== undefined) {
-      params[paramName] = schema.default;
+      // For `color-token` params, a string default names a deck-scope
+      // token (e.g., `'accent'` → `var(--accent)`). Matches the
+      // resolution applied to source-side `name_ref` values so
+      // components see a uniform CSS color string regardless of
+      // whether the value came from source or from the default.
+      if (schema.type === 'color-token' && typeof schema.default === 'string') {
+        params[paramName] = `var(--${schema.default})`;
+      } else {
+        params[paramName] = schema.default;
+      }
     }
   }
 
@@ -644,13 +653,13 @@ function renderComponent(comp: Component, ctx: LoadCtx): ReactNode {
 function renderSpanAsNode(comp: Component, ctx: LoadCtx): ReactNode {
   const fills = byName(comp.fills);
   const content = fills.get('content');
-  const color = readNameOrString(fills.get('color'), ctx);
+  const color = readColorValue(fills.get('color'), ctx);
   const font = readNameOrString(fills.get('font'), ctx);
   const weight = readNameOrString(fills.get('weight'), ctx);
   const italic = readBoolean(fills.get('italic'), ctx);
   const inner = content ? resolveTextValue(content.value, ctx) : null;
   const style: Record<string, string> = {};
-  if (color) style.color = `var(--${color})`;
+  if (color) style.color = color;
   if (font) style.fontFamily = `var(--font-${font})`;
   if (weight) style.fontWeight = weight;
   if (italic) style.fontStyle = 'italic';
@@ -794,6 +803,7 @@ function resolveSlotValue(type: SlotType, value: Value, ctx: LoadCtx): unknown {
     case 'boolean':
       return readBoolean({ kind: 'slot_fill', name: '', value, span: value.span }, ctx) ?? null;
     case 'color-token':
+      return readColorValue({ kind: 'slot_fill', name: '', value, span: value.span }, ctx) ?? null;
     case 'spacing-token':
     case 'font-token':
       return readNameOrString({ kind: 'slot_fill', name: '', value, span: value.span }, ctx) ?? null;
@@ -1020,6 +1030,33 @@ function readNameOrString(fill: SlotFill | undefined, ctx: LoadCtx): string | un
   if (v.kind === 'string') return v.value;
   if (v.kind === 'name_ref') return v.name;
   emit(ctx, 'slot-type-mismatch', v.span, `expected a token name or string for \`${fill.name}\``);
+  return undefined;
+}
+
+// Resolve a `color-token`-typed slot to a ready-to-use CSS color
+// string. Three input kinds:
+//   - name_ref `accent`   → `var(--accent)` (deck-scope token).
+//   - color_oklch literal → `oklch(L C H)` verbatim.
+//   - string  `"#ff0080"` → passed through (lets users hand-write
+//                             hex / rgb / any CSS color value).
+// Components consume the returned string as-is — no per-component
+// `var(--${name})` wrapping — so the same resolver can drive both
+// tokens and literals.
+function readColorValue(
+  fill: SlotFill | undefined,
+  ctx: LoadCtx,
+): string | undefined {
+  if (!fill) return undefined;
+  const v = fill.value;
+  if (v.kind === 'string') return v.value;
+  if (v.kind === 'name_ref') return `var(--${v.name})`;
+  if (v.kind === 'color_oklch') return `oklch(${v.l} ${v.c} ${v.h})`;
+  emit(
+    ctx,
+    'slot-type-mismatch',
+    v.span,
+    `expected a color token, color literal, or string for \`${fill.name}\``,
+  );
   return undefined;
 }
 

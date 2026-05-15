@@ -538,6 +538,92 @@ input.sw-property-value:disabled {
   font-style: italic;
 }
 
+/* Color cell — the value column for a color-typed property row.
+ * Holds a preview swatch + the text input inline; the palette
+ * popover (mounted only while focused) anchors below them. */
+.sw-color-cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.sw-color-cell input.sw-property-value {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The always-visible preview swatch. Click → focuses the input,
+ * which opens the palette. Same visual language as a palette
+ * swatch (rounded square, inner highlight), one size up so it
+ * reads as the current state rather than a choice. */
+.sw-color-preview {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+  cursor: pointer;
+}
+.sw-color-cell.open .sw-color-preview {
+  outline: 2px solid var(--accent, #0066ff);
+  outline-offset: 1px;
+}
+
+/* Palette popover — appears below the color cell while it has
+ * focus. Absolutely positioned so it doesn't push neighboring
+ * rows down (the row height stays stable while the palette
+ * appears / disappears). Z-stacked above sibling rows. */
+.sw-color-palette {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 10;
+}
+
+.sw-color-palette-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.sw-color-palette-slide {
+  /* Divider between global and per-slide rows. Subtle — the rows
+   * read as one palette grouping, not two unrelated controls. */
+  padding-top: 4px;
+  border-top: 1px dashed #ddd;
+}
+
+.sw-color-swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+.sw-color-swatch:hover {
+  outline: 2px solid var(--accent, #0066ff);
+  outline-offset: 1px;
+}
+.sw-color-swatch.current {
+  outline: 2px solid #111;
+  outline-offset: 1px;
+}
+
 .sw-property-omit-toggle {
   font-family: var(--vscode-editor-font-family, "JetBrains Mono", ui-monospace, monospace);
   font-size: 11px;

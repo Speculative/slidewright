@@ -33,6 +33,7 @@ export type TokenKind =
   | 'false'
   | 'null'
   | 'omit'
+  | 'color_oklch'
   | 'eof';
 
 export interface Token {
@@ -233,13 +234,36 @@ export function tokenize(
       continue;
     }
 
-    // Identifier (upper_ident or lower_ident, or reserved word)
+    // Identifier (upper_ident or lower_ident, or reserved word).
+    // Special case: `oklch(...)` is a color literal — the identifier
+    // `oklch` immediately followed by `(` switches into color-lit
+    // mode and consumes through the matching `)` as a single token.
+    // The parser parses L / C / H out of the token text. `oklch`
+    // followed by anything else falls back to a normal identifier.
     if (/[A-Za-z_]/.test(ch)) {
       advance(1);
       while (offset < source.length && /[A-Za-z0-9_]/.test(source[offset]!)) {
         advance(1);
       }
       const text = source.slice(start.offset, offset);
+      if (text === 'oklch' && source[offset] === '(') {
+        advance(1); // consume `(`
+        while (
+          offset < source.length &&
+          source[offset] !== ')' &&
+          source[offset] !== '\n'
+        ) {
+          advance(1);
+        }
+        if (source[offset] === ')') {
+          advance(1);
+          emit('color_oklch', start, source.slice(start.offset, offset));
+        } else {
+          error(start, 'unterminated `oklch(...)` literal', 'expected `)` to close');
+          emit('color_oklch', start, source.slice(start.offset, offset));
+        }
+        continue;
+      }
       const reserved = RESERVED[text];
       if (reserved) {
         emit(reserved, start, text);
