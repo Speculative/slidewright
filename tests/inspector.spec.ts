@@ -304,6 +304,59 @@ test('omit toggle entries enter the undo stack', async ({ page }) => {
   expect(after).toBe(before);
 });
 
+test('omit causes ContentSlide to drop the slot wrapper; missing keeps it (slotsState contract)', async ({ page }) => {
+  // The fixture has eyebrow filled, intro missing, body omit. The
+  // component reads `slotsState` and drops the wrapper for omit'd
+  // slots while keeping it for missing slots (so the placeholder
+  // has somewhere to render).
+  await page.goto('/canvas.html?fixture=content-slide');
+  // eyebrow filled → `.eyebrow` div present + contains real text.
+  const eyebrowRow = page.locator('.sw-canvas-stage .eyebrow');
+  await expect(eyebrowRow).toHaveCount(1);
+  await expect(eyebrowRow).toContainText('EYEBROW TEXT');
+  // intro missing → `intro`'s wrapper still rendered, with the
+  // loader's placeholder visible inside it.
+  await expect(page.locator('.sw-canvas-stage [data-sw-slot-empty="true"]'))
+    .toHaveCount(1);
+  // body omit → no slot placeholder rendered (omit suppresses it).
+  // The body's wrapper isn't a standalone selector, but we can
+  // assert the slide doesn't carry a body-related empty-slot
+  // placeholder.
+  await expect(
+    page.locator('.sw-canvas-stage [data-sw-slot-empty="true"][data-sw-slot-name="body"]'),
+  ).toHaveCount(0);
+});
+
+test('slide-content components (produces:slide) have no canvas selection outline', async ({ page }) => {
+  // ContentSlide spans the whole slide; an outline would trace the
+  // slide chrome the user already sees. Selection state + inspector
+  // path remain — just no canvas border.
+  await page.goto('/canvas.html?fixture=content-slide');
+  const treeRow = page.locator('.sw-hierarchy-node', { hasText: 'ContentSlide' });
+  await treeRow.click();
+  await expect(treeRow).toHaveClass(/selected/);
+  await expect(
+    page.locator('.sw-properties-panel .sw-inspector-panel-header'),
+  ).toContainText('ContentSlide');
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(0);
+});
+
+test('toggling omit on a ContentSlide slot collapses or restores its wrapper', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=content-slide');
+  // Drill into ContentSlide via the canvas: click on the eyebrow
+  // text twice (first click → ContentSlide; second → eyebrow slot).
+  // Easier path: select ContentSlide via the hierarchy.
+  await page.locator('.sw-hierarchy-node', { hasText: 'ContentSlide' }).click();
+  // Toggle omit on the eyebrow row.
+  const eyebrowRow = page.locator('.sw-property-row', { hasText: /^eyebrow/ }).first();
+  await eyebrowRow.locator('.sw-property-omit-toggle').click();
+  // After commit, the `.eyebrow` wrapper should disappear.
+  await expect(page.locator('.sw-canvas-stage .eyebrow')).toHaveCount(0);
+  // Toggle off — eyebrow row materializes "" so wrapper returns.
+  await eyebrowRow.locator('.sw-property-omit-toggle').click();
+  await expect(page.locator('.sw-canvas-stage .eyebrow')).toHaveCount(1);
+});
+
 test('omit toggle is hidden on param and non-renderable-slot rows', async ({ page }) => {
   // single-box: all rows (x, y, width, height, fill) are params.
   // None should have the omit toggle.

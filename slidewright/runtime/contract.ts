@@ -48,6 +48,16 @@ export interface ComponentMeta {
   protocols?: Record<string, unknown>;
 }
 
+// Whether a slot was filled, missing entirely, or explicitly
+// omitted via the `omit` sigil. Components can branch on this to
+// distinguish "user said this slot is intentionally empty" (omit)
+// from "user hasn't filled it yet" (missing — the editor surfaces
+// a placeholder for renderable slot types). Both `missing` and
+// `omit` arrive in `slots[name]` as undefined or as the loader's
+// placeholder ReactNode; reading state is the principled way to
+// tell them apart for structural rendering decisions.
+export type SlotState = 'filled' | 'missing' | 'omit';
+
 // What the editor passes to the default React export. Slot values are
 // already resolved against the runtime — text slots arrive as React
 // nodes, block slots as React children, image slots as strings, etc.
@@ -55,6 +65,9 @@ export interface ComponentMeta {
 export interface ComponentRenderProps {
   slots: Record<string, ResolvedSlotValue>;
   params: Record<string, unknown>;
+  // Per-slot fill state — components opt in by reading specific
+  // names. Components that ignore this keep working unchanged.
+  slotsState: Record<string, SlotState>;
 }
 
 export type ResolvedSlotValue =

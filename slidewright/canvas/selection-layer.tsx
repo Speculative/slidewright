@@ -183,6 +183,16 @@ export function SelectionLayer({
     const key = spanKey(span);
     const data = shapes.get(key);
     if (!data) continue;
+    // Slide-content components (those with `produces: 'slide'`) are
+    // selectable + inspectable but never get a canvas outline —
+    // they're slide-level layout templates that span the whole
+    // slide, so a bounding-box outline would just trace the slide
+    // chrome the user already sees. Treat them the same as the
+    // builtin Slide wrapper at outline-render time. Long-term we
+    // may fold their property rows into the Slide row entirely
+    // (see HANDOFF.md / Deferred features), at which point this
+    // filter goes away.
+    if (data.meta.produces === 'slide') continue;
     if (isLayoutAdapter(data.canvas)) {
       const bounds = layoutBounds.get(key);
       if (!bounds) continue;

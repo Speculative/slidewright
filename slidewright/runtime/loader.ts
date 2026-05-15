@@ -41,6 +41,7 @@ import {
   type ComponentRegistry,
   type ComponentRenderProps,
   type SlideComponent,
+  type SlotState,
   type SlotType,
 } from './contract.js';
 import {
@@ -75,6 +76,7 @@ export interface WrapShapeInput {
   loaded: { render: SlideComponent; meta: ComponentMeta; canvas?: unknown };
   slots: Record<string, unknown>;
   params: Record<string, unknown>;
+  slotsState: Record<string, SlotState>;
   // Stable key for the React render — already computed from the
   // component's source span by the loader.
   cellKey: string;
@@ -270,6 +272,7 @@ function defaultWrapShape(input: WrapShapeInput): ReactElement {
     createElement(input.loaded.render, {
       slots: input.slots as ComponentRenderProps['slots'],
       params: input.params,
+      slotsState: input.slotsState,
       key: input.cellKey,
     }),
   );
@@ -525,13 +528,21 @@ function renderComponent(comp: Component, ctx: LoadCtx): ReactNode {
 
   validateAgainstMeta(comp, loaded.meta, ctx);
 
-  // Build resolved {slots, params}.
+  // Build resolved {slots, params, slotsState}.
   const slots: Record<string, unknown> = {};
   const params: Record<string, unknown> = {};
+  const slotsState: Record<string, SlotState> = {};
 
   const fills = byName(comp.fills);
   for (const [slotName, schema] of Object.entries(loaded.meta.slots)) {
     const fill = fills.get(slotName);
+    if (!fill) {
+      slotsState[slotName] = 'missing';
+    } else if (fill.value.kind === 'omit') {
+      slotsState[slotName] = 'omit';
+    } else {
+      slotsState[slotName] = 'filled';
+    }
     if (!fill || fill.value.kind === 'omit') {
       // No fill OR an explicit `omit` sigil. For renderable slot
       // types with no fill, inject a placeholder ReactNode the user
@@ -592,6 +603,10 @@ function renderComponent(comp: Component, ctx: LoadCtx): ReactNode {
     loaded.meta.slots['children'] !== undefined
   ) {
     slots['children'] = comp.implicitChildren.map((c) => renderComponent(c, ctx));
+    // Implicit children count as 'filled' for the children slot
+    // regardless of the iteration above (which only saw explicit
+    // fills).
+    slotsState['children'] = 'filled';
   } else if (comp.implicitChildren.length > 0) {
     emit(
       ctx,
@@ -621,6 +636,7 @@ function renderComponent(comp: Component, ctx: LoadCtx): ReactNode {
     loaded,
     slots,
     params,
+    slotsState,
     cellKey: cellKey(comp),
   });
 }

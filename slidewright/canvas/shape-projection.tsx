@@ -23,7 +23,7 @@ import type { LayoutAdapter } from './layout-adapter.js';
 import type { ShapeAdapter } from './shape-adapter.js';
 
 function ShapeProjection(input: WrapShapeInput): ReactElement {
-  const { comp, loaded, slots, params, cellKey } = input;
+  const { comp, loaded, slots, params, slotsState, cellKey } = input;
   // Accept either a ShapeAdapter (applyGesture required) or a
   // LayoutAdapter (applyGesture optional — only set when the layout
   // has a gesture that mutates its own params, e.g., gap-drag).
@@ -48,6 +48,7 @@ function ShapeProjection(input: WrapShapeInput): ReactElement {
     createElement(loaded.render, {
       slots: slots as ComponentRenderProps['slots'],
       params: adjustedParams,
+      slotsState,
       key: cellKey,
     }),
   );
