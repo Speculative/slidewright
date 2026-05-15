@@ -475,6 +475,18 @@ html, body, #root {
   white-space: nowrap;
 }
 
+/* Numeric rows: the key is also a drag-to-scrub handle. The cursor
+ * cue signals it's draggable; touch-action: none keeps mobile/pen
+ * pointermove from being eaten by native scrolling. */
+.sw-property-key-scrub {
+  cursor: ew-resize;
+  touch-action: none;
+  user-select: none;
+}
+.sw-property-key-scrub:hover {
+  color: #222;
+}
+
 .sw-property-value {
   font-family: var(--vscode-editor-font-family, "JetBrains Mono", ui-monospace, monospace);
   font-size: 12px;

@@ -357,6 +357,61 @@ test('toggling omit on a ContentSlide slot collapses or restores its wrapper', a
   await expect(page.locator('.sw-canvas-stage .eyebrow')).toHaveCount(1);
 });
 
+test('drag-to-scrub on a numeric key commits a single new value', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-box');
+  await expect(
+    page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
+  ).toBeVisible();
+  await page.locator('.sw-hierarchy-node').first().click();
+  const xRow = page.locator('.sw-property-row', { hasText: /^x/ }).first();
+  const xKey = xRow.locator('.sw-property-key');
+  // Cursor cue is present.
+  await expect(xKey).toHaveClass(/sw-property-key-scrub/);
+  // Drag 50px to the right — x was 400 in the fixture, so we expect ~450.
+  const box = await xKey.boundingBox();
+  expect(box).not.toBeNull();
+  const startX = box!.x + box!.width / 2;
+  const startY = box!.y + box!.height / 2;
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  // Steps make the drag fire intermediate pointermoves like a real
+  // user drag — exercises the per-move setScrub path.
+  await page.mouse.move(startX + 50, startY, { steps: 10 });
+  await page.mouse.up();
+  const src = await page.locator('.sw-editor-pane').inputValue();
+  expect(src).toMatch(/x:\s*450/);
+});
+
+test('drag-to-scrub click without movement does not commit', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-box');
+  await expect(
+    page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
+  ).toBeVisible();
+  const before = await page.locator('.sw-editor-pane').inputValue();
+  await page.locator('.sw-hierarchy-node').first().click();
+  const xKey = page.locator('.sw-property-row', { hasText: /^x/ }).first()
+    .locator('.sw-property-key');
+  const box = await xKey.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await page.mouse.down();
+  await page.mouse.up();
+  const after = await page.locator('.sw-editor-pane').inputValue();
+  expect(after).toBe(before);
+});
+
+test('drag-to-scrub does not apply to non-numeric rows', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-box');
+  await expect(
+    page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
+  ).toBeVisible();
+  await page.locator('.sw-hierarchy-node').first().click();
+  // `fill` is a color-token name_ref, not number — no scrub cursor.
+  const fillKey = page.locator('.sw-property-row', { hasText: /^fill/ }).first()
+    .locator('.sw-property-key');
+  await expect(fillKey).not.toHaveClass(/sw-property-key-scrub/);
+});
+
 test('un-omit picks a type-shaped default per slot', async ({ page }) => {
   // ContentSlide.body is `block` → un-omit should materialize a
   // stub Component invocation (`Box { }`), not an empty string.

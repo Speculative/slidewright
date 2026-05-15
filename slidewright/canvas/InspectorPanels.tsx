@@ -14,7 +14,7 @@
 // Currently single-select only; multi-select shows a hint.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ReactElement } from 'react';
+import type { PointerEvent as ReactPointerEvent, ReactElement } from 'react';
 
 import {
   isRenderableSlotType,
@@ -541,9 +541,18 @@ function PropertyRow({
   omitType,
 }: PropertyRowProps): ReactElement {
   const isOmit = fill.value.kind === 'omit';
+  const isNumber = fill.value.kind === 'number';
   const editable = !isOmit && isEditableValue(fill.value);
   const sourceText = readValueSource(fill.value, source);
   const [draft, setDraft] = useState<string>(sourceText);
+  // Active drag-to-scrub state (numeric rows only). When non-null,
+  // the input shows `current` instead of `draft` and the row is in
+  // scrubbing mode. Pointer events live on the key span (the
+  // dedicated scrub handle), not the input — clicking into the
+  // input still focuses for typed edits.
+  const [scrub, setScrub] = useState<
+    { startX: number; startVal: number; current: number } | null
+  >(null);
   // Mirror of `draft` readable synchronously. blur() fires commit
   // before React flushes setDraft, so commit() reads from this ref
   // instead — otherwise an Escape that resets the draft would still
@@ -578,6 +587,56 @@ function PropertyRow({
     onCommit(next);
   };
 
+  // Drag-to-scrub the value of a numeric row. Pointerdown on the
+  // key arms scrub mode; pointermove updates `scrub.current` and
+  // re-renders so the input shows the live value; pointerup commits
+  // once (so the undo stack gets one entry per drag, not per pixel)
+  // and clears scrub state. A no-op click (pointerdown / pointerup
+  // at the same x) commits nothing — the row stays unchanged. shift
+  // = 10x per pixel (coarser), alt = 0.1x per pixel (finer).
+  //
+  // The scrub handle is the key span (not the input) so clicking
+  // into the input still focuses for typed edits. Pointer capture
+  // keeps tracking the move even after the cursor leaves the key.
+  const onKeyPointerDown = (e: ReactPointerEvent): void => {
+    if (!isNumber) return;
+    if (e.button !== 0) return;
+    const startVal = (fill.value as { value: number }).value;
+    setScrub({ startX: e.clientX, startVal, current: startVal });
+    e.currentTarget.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  };
+  const onKeyPointerMove = (e: ReactPointerEvent): void => {
+    if (!scrub) return;
+    const dx = e.clientX - scrub.startX;
+    const scale = e.shiftKey ? 10 : e.altKey ? 0.1 : 1;
+    const raw = scrub.startVal + dx * scale;
+    // Round to integers in default + coarse mode; to 0.1 in fine
+    // mode. Keeps the displayed value clean rather than showing
+    // floating-point drift across a long drag.
+    const rounded = e.altKey ? Math.round(raw * 10) / 10 : Math.round(raw);
+    if (rounded !== scrub.current) {
+      setScrub({ ...scrub, current: rounded });
+    }
+  };
+  const onKeyPointerUp = (e: ReactPointerEvent): void => {
+    if (!scrub) return;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+    if (scrub.current !== scrub.startVal) {
+      const replacement = String(scrub.current);
+      const next = sliceReplace(
+        source,
+        fill.value.span.start.offset,
+        fill.value.span.end.offset,
+        replacement,
+      );
+      onCommit(next);
+    }
+    setScrub(null);
+  };
+
   // Toggle the slot between its current value and the `omit` sigil.
   // ON: replace the value span with `omit`. OFF: replace `omit` with
   // a type-shaped default via `unOmitDefault` — `""` for text /
@@ -599,9 +658,22 @@ function PropertyRow({
     onCommit(next);
   };
 
+  const displayValue =
+    scrub !== null ? String(scrub.current) : draft;
+
   return (
     <div className="sw-property-row">
-      <span className="sw-property-key">{fill.name}</span>
+      <span
+        className={
+          'sw-property-key' + (isNumber ? ' sw-property-key-scrub' : '')
+        }
+        onPointerDown={isNumber ? onKeyPointerDown : undefined}
+        onPointerMove={isNumber ? onKeyPointerMove : undefined}
+        onPointerUp={isNumber ? onKeyPointerUp : undefined}
+        title={isNumber ? 'drag to scrub · shift = 10× · alt = 0.1×' : undefined}
+      >
+        {fill.name}
+      </span>
       {isOmit ? (
         <input
           className="sw-property-value"
@@ -614,7 +686,7 @@ function PropertyRow({
         <input
           className="sw-property-value"
           type="text"
-          value={draft}
+          value={displayValue}
           spellCheck={false}
           onChange={(e) => setDraftSync(e.currentTarget.value)}
           onBlur={commit}
