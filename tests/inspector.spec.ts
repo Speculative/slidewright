@@ -357,6 +357,19 @@ test('toggling omit on a ContentSlide slot collapses or restores its wrapper', a
   await expect(page.locator('.sw-canvas-stage .eyebrow')).toHaveCount(1);
 });
 
+test('un-omit picks a type-shaped default per slot', async ({ page }) => {
+  // ContentSlide.body is `block` → un-omit should materialize a
+  // stub Component invocation (`Box { }`), not an empty string.
+  await page.goto('/canvas.html?fixture=content-slide');
+  await page.locator('.sw-hierarchy-node', { hasText: 'ContentSlide' }).click();
+  const bodyRow = page.locator('.sw-property-row', { hasText: /^body/ }).first();
+  // Body starts omit per the fixture; toggle OFF should splice
+  // `Box { }`, not `""`.
+  await bodyRow.locator('.sw-property-omit-toggle').click();
+  const src = await page.locator('.sw-editor-pane').inputValue();
+  expect(src).toMatch(/body:\s*Box\s*\{\s*\}/);
+});
+
 test('omit toggle is hidden on param and non-renderable-slot rows', async ({ page }) => {
   // single-box: all rows (x, y, width, height, fill) are params.
   // None should have the omit toggle.

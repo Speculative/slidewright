@@ -307,7 +307,7 @@ function ComponentPropertiesView({
             fill={fill}
             source={source}
             onCommit={wrappedCommit}
-            omitEligible={omitEligibleForFill(shape.meta, fill.name)}
+            omitType={omitSlotType(shape.meta, fill.name)}
           />
         ))}
       </div>
@@ -315,14 +315,51 @@ function ComponentPropertiesView({
   );
 }
 
-// A fill is omit-eligible iff it names a slot (not a param) AND the
-// slot's type is renderable (text / block / slide / array of those).
-// Renderable slots are the ones the loader generates placeholders
-// for, and `omit` exists to suppress that placeholder. Params have
-// defaults already — `omit` would be source noise.
-function omitEligibleForFill(meta: ComponentMeta, fillName: string): boolean {
+// Returns the slot's type when this fill is omit-eligible — i.e.,
+// it names a slot (not a param) AND the slot's type is renderable
+// (text / block / slide / array of those). Renderable slots are
+// the ones the loader generates placeholders for, and `omit`
+// exists to suppress that placeholder. Params have defaults
+// already — `omit` would be source noise. Returns null when the
+// fill is not omit-eligible (so PropertyRow can decide to hide
+// the toggle without needing to know why).
+function omitSlotType(meta: ComponentMeta, fillName: string): SlotType | null {
   const slot = meta.slots[fillName];
-  return slot !== undefined && isRenderableSlotType(slot.type);
+  if (!slot) return null;
+  if (!isRenderableSlotType(slot.type)) return null;
+  return slot.type;
+}
+
+// Source text to splice into the value span when the user toggles
+// `omit` OFF. Type-shaped so the un-omit'd fill is at least
+// well-typed at the slot's declared schema. The prior value isn't
+// preserved across the toggle (would need a history channel) —
+// undo (Cmd-Z) gets it back if the user wanted it. Block / slide /
+// list slots un-omit into stubs the user then drills into to edit;
+// scalar / text slots un-omit into editable primitives that the
+// user can type into directly via the same row's input.
+function unOmitDefault(type: SlotType): string {
+  if (type.startsWith('array<')) return '[]';
+  switch (type) {
+    case 'text':
+    case 'string':
+    case 'color-token':
+    case 'spacing-token':
+    case 'font-token':
+      return '""';
+    case 'number':
+      return '0';
+    case 'boolean':
+      return 'false';
+    case 'block':
+      // Box has all-defaulted params and is in the v0 reference
+      // registry — a working empty block stub the user replaces.
+      return 'Box { }';
+    case 'slide':
+    case 'image':
+    default:
+      return '""';
+  }
 }
 
 function SlidePropertiesView({
@@ -357,7 +394,7 @@ function SlidePropertiesView({
             fill={fill}
             source={source}
             onCommit={wrappedCommit}
-            omitEligible={omitEligibleForFill(slide.meta, fill.name)}
+            omitType={omitSlotType(slide.meta, fill.name)}
           />
         ))}
       </div>
@@ -476,7 +513,7 @@ function SlotPropertiesView({
           fill={fill}
           source={source}
           onCommit={wrappedCommit}
-          omitEligible={omitEligibleForFill(parentShape.meta, slotName)}
+          omitType={omitSlotType(parentShape.meta, slotName)}
         />
       </div>
     </PanelFrame>
@@ -489,18 +526,19 @@ interface PropertyRowProps {
   fill: SlotFill;
   source: string;
   onCommit: (newSource: string) => void;
-  // Whether the omit toggle should appear on this row. True for
-  // fills naming a renderable slot; false for params and non-
-  // renderable slots (image, scalars) — those have defaults rather
-  // than placeholders, so `omit` has nothing to suppress.
-  omitEligible: boolean;
+  // The fill's declared slot type when this row is omit-eligible
+  // (renderable slot in `meta.slots`); null for params and non-
+  // renderable slots (image, scalars). When non-null the omit
+  // toggle renders, and the un-omit splice picks a type-shaped
+  // default via `unOmitDefault`.
+  omitType: SlotType | null;
 }
 
 function PropertyRow({
   fill,
   source,
   onCommit,
-  omitEligible,
+  omitType,
 }: PropertyRowProps): ReactElement {
   const isOmit = fill.value.kind === 'omit';
   const editable = !isOmit && isEditableValue(fill.value);
@@ -542,10 +580,16 @@ function PropertyRow({
 
   // Toggle the slot between its current value and the `omit` sigil.
   // ON: replace the value span with `omit`. OFF: replace `omit` with
-  // `""` so the input becomes editable and the user can re-type. The
-  // prior value isn't preserved here — undo (Cmd-Z) gets it back.
+  // a type-shaped default via `unOmitDefault` — `""` for text /
+  // scalars, `0` / `false` for numerics / booleans, `Box { }` for
+  // block, `[]` for array, etc. The prior value isn't preserved
+  // here — undo (Cmd-Z) gets it back if the user wanted it.
   const toggleOmit = (): void => {
-    const replacement = isOmit ? '""' : 'omit';
+    const replacement = isOmit
+      ? omitType
+        ? unOmitDefault(omitType)
+        : '""'
+      : 'omit';
     const next = sliceReplace(
       source,
       fill.value.span.start.offset,
@@ -590,7 +634,7 @@ function PropertyRow({
           {sourceText}
         </span>
       )}
-      {omitEligible ? (
+      {omitType !== null ? (
         <button
           type="button"
           className={
