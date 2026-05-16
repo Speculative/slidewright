@@ -235,6 +235,11 @@ function LCPlane({
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
     if (e.button !== 0) return;
     e.preventDefault();
+    // Drop focus from whatever was active (typically a stale L/C/H
+    // number-field input) so its focus ring doesn't visually persist
+    // during the drag, AND so any pending draft text commits via
+    // the input's onBlur before our scrub updates the value.
+    blurActive();
     const startEl = e.currentTarget;
     onScrubBegin();
     const initial = pickFromEvent(e);
@@ -326,6 +331,7 @@ function HueSlider({
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
     if (e.button !== 0) return;
     e.preventDefault();
+    blurActive();
     onScrubBegin();
     let lastH = hueFromEvent(e);
     setLch({ l, c, h: lastH });
@@ -398,6 +404,9 @@ function NumberField({
   const onLabelPointerDown = (e: ReactPointerEvent<HTMLSpanElement>): void => {
     if (e.button !== 0) return;
     e.preventDefault();
+    // Same as plane/slider — drop focus from any stale input so
+    // its draft commits and its focus ring goes away.
+    blurActive();
     const startVal = value;
     let accum = 0;
     document.body.classList.add('sw-scrubbing');
@@ -441,7 +450,13 @@ function NumberField({
   };
 
   return (
-    <label className="sw-color-picker-field">
+    // `<div>` not `<label>` — a label wrapping a form control
+    // auto-focuses the control on any click within the label,
+    // which would steal focus to the L/C/H input whenever the
+    // user clicked the label span to start a scrub. Without the
+    // label association the input is only focused via direct
+    // click / Tab.
+    <div className="sw-color-picker-field">
       <span
         className="sw-color-picker-field-label sw-property-key-scrub"
         onPointerDown={onLabelPointerDown}
@@ -475,7 +490,7 @@ function NumberField({
           }
         }}
       />
-    </label>
+    </div>
   );
 }
 
@@ -641,6 +656,11 @@ function paintLCPlane(canvas: HTMLCanvasElement, hDeg: number): void {
 function initLCH(v: Value): { l: number; c: number; h: number } {
   if (v.kind === 'color_oklch') return { l: v.l, c: v.c, h: v.h };
   return { l: DEFAULT_L, c: DEFAULT_C, h: DEFAULT_H };
+}
+
+function blurActive(): void {
+  const a = document.activeElement;
+  if (a && a instanceof HTMLElement) a.blur();
 }
 
 function clamp(x: number, lo: number, hi: number): number {
