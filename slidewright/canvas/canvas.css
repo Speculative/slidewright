@@ -572,25 +572,151 @@ input.sw-property-value:disabled {
   outline-offset: 1px;
 }
 
-/* Palette popover — appears below the color cell while it has
- * focus. Absolutely positioned so it doesn't push neighboring
- * rows down (the row height stays stable while the palette
- * appears / disappears). Z-stacked above sibling rows. */
-.sw-color-palette {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  margin-top: 4px;
-  padding: 6px;
+/* Popover container — portaled to document.body so the inspector
+ * pane's overflow can't clip it; positioned via JS from the cell's
+ * bounding rect. Houses the picker (LC plane + hue slider + L/C/H
+ * inputs) above the swatch palette. */
+.sw-color-popover {
+  padding: 8px;
   background: #fff;
   border: 1px solid #ccc;
   border-radius: 4px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
   display: flex;
   flex-direction: column;
+  gap: 8px;
+  z-index: 1000;
+}
+
+.sw-color-palette {
+  display: flex;
+  flex-direction: column;
   gap: 4px;
-  z-index: 10;
+}
+
+/* ── OKLCH picker ─────────────────────────────────────────────── */
+
+.sw-color-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* 2D L × C plane. Cells fill it as a grid; SVG overlay traces the
+ * sRGB gamut boundary; an indicator dot marks the current value.
+ * Pointer events captured on the wrapper. */
+.sw-color-picker-plane {
+  position: relative;
+  width: 100%;
+  height: 160px;
+  border: 1px solid #888;
+  border-radius: 3px;
+  overflow: hidden;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+
+.sw-color-picker-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* Browser bilinear-interpolates the canvas backing store across
+   * the displayed size. Smooth gradients at any zoom level. */
+  image-rendering: auto;
+}
+
+.sw-color-picker-boundary {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.sw-color-picker-boundary path {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.5;
+  /* Outline drawn around the boundary so it's legible against any
+   * underlying color, including white-ish in-gamut highlights. */
+  paint-order: stroke;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.8));
+  vector-effect: non-scaling-stroke;
+}
+
+/* Current-value indicator. Reused by hue slider as a vertical bar. */
+.sw-color-picker-indicator {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px #000;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+/* Hue slider. Painted via a CSS oklch() gradient interpolated in
+ * the same color space — the swatch above happens to also live in
+ * oklch, so what you see is what you'll commit. */
+.sw-color-picker-hue {
+  position: relative;
+  width: 100%;
+  height: 18px;
+  border: 1px solid #888;
+  border-radius: 3px;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+  background: linear-gradient(
+    to right in oklch longer hue,
+    oklch(0.7 0.15 0),
+    oklch(0.7 0.15 360)
+  );
+}
+.sw-color-picker-hue .sw-color-picker-indicator {
+  /* Slider indicator: vertical thin bar rather than the plane's
+   * round dot. Sits on the bar's center. */
+  width: 4px;
+  height: 22px;
+  border-radius: 1px;
+  top: 50%;
+}
+
+.sw-color-picker-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+}
+.sw-color-picker-field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--vscode-editor-font-family, "JetBrains Mono", ui-monospace, monospace);
+  font-size: 11px;
+  color: #555;
+}
+.sw-color-picker-field-label {
+  display: inline-block;
+  min-width: 12px;
+  text-align: center;
+  font-weight: 600;
+}
+.sw-color-picker-field input {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 2px 4px;
+  border: 1px solid #ccc;
+  border-radius: 2px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.sw-color-picker-field input:focus {
+  outline: 1px solid var(--accent, #0066ff);
+  border-color: var(--accent, #0066ff);
 }
 
 .sw-color-palette-row {

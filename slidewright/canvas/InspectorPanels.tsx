@@ -13,7 +13,14 @@
 // gestures use, so they enter the unified canvas-side undo stack.
 // Currently single-select only; multi-select shows a hint.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { createPortal } from 'react-dom';
 import type {
   FocusEvent as ReactFocusEvent,
   PointerEvent as ReactPointerEvent,
@@ -31,6 +38,7 @@ import type {
   ComponentRegistry,
   SlotType,
 } from '../runtime/contract.js';
+import { ColorPicker } from './ColorPicker.js';
 import type { SourceRange } from './host.js';
 import {
   componentTarget,
@@ -923,17 +931,29 @@ function PropertyRow({
   // "current" indicator border on the matching swatch.
   const currentCss = isColor ? readColorValueCss(fill.value) : null;
 
-  // Picker open state — true while focus is inside the color row's
-  // value cell (input or any swatch). Closes when focus leaves. The
-  // wrapper handles both via onFocus/onBlur capture with a
-  // relatedTarget check so clicks within the popover keep it open.
+  // Picker open state — true while the color popover should render.
+  // Set on cell focus; cleared by ColorPopover's outside-click /
+  // Escape handlers (which know about the portaled popover too).
   const [pickerOpen, setPickerOpen] = useState(false);
   const onColorBlurCapture = (e: ReactFocusEvent<HTMLDivElement>): void => {
-    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-      setPickerOpen(false);
-    }
+    // Closing on blur is unreliable now that the popover lives in a
+    // portal — clicks inside the portaled popover would fire blur
+    // here with relatedTarget outside this element. ColorPopover
+    // handles all of close via document listeners instead.
+    void e;
   };
   const previewInputRef = useRef<HTMLInputElement | null>(null);
+  const colorCellRef = useRef<HTMLDivElement | null>(null);
+  // Splice a fragment of source-text into the current value's span.
+  // Used to translate a picker-emitted `oklch(...)` text into the
+  // newSource shape the scrub channel expects.
+  const spliceValueText = (text: string): string =>
+    sliceReplace(
+      source,
+      fill.value.span.start.offset,
+      fill.value.span.end.offset,
+      text,
+    );
 
   return (
     <div className="sw-property-row">
@@ -948,6 +968,7 @@ function PropertyRow({
       </span>
       {isColor ? (
         <div
+          ref={colorCellRef}
           className={
             'sw-color-cell' + (pickerOpen ? ' open' : '')
           }
@@ -986,12 +1007,30 @@ function PropertyRow({
             }}
           />
           {pickerOpen ? (
-            <ColorPalette
-              tokens={paletteProps.colorTokens}
-              slideColors={paletteProps.slideColors}
-              currentCss={currentCss}
-              onPick={commitColorValue}
-            />
+            <ColorPopover
+              anchorRef={colorCellRef}
+              onRequestClose={() => setPickerOpen(false)}
+            >
+              <ColorPicker
+                value={fill.value}
+                onCommit={commitColorValue}
+                onScrubBegin={onScrubBegin}
+                onScrubPreview={(text) =>
+                  onScrubPreview(spliceValueText(text))
+                }
+                onScrubEnd={(finalText) =>
+                  onScrubEnd(
+                    finalText === null ? null : spliceValueText(finalText),
+                  )
+                }
+              />
+              <ColorPalette
+                tokens={paletteProps.colorTokens}
+                slideColors={paletteProps.slideColors}
+                currentCss={currentCss}
+                onPick={commitColorValue}
+              />
+            </ColorPopover>
           ) : null}
         </div>
       ) : isOmit ? (
@@ -1044,6 +1083,131 @@ function PropertyRow({
         </button>
       ) : null}
     </div>
+  );
+}
+
+// Portaled popover host for the color picker + palette. Anchors
+// to the color cell via `getBoundingClientRect`, follows scroll /
+// resize. Lives in document.body so the inspector pane's overflow
+// doesn't clip it. Closes on outside-click or Escape.
+function ColorPopover({
+  anchorRef,
+  onRequestClose,
+  children,
+}: {
+  anchorRef: React.RefObject<HTMLElement | null>;
+  onRequestClose: () => void;
+  children: React.ReactNode;
+}): ReactElement | null {
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const [rect, setRect] = useState<{
+    top: number;
+    left: number;
+    width: number;
+  } | null>(null);
+
+  useLayoutEffect(() => {
+    // Compute the desired position. Two passes converge: the first
+    // call has the popover not yet mounted (popoverRef null), so it
+    // places naïvely below the anchor. Once the popover is in the
+    // DOM, the layout effect re-runs (rect change → useEffect on
+    // popoverRef via ResizeObserver below), measures the popover's
+    // actual height, and flips above the anchor if below would
+    // overflow the viewport and above has more room.
+    const update = (): void => {
+      const anchor = anchorRef.current;
+      if (!anchor) return;
+      const a = anchor.getBoundingClientRect();
+      const popoverEl = popoverRef.current;
+      const popoverH = popoverEl ? popoverEl.getBoundingClientRect().height : 0;
+      const gap = 4;
+      const spaceBelow = window.innerHeight - a.bottom - gap;
+      const spaceAbove = a.top - gap;
+      const flipAbove =
+        popoverH > 0 && popoverH > spaceBelow && spaceAbove > spaceBelow;
+      const top = flipAbove ? Math.max(gap, a.top - popoverH - gap) : a.bottom + gap;
+      setRect((prev) => {
+        if (
+          prev &&
+          prev.top === top &&
+          prev.left === a.left &&
+          prev.width === a.width
+        ) {
+          return prev;
+        }
+        return { top, left: a.left, width: a.width };
+      });
+    };
+    update();
+    // `capture: true` catches scroll on any ancestor (the inspector
+    // pane scrolls independently of the document); resize handles
+    // viewport / column-width changes. Passive listeners — we only
+    // read layout.
+    window.addEventListener('scroll', update, { capture: true, passive: true });
+    window.addEventListener('resize', update, { passive: true });
+    // Watch the popover's own size — content changes (palette rows
+    // appearing, picker hue change leaves layout stable but defensive)
+    // can shift the flip decision. The observer fires once on mount
+    // so the second-pass measurement happens reliably.
+    const ro = new ResizeObserver(() => update());
+    let observed: HTMLElement | null = null;
+    const attach = (): void => {
+      if (popoverRef.current && popoverRef.current !== observed) {
+        if (observed) ro.unobserve(observed);
+        ro.observe(popoverRef.current);
+        observed = popoverRef.current;
+      }
+    };
+    attach();
+    // Re-attach after the popover mounts (when rect becomes
+    // non-null and the popover element actually renders).
+    const raf = requestAnimationFrame(attach);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      window.removeEventListener('scroll', update, { capture: true });
+      window.removeEventListener('resize', update);
+    };
+  }, [anchorRef]);
+
+  useEffect(() => {
+    const onMouseDown = (e: MouseEvent): void => {
+      const t = e.target as Node | null;
+      if (anchorRef.current?.contains(t)) return;
+      if (popoverRef.current?.contains(t)) return;
+      onRequestClose();
+    };
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onRequestClose();
+    };
+    document.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [anchorRef, onRequestClose]);
+
+  if (!rect) return null;
+  return createPortal(
+    <div
+      ref={popoverRef}
+      className="sw-color-popover"
+      style={{
+        position: 'fixed',
+        top: rect.top,
+        left: rect.left,
+        width: rect.width,
+      }}
+      // Keep the input focused across clicks within the popover —
+      // prevents losing focus to body which would mid-scroll close.
+      onMouseDown={(e) => {
+        if ((e.target as HTMLElement).tagName !== 'INPUT') e.preventDefault();
+      }}
+    >
+      {children}
+    </div>,
+    document.body,
   );
 }
 
