@@ -122,6 +122,24 @@ test('entering a value in the L field commits a new oklch literal', async ({ pag
     .toBe('0.42');
 });
 
+test('picker initializes to the resolved current color, not the default', async ({ page }) => {
+  // The first Box in two-boxes uses `fill: amber`. Opening the
+  // picker should resolve `var(--amber)` to its actual RGB and
+  // map that to an OKLCH H near amber (orange) — not the default
+  // blue at 240°.
+  await page.goto('/canvas.html?fixture=two-boxes');
+  await selectFirstBox(page);
+  await openFillPicker(page);
+  // H input is the third L/C/H field.
+  const hInput = page.locator('.sw-color-picker-fields input').nth(2);
+  const hVal = parseFloat(await hInput.inputValue());
+  // Amber resolves around 65° in OKLCH (orange band). Anywhere in
+  // a permissive [30, 100] window is acceptable; the point of the
+  // assertion is that it's nowhere near 240° (the old default).
+  expect(hVal).toBeGreaterThan(30);
+  expect(hVal).toBeLessThan(100);
+});
+
 test('per-slide colors row surfaces oklch literals already in the slide', async ({ page }) => {
   // The reference deck has `fill: oklch(0.62 0.22 25)` on slide 2's
   // third Box. Loading that source should populate a per-slide

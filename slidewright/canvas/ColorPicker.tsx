@@ -70,8 +70,15 @@ export function ColorPicker({
   // stays in sync when the user picks via the palette while it's
   // open.
   const [{ l, c, h }, setLch] = useState(() => initLCH(value));
-  useEffect(() => {
-    setLch(initLCH(value));
+  // Resolve the value's actual displayed color into L/C/H. For
+  // `color_oklch` literals this is a direct unpack; for `name_ref`
+  // (e.g. `amber`) and `string` fills it requires probing the
+  // browser's CSS engine to resolve `var(--<name>)` aliases, then
+  // converting sRGB back to OKLab. Done in useLayoutEffect so the
+  // resolution happens before paint — opening the picker on an
+  // amber fill shows amber, not the default blue.
+  useLayoutEffect(() => {
+    setLch(resolveToLCH(value));
   }, [value]);
 
   const emitText = (nl: number, nc: number, nh: number): string =>
@@ -656,6 +663,73 @@ function paintLCPlane(canvas: HTMLCanvasElement, hDeg: number): void {
 function initLCH(v: Value): { l: number; c: number; h: number } {
   if (v.kind === 'color_oklch') return { l: v.l, c: v.c, h: v.h };
   return { l: DEFAULT_L, c: DEFAULT_C, h: DEFAULT_H };
+}
+
+// Resolve a fill value to L/C/H by probing the browser's CSS engine.
+// `color_oklch` literals unpack directly; `name_ref` and `string`
+// fills get an offscreen probe whose `background-color` is set to
+// the equivalent CSS, then we read the computed RGB and convert
+// sRGB → OKLab. Falls back to defaults for unsupported / unresolved
+// kinds (lists, components, etc.).
+function resolveToLCH(v: Value): { l: number; c: number; h: number } {
+  if (v.kind === 'color_oklch') return { l: v.l, c: v.c, h: v.h };
+  let css: string | null = null;
+  if (v.kind === 'name_ref') css = `var(--${v.name})`;
+  else if (v.kind === 'string') css = v.value;
+  if (css === null || typeof document === 'undefined') {
+    return { l: DEFAULT_L, c: DEFAULT_C, h: DEFAULT_H };
+  }
+  const probe = document.createElement('div');
+  probe.style.position = 'absolute';
+  probe.style.visibility = 'hidden';
+  probe.style.pointerEvents = 'none';
+  probe.style.backgroundColor = css;
+  document.body.appendChild(probe);
+  const computed = getComputedStyle(probe).backgroundColor;
+  probe.remove();
+  const rgb = parseRgbString(computed);
+  if (!rgb) return { l: DEFAULT_L, c: DEFAULT_C, h: DEFAULT_H };
+  return srgbToOklch(rgb);
+}
+
+// Parse `rgb(R, G, B)` or `rgba(R, G, B, A)` (the form
+// getComputedStyle returns for resolved colors) into [R, G, B] in
+// [0, 255]. Returns null for any other form (e.g. `none`, an
+// unrecognized color space).
+function parseRgbString(s: string): [number, number, number] | null {
+  const m = s.match(/rgba?\(\s*([\d.]+)\s*[, ]\s*([\d.]+)\s*[, ]\s*([\d.]+)/);
+  if (!m) return null;
+  return [parseFloat(m[1]!), parseFloat(m[2]!), parseFloat(m[3]!)];
+}
+
+// Standard sRGB inverse-gamma: gamma-encoded channel ∈ [0, 255] →
+// linear ∈ [0, 1].
+function srgbInverseGamma(c255: number): number {
+  const c = c255 / 255;
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+
+function srgbToOklch(rgb255: readonly [number, number, number]): {
+  l: number;
+  c: number;
+  h: number;
+} {
+  const linRGB: [number, number, number] = [
+    srgbInverseGamma(rgb255[0]),
+    srgbInverseGamma(rgb255[1]),
+    srgbInverseGamma(rgb255[2]),
+  ];
+  const lms = applyMat3(M1, linRGB);
+  const lms_: [number, number, number] = [
+    Math.cbrt(lms[0]),
+    Math.cbrt(lms[1]),
+    Math.cbrt(lms[2]),
+  ];
+  const [L, a, b] = applyMat3(M2, lms_);
+  const C = Math.sqrt(a * a + b * b);
+  let H = (Math.atan2(b, a) * 180) / Math.PI;
+  if (H < 0) H += 360;
+  return { l: L, c: C, h: H };
 }
 
 function blurActive(): void {
