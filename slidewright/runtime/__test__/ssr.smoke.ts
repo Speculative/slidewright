@@ -97,7 +97,10 @@ const expected: Array<{ label: string; needles: string[] }> = [
       'top:220px',
       'left:760px',
       'left:1240px',
-      'var(--amber)',
+      // First box uses `fill: brand` where `brand` is a source-
+      // declared token (Deck.tokens) — smoke-tests that name_refs
+      // resolve via ctx.colorTokens when present.
+      'oklch(0.55 0.18 285)',
       'var(--cyan)',
       // Third box uses an OKLCH literal — smoke-tests that ColorLit
       // values resolve to a CSS oklch() string at render time.

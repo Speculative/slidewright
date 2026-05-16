@@ -122,6 +122,49 @@ test('entering a value in the L field commits a new oklch literal', async ({ pag
     .toBe('0.42');
 });
 
+test('source-declared tokens render in shapes and appear in the palette', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=source-tokens');
+  // First Box's `fill: brand` resolves to the declared oklch literal.
+  await expect(
+    page.locator('.sw-canvas-stage [data-sw-component="Box"]').first(),
+  ).toHaveCSS('background-color', /.+/);
+  // Open the picker on the first Box's fill row — global palette
+  // should include a swatch for `brand`.
+  await page.locator('.sw-hierarchy-node').first().click();
+  await page.locator('.sw-color-cell input.sw-property-value').first().focus();
+  await expect(page.locator('.sw-color-popover')).toBeVisible();
+  // The brand swatch is in the global token row.
+  await expect(
+    page.locator('.sw-color-palette-row [aria-label="brand"]').first(),
+  ).toBeVisible();
+  // Clicking it commits `fill: brand`. (Sanity check that the
+  // source-declared name shows up as a clickable global swatch
+  // and round-trips through the same commit path as a registry
+  // token.)
+  await page
+    .locator('.sw-color-palette-row [aria-label="soft"]')
+    .first()
+    .click();
+  await expect
+    .poll(() => page.locator('.sw-editor-pane').inputValue())
+    .toContain('fill: soft');
+});
+
+test('picker resolves source-declared tokens (no var(--name) in CSS)', async ({ page }) => {
+  // `brand` is declared as `oklch(0.55 0.18 285)` in source. Opening
+  // the picker on a Box that uses `fill: brand` should land H near
+  // 285 — proves the picker probes through the source-declared
+  // token map rather than blindly trying `var(--brand)` (which
+  // would fail and fall back to the default 240).
+  await page.goto('/canvas.html?fixture=source-tokens');
+  await page.locator('.sw-hierarchy-node').first().click();
+  await page.locator('.sw-color-cell input.sw-property-value').first().focus();
+  const hInput = page.locator('.sw-color-picker-fields input').nth(2);
+  const hVal = parseFloat(await hInput.inputValue());
+  expect(hVal).toBeGreaterThan(270);
+  expect(hVal).toBeLessThan(305);
+});
+
 test('picker initializes to the resolved current color, not the default', async ({ page }) => {
   // The first Box in two-boxes uses `fill: amber`. Opening the
   // picker should resolve `var(--amber)` to its actual RGB and

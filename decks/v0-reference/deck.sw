@@ -8,6 +8,14 @@ Deck {
   width: 1920
   height: 1080
 
+  // Source-declared color tokens. Override any registry default and
+  // add deck-specific named colors. Visible to every slide's
+  // `color`/`fill`/`stroke` name_refs (`fill: brand`, etc.).
+  tokens: Tokens {
+    brand: oklch(0.55 0.18 285)
+    soft:  oklch(0.92 0.02 285)
+  }
+
   slides: [
     Slide {
       label: "Title"
@@ -36,7 +44,7 @@ Deck {
       """
       content: Freeform {
         children: [
-          Box { x: 200, y: 220, width: 460, height: 320, fill: amber }
+          Box { x: 200, y: 220, width: 460, height: 320, fill: brand }
           Box { x: 760, y: 380, width: 380, height: 240, fill: cyan }
           Box { x: 1240, y: 580, width: 280, height: 280, fill: oklch(0.62 0.22 25) }
         ]

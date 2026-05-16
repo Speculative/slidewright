@@ -25,6 +25,12 @@ interface ColorPickerProps {
   // fall back to a sane default since we can't read the resolved
   // RGB without rendering.
   value: Value;
+  // Merged registry + source-declared color tokens (CSS color
+  // strings keyed by name). Used by resolveToLCH so a name_ref
+  // probes the *correct* CSS — source-declared tokens have no
+  // matching `var(--name)`, so without this map their pickers
+  // would open at the default blue.
+  colorTokens: Record<string, string>;
   // Atomic commit — pushes one undo entry. Used by the text-input
   // Enter/blur path.
   onCommit: (text: string) => void;
@@ -58,6 +64,7 @@ const BOUNDARY_SAMPLES = 64;
 
 export function ColorPicker({
   value,
+  colorTokens,
   onCommit,
   onScrubBegin,
   onScrubPreview,
@@ -72,14 +79,14 @@ export function ColorPicker({
   const [{ l, c, h }, setLch] = useState(() => initLCH(value));
   // Resolve the value's actual displayed color into L/C/H. For
   // `color_oklch` literals this is a direct unpack; for `name_ref`
-  // (e.g. `amber`) and `string` fills it requires probing the
-  // browser's CSS engine to resolve `var(--<name>)` aliases, then
-  // converting sRGB back to OKLab. Done in useLayoutEffect so the
-  // resolution happens before paint — opening the picker on an
-  // amber fill shows amber, not the default blue.
+  // (e.g. `amber` or a source-declared `brand`) we look up the
+  // resolved CSS in `colorTokens` first, then probe the browser
+  // to convert it through to OKLab. Done in useLayoutEffect so
+  // the resolution happens before paint — opening the picker on
+  // an amber fill shows amber, not the default blue.
   useLayoutEffect(() => {
-    setLch(resolveToLCH(value));
-  }, [value]);
+    setLch(resolveToLCH(value, colorTokens));
+  }, [value, colorTokens]);
 
   const emitText = (nl: number, nc: number, nh: number): string =>
     `oklch(${fmt(nl)} ${fmt(nc)} ${fmt(nh)})`;
@@ -671,12 +678,22 @@ function initLCH(v: Value): { l: number; c: number; h: number } {
 // the equivalent CSS, then we read the computed RGB and convert
 // sRGB → OKLab. Falls back to defaults for unsupported / unresolved
 // kinds (lists, components, etc.).
-function resolveToLCH(v: Value): { l: number; c: number; h: number } {
+function resolveToLCH(
+  v: Value,
+  tokens: Record<string, string>,
+): { l: number; c: number; h: number } {
   if (v.kind === 'color_oklch') return { l: v.l, c: v.c, h: v.h };
   let css: string | null = null;
-  if (v.kind === 'name_ref') css = `var(--${v.name})`;
+  if (v.kind === 'name_ref') css = tokens[v.name] ?? `var(--${v.name})`;
   else if (v.kind === 'string') css = v.value;
-  if (css === null || typeof document === 'undefined') {
+  if (css === null) return { l: DEFAULT_L, c: DEFAULT_C, h: DEFAULT_H };
+  // Fast path: the source value (or a source-declared token) is
+  // already an `oklch(L C H)` literal — skip the DOM round-trip
+  // and parse directly. Both saves a probe + avoids the form-
+  // dependent parsing below.
+  const directOklch = parseOklchString(css);
+  if (directOklch) return directOklch;
+  if (typeof document === 'undefined') {
     return { l: DEFAULT_L, c: DEFAULT_C, h: DEFAULT_H };
   }
   const probe = document.createElement('div');
@@ -687,15 +704,30 @@ function resolveToLCH(v: Value): { l: number; c: number; h: number } {
   document.body.appendChild(probe);
   const computed = getComputedStyle(probe).backgroundColor;
   probe.remove();
+  // Chrome preserves the original color space in getComputedStyle —
+  // an oklch() background reads back as `oklch(L C H)`, an rgb()
+  // background reads back as `rgb(R, G, B)`, etc. Try OKLCH first
+  // (more direct, no precision loss), then RGB.
+  const probedOklch = parseOklchString(computed);
+  if (probedOklch) return probedOklch;
   const rgb = parseRgbString(computed);
-  if (!rgb) return { l: DEFAULT_L, c: DEFAULT_C, h: DEFAULT_H };
-  return srgbToOklch(rgb);
+  if (rgb) return srgbToOklch(rgb);
+  return { l: DEFAULT_L, c: DEFAULT_C, h: DEFAULT_H };
+}
+
+function parseOklchString(s: string): { l: number; c: number; h: number } | null {
+  const m = s.match(/^oklch\(\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)/);
+  if (!m) return null;
+  return {
+    l: parseFloat(m[1]!),
+    c: parseFloat(m[2]!),
+    h: parseFloat(m[3]!),
+  };
 }
 
 // Parse `rgb(R, G, B)` or `rgba(R, G, B, A)` (the form
 // getComputedStyle returns for resolved colors) into [R, G, B] in
-// [0, 255]. Returns null for any other form (e.g. `none`, an
-// unrecognized color space).
+// [0, 255]. Returns null for any other form (e.g. `none`).
 function parseRgbString(s: string): [number, number, number] | null {
   const m = s.match(/rgba?\(\s*([\d.]+)\s*[, ]\s*([\d.]+)\s*[, ]\s*([\d.]+)/);
   if (!m) return null;

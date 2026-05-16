@@ -111,6 +111,10 @@ interface RenderState {
   // `slidesData[activeIdx]` to render slide-level properties and to
   // show the slide as the first row in the hierarchy.
   slidesData: SlideAstData[];
+  // Source-declared color tokens from `Deck.tokens: Tokens { ... }`,
+  // merged with the registry's static tokens for the inspector
+  // palette. Re-derived on every load.
+  colorTokens: Record<string, string>;
 }
 
 // Pre-Section slides in the existing scaffold show "Setup" in the
@@ -637,6 +641,18 @@ export function App({
           source,
           shapes: result.shapes,
           slidesData: result.slidesData,
+          // Merge registry tokens with source-declared ones from
+          // `Deck.tokens`. Registry entries get wrapped as
+          // `var(--name)` here so all values in the map are ready-
+          // to-use CSS color strings — the palette doesn't need to
+          // know which origin each came from. Source-declared wins
+          // on name collision, matching loader resolution order.
+          colorTokens: {
+            ...Object.fromEntries(
+              Object.keys(staticTokens).map((n) => [n, `var(--${n})`]),
+            ),
+            ...result.tokens,
+          },
         };
         // Read activeIdx via ref (not closure) so this effect's
         // deps don't include `activeIdx` — every slide-change
@@ -1344,9 +1360,8 @@ export function App({
   const slideColors = useMemo(
     () => {
       const slide = state?.slidesData[activeIdx];
-      return slide
-        ? collectSlideColors(slide.comp, components, staticTokens)
-        : [];
+      const tokens = state?.colorTokens ?? {};
+      return slide ? collectSlideColors(slide.comp, components, tokens) : [];
     },
     [state, activeIdx],
   );
@@ -1564,7 +1579,7 @@ export function App({
                 onScrubPreview={applyScrubPreview}
                 onScrubEnd={endScrub}
                 onMaterializeTextSlot={materializeTextSlot}
-                colorTokens={staticTokens}
+                colorTokens={state.colorTokens}
                 slideColors={slideColors}
               />
             </div>

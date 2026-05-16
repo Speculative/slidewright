@@ -437,7 +437,7 @@ export function collectSlideColors(
     const meta = registry[node.name]?.meta;
     for (const fill of node.fills) {
       if (meta && fillSlotType(meta, fill.name) === 'color-token') {
-        const swatch = colorFillToSwatch(fill);
+        const swatch = colorFillToSwatch(fill, globalTokens);
         if (swatch && !seen.has(swatch.sourceText)) {
           // Skip name_refs that the global row already covers.
           if (
@@ -467,10 +467,17 @@ export function collectSlideColors(
   return out;
 }
 
-function colorFillToSwatch(fill: SlotFill): SlideColor | null {
+function colorFillToSwatch(
+  fill: SlotFill,
+  globalTokens: Record<string, string>,
+): SlideColor | null {
   const v = fill.value;
   if (v.kind === 'name_ref') {
-    return { sourceText: v.name, cssValue: `var(--${v.name})` };
+    // Look up the actual CSS from the merged token map. Falls back
+    // to `var(--name)` for unknown names (resolves via styles.css's
+    // cascade if a CSS variable exists; transparent otherwise).
+    const cssValue = globalTokens[v.name] ?? `var(--${v.name})`;
+    return { sourceText: v.name, cssValue };
   }
   if (v.kind === 'color_oklch') {
     const text = `oklch(${v.l} ${v.c} ${v.h})`;
@@ -1013,6 +1020,7 @@ function PropertyRow({
             >
               <ColorPicker
                 value={fill.value}
+                colorTokens={paletteProps.colorTokens}
                 onCommit={commitColorValue}
                 onScrubBegin={onScrubBegin}
                 onScrubPreview={(text) =>
@@ -1233,9 +1241,13 @@ function ColorPalette({
   // observable from source alone).
   const tokenCandidates = useMemo<Swatch[]>(
     () =>
-      Object.keys(tokens).map((name) => ({
+      Object.entries(tokens).map(([name, cssValue]) => ({
         sourceText: name,
-        cssValue: `var(--${name})`,
+        // Map values are pre-resolved CSS color strings — `var(--<n>)`
+        // for registry tokens (the CSS-variable cascade does the
+        // real work), `oklch(...)` / hex / etc. for source-declared
+        // ones. The palette swatch just paints whatever's here.
+        cssValue,
       })),
     [tokens],
   );

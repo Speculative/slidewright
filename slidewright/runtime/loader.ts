@@ -108,6 +108,11 @@ export interface LoadDeckResult {
   // render slide-level properties (label, notes, etc.) as the
   // default panel when nothing else is selected.
   slidesData: SlideAstData[];
+  // Source-declared color tokens — keyed by name, value is the
+  // CSS color string. Empty when the deck has no `tokens:` fill.
+  // The inspector palette merges these with the registry's static
+  // tokens; this is the live, deck-derived part.
+  tokens: Record<string, string>;
 }
 
 export interface SlideAstData {
@@ -156,6 +161,7 @@ export function loadDeck(input: LoadDeckInput): LoadDeckResult {
     file: input.file,
     components: input.components,
     scope: input.scope ?? { bindings: {} },
+    colorTokens: {},
     diagnostics,
     cellStore: new CellStore(),
     cellSeq: 0,
@@ -174,10 +180,16 @@ export function loadDeck(input: LoadDeckInput): LoadDeckResult {
       diagnostics,
       shapes: ctx.shapes,
       slidesData: ctx.slidesData,
+      tokens: {},
     };
   }
 
   const meta = renderDeckMeta(deck, ctx);
+  // Source-declared color tokens — must run before `renderDeckSlides`
+  // so the augmented scope is visible to every slide's name_ref
+  // resolution. Returns the merged token map (registry + source)
+  // for the inspector palette.
+  const tokens = processDeckTokens(deck, ctx);
   const slides = renderDeckSlides(deck, ctx);
   // After rendering, populate each shape's childIdx — its position
   // in its parent Freeform's `children` list. Computed after
@@ -196,7 +208,44 @@ export function loadDeck(input: LoadDeckInput): LoadDeckResult {
     diagnostics,
     shapes: ctx.shapes,
     slidesData: ctx.slidesData,
+    tokens,
   };
+}
+
+// Process the `tokens:` fill on Deck (if any). Each fill inside the
+// `Tokens { ... }` body is treated as a named CSS color contributed
+// to the deck's color-token map. Returns the resolved map for
+// downstream consumers (inspector palette). Populates
+// `ctx.colorTokens` so subsequent slide resolution sees them via
+// `readColorValue`'s scope-first lookup.
+//
+// Token values may be color_oklch literals, strings (raw CSS), or
+// name_refs (pointing to a previously-declared token OR a registry
+// `var(--name)`). For the name_ref case we resolve relative to the
+// tokens-so-far so users can build palettes that reference each
+// other; cycles aren't checked but would shake out as undefined.
+function processDeckTokens(deck: Component, ctx: LoadCtx): Record<string, string> {
+  const fills = byName(deck.fills);
+  const tokensFill = fills.get('tokens');
+  if (!tokensFill) return {};
+  const v = tokensFill.value;
+  if (v.kind !== 'component' || v.name !== 'Tokens') {
+    emit(
+      ctx,
+      'slot-type-mismatch',
+      v.span,
+      '`tokens` must be a `Tokens { ... }` invocation',
+    );
+    return {};
+  }
+  for (const fill of v.fills) {
+    const css = readColorValue(fill, ctx);
+    if (css === undefined) continue;
+    // Accumulate progressively so later entries can name-ref earlier
+    // ones — readColorValue consults ctx.colorTokens for name_refs.
+    ctx.colorTokens[fill.name] = css;
+  }
+  return { ...ctx.colorTokens };
 }
 
 function computeChildIdxInFreeform(
@@ -241,6 +290,13 @@ interface LoadCtx {
   file: string;
   components: ComponentRegistry;
   scope: Scope;
+  // Source-declared color tokens — populated from
+  // `Deck.tokens: Tokens { ... }` early in `loadDeck`, consulted
+  // by `readColorValue` for name_ref resolution. Separate from
+  // `scope.bindings` so text-slot name_refs (which read scope as
+  // a generic string lookup) aren't affected by the CSS-color
+  // form of these values.
+  colorTokens: Record<string, string>;
   diagnostics: Diagnostic[];
   cellStore: CellStore;
   cellSeq: number;
@@ -1034,8 +1090,11 @@ function readNameOrString(fill: SlotFill | undefined, ctx: LoadCtx): string | un
 }
 
 // Resolve a `color-token`-typed slot to a ready-to-use CSS color
-// string. Three input kinds:
-//   - name_ref `accent`   → `var(--accent)` (deck-scope token).
+// string. Input kinds:
+//   - name_ref `accent`   → scope binding if any (source-declared
+//                           token via `Deck.tokens: Tokens { … }`),
+//                           else `var(--accent)` (registry token via
+//                           styles.css CSS variables).
 //   - color_oklch literal → `oklch(L C H)` verbatim.
 //   - string  `"#ff0080"` → passed through (lets users hand-write
 //                             hex / rgb / any CSS color value).
@@ -1049,7 +1108,16 @@ function readColorValue(
   if (!fill) return undefined;
   const v = fill.value;
   if (v.kind === 'string') return v.value;
-  if (v.kind === 'name_ref') return `var(--${v.name})`;
+  if (v.kind === 'name_ref') {
+    // Source-declared tokens (`Deck.tokens: Tokens { ... }`) take
+    // precedence over registry-static ones — the deck author can
+    // override a default token by redeclaring it. Registry tokens
+    // fall through to `var(--name)` via styles.css's CSS variable
+    // cascade.
+    const sourced = ctx.colorTokens[v.name];
+    if (sourced !== undefined) return sourced;
+    return `var(--${v.name})`;
+  }
   if (v.kind === 'color_oklch') return `oklch(${v.l} ${v.c} ${v.h})`;
   emit(
     ctx,

@@ -159,6 +159,12 @@ export const BUILTIN_META: Record<string, ComponentMeta> = {
                        // so its `produces` isn't used. Reserve `slide`.
     slots: {
       slides: { type: 'array<slide>', required: true },
+      // Source-declared color tokens. The fill, when present, must be
+      // a `Tokens { ... }` invocation; the loader special-cases this
+      // slot rather than going through `renderBlockValue` so the
+      // Tokens body's open-schema fills don't have to match any
+      // declared slots (Tokens lets the user invent token names).
+      tokens: { type: 'block', required: false },
     },
     params: {
       name: { type: 'string' },
@@ -166,6 +172,16 @@ export const BUILTIN_META: Record<string, ComponentMeta> = {
       width: { type: 'number' },
       height: { type: 'number' },
     },
+  },
+  // Token-bag — fills are arbitrary user-named color values added to
+  // the deck scope. Never rendered; only meaningful as the value of
+  // `Deck.tokens`. `produces: 'block'` satisfies that slot's type
+  // check; the loader processes it specially (no schema validation
+  // on its fills, no render dispatch).
+  Tokens: {
+    produces: 'block',
+    slots: {},
+    params: {},
   },
   Slide: {
     produces: 'slide',
