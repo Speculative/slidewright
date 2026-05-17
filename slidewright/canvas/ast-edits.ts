@@ -31,7 +31,6 @@ import { parse } from '../runtime/parser.js';
 import type {
   Component,
   ListLit,
-  NameRef,
   Node,
   NumberLit,
   SlotFill,
@@ -220,24 +219,20 @@ export function findShapeAtChildIdx(
   return item?.kind === 'component' ? item : null;
 }
 
-// ─── Constructors ────────────────────────────────────────────────
-
+// ─── Internal AST helpers ────────────────────────────────────────
+//
 // Spans are placeholder zeros — the emitter ignores spans, and the
-// next re-parse rebuilds them from the actual source. The
-// placeholder keeps the type system happy without needing a
-// separate "AST without spans" representation.
+// next re-parse rebuilds them from the actual source. Used by the
+// mutators below (addStringSlotFill, appendShapeToFreeform) to
+// graft fresh nodes onto an existing tree. Component-specific
+// stub constructors (`makeBoxNode` / `makeTextBoxNode` /
+// `makeArrowNode`) used to live here but moved to each
+// component's own `insertion.stub` in `decks/v0-reference/
+// components/`, consuming `runtime/ast-builders` instead.
 const ZERO_SPAN: Span = {
   start: { offset: 0, line: 0, column: 0 },
   end: { offset: 0, line: 0, column: 0 },
 };
-
-function makeNumberLit(value: number): NumberLit {
-  return { kind: 'number', value, span: ZERO_SPAN };
-}
-
-function makeNameRef(name: string): NameRef {
-  return { kind: 'name_ref', name, span: ZERO_SPAN };
-}
 
 function makeSlotFill(name: string, value: Value): SlotFill {
   return { kind: 'slot_fill', name, value, span: ZERO_SPAN };
@@ -245,75 +240,6 @@ function makeSlotFill(name: string, value: Value): SlotFill {
 
 function makeStringLit(value: string): StringLit {
   return { kind: 'string', value, multiline: false, span: ZERO_SPAN };
-}
-
-export function makeBoxNode(
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  fillToken: string,
-): Component {
-  return {
-    kind: 'component',
-    name: 'Box',
-    fills: [
-      makeSlotFill('x', makeNumberLit(x)),
-      makeSlotFill('y', makeNumberLit(y)),
-      makeSlotFill('width', makeNumberLit(width)),
-      makeSlotFill('height', makeNumberLit(height)),
-      makeSlotFill('fill', makeNameRef(fillToken)),
-    ],
-    implicitChildren: [],
-    span: ZERO_SPAN,
-    bodySpan: ZERO_SPAN,
-  };
-}
-
-export function makeTextBoxNode(
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-): Component {
-  return {
-    kind: 'component',
-    name: 'TextBox',
-    fills: [
-      makeSlotFill('x', makeNumberLit(x)),
-      makeSlotFill('y', makeNumberLit(y)),
-      makeSlotFill('width', makeNumberLit(width)),
-      makeSlotFill('height', makeNumberLit(height)),
-      // Placeholder content so the user has a visible text region
-      // to double-click into. Auto-enter-edit on creation is
-      // future polish.
-      makeSlotFill('content', makeStringLit('Text')),
-    ],
-    implicitChildren: [],
-    span: ZERO_SPAN,
-    bodySpan: ZERO_SPAN,
-  };
-}
-
-export function makeArrowNode(
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number,
-): Component {
-  return {
-    kind: 'component',
-    name: 'Arrow',
-    fills: [
-      makeSlotFill('x1', makeNumberLit(x1)),
-      makeSlotFill('y1', makeNumberLit(y1)),
-      makeSlotFill('x2', makeNumberLit(x2)),
-      makeSlotFill('y2', makeNumberLit(y2)),
-    ],
-    implicitChildren: [],
-    span: ZERO_SPAN,
-    bodySpan: ZERO_SPAN,
-  };
 }
 
 // ─── Mutators ────────────────────────────────────────────────────

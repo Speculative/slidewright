@@ -135,6 +135,14 @@ export interface ComponentInsertion {
   // is appropriate (typically a `Component` invocation, but
   // `null` to refuse).
   stub: (ctx: InsertionContext) => AstComponent | null;
+
+  // Shape of the live preview overlay drawn during a modal-draw
+  // gesture. 'rect' draws the dashed bounding rectangle (Box,
+  // TextBox, layouts); 'line' draws a dashed line from
+  // dragStart to dragEnd (Arrow). Defaults to 'rect' when
+  // unspecified. Ignored for components that don't opt into the
+  // modal gesture.
+  modalPreview?: 'rect' | 'line';
 }
 
 // Whether a slot was filled, missing entirely, or explicitly

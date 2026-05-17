@@ -57,9 +57,6 @@ import {
   findActiveSlideFreeform,
   findComponentAtSpan,
   findStringAt,
-  makeArrowNode,
-  makeBoxNode,
-  makeTextBoxNode,
   pathToComponent,
   removeShapeAtSpan,
   type PreserveSelection,
@@ -87,7 +84,7 @@ import {
   type EmptySlotInfo,
   type SlotInfo,
 } from './InspectorPanels.js';
-import { ToolPalette, type Tool } from './ToolPalette.js';
+import { ToolPalette, SELECT_TOOL, type Tool, type ToolEntry } from './ToolPalette.js';
 
 interface DeckMeta {
   name: string;
@@ -260,7 +257,13 @@ interface UndoEntry {
 // createElement('div'/'svg'/'line') + appendChild approach.
 
 interface CreatePreview {
-  tool: 'box' | 'textbox' | 'arrow';
+  // Component-registry key (e.g., 'Box', 'TextBox', 'Arrow').
+  // Used to look up the insertion stub at commit time.
+  tool: string;
+  // Preview overlay shape — cached at gesture-start from the
+  // component's `meta.insertion.modalPreview` so the overlay
+  // renderer doesn't need to re-consult the registry every frame.
+  previewShape: 'rect' | 'line';
   // Freeform's positioned div (the portal target — selection
   // visuals and create preview both portal in here).
   freeformDiv: HTMLElement;
@@ -296,6 +299,23 @@ function getAdapter(componentName: string): ShapeAdapter | null {
   if (!loaded) return null;
   return (loaded.canvas as ShapeAdapter | undefined) ?? null;
 }
+
+// Toolbar entries for modal-gesture insertions. Derived once from
+// the static registry — the entry list is stable for the
+// session. Stable order = registry order = deck author's
+// `index.tsx` import order, which is a deliberate placement they
+// can shuffle to control toolbar order until categorization +
+// search land in later steps.
+const modalToolEntries: ToolEntry[] = Object.entries(components)
+  .filter(([, loaded]) =>
+    loaded.meta.insertion?.gestures.includes('modal'),
+  )
+  .map(([name, loaded]) => ({
+    id: name,
+    label: name,
+    description: loaded.meta.description,
+    category: loaded.meta.category,
+  }));
 
 // Read the current canvas scale (design pixels → CSS pixels). The
 // .presentation-canvas has a CSS transform; getBoundingClientRect's
@@ -363,7 +383,7 @@ export function App({
   const [marquee, setMarquee] = useState<MarqueeState | null>(null);
   const [gestureMeta, setGestureMeta] = useState<GestureMeta | null>(null);
   const [gestureLive, setGestureLive] = useState<GestureLive>(ZERO_LIVE);
-  const [activeTool, setActiveTool] = useState<Tool>('select');
+  const [activeTool, setActiveTool] = useState<Tool>(SELECT_TOOL);
   // Selection is always an array. Single-select is length === 1.
   // Multi-select is bounded to one layout context (one Freeform).
   const [selected, setSelected] = useState<SelectionTarget[]>([]);
@@ -1029,37 +1049,36 @@ export function App({
       const result = commitSourceEdit(sourceRef.current, '<create>', (ast) => {
         const freeform = findActiveSlideFreeform(ast, activeIdxRef.current);
         if (!freeform) return null;
-        if (tool === 'arrow') {
-          const dx = designCurrentX - designStartX;
-          const dy = designCurrentY - designStartY;
-          if (Math.hypot(dx, dy) < 5) return null;
-          appendShapeToFreeform(
-            freeform,
-            makeArrowNode(
-              Math.round(designStartX),
-              Math.round(designStartY),
-              Math.round(designCurrentX),
-              Math.round(designCurrentY),
-            ),
-          );
-          return {};
-        }
-        const left = Math.round(Math.min(designStartX, designCurrentX));
-        const top = Math.round(Math.min(designStartY, designCurrentY));
-        const width = Math.round(Math.abs(designCurrentX - designStartX));
-        const height = Math.round(Math.abs(designCurrentY - designStartY));
-        if (width < 5 || height < 5) return null;
-        appendShapeToFreeform(
-          freeform,
-          tool === 'textbox'
-            ? makeTextBoxNode(left, top, width, height)
-            : makeBoxNode(left, top, width, height, 'amber'),
-        );
+        // Minimum-drag threshold — clicks without meaningful drag
+        // don't commit anything. Uniform across components since
+        // both rect and line previews are degenerate below ~5px.
+        const dx = designCurrentX - designStartX;
+        const dy = designCurrentY - designStartY;
+        if (Math.hypot(dx, dy) < 5) return null;
+        const insertion = components[tool]?.meta.insertion;
+        if (!insertion) return null;
+        const left = Math.min(designStartX, designCurrentX);
+        const top = Math.min(designStartY, designCurrentY);
+        const width = Math.abs(designCurrentX - designStartX);
+        const height = Math.abs(designCurrentY - designStartY);
+        const node = insertion.stub({
+          gesture: 'modal',
+          // The active-slide Freeform's `children` slot is the
+          // canonical modal-draw target. Today every modal
+          // create goes here; multi-target modal flows would
+          // resolve `targetSlotType` from the actual drop site.
+          targetSlotType: 'array<block>',
+          rect: { x: left, y: top, width, height },
+          dragStart: { x: designStartX, y: designStartY },
+          dragEnd: { x: designCurrentX, y: designCurrentY },
+        });
+        if (!node) return null;
+        appendShapeToFreeform(freeform, node);
         return {};
       });
       if (result) {
         commitToHost(result.newSource);
-        setActiveTool('select');
+        setActiveTool(SELECT_TOOL);
       }
       setCreatePreview(null);
     };
@@ -1228,7 +1247,7 @@ export function App({
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
       if (e.key === 'Escape') {
-        if (activeTool !== 'select') setActiveTool('select');
+        if (activeTool !== SELECT_TOOL) setActiveTool(SELECT_TOOL);
         if (selected.length > 0) setSelected([]);
         e.preventDefault();
         return;
@@ -1440,7 +1459,11 @@ export function App({
         />
         {preparedSlide ? (
           <div className="sw-canvas-stage">
-            <ToolPalette active={activeTool} onSelect={setActiveTool} />
+            <ToolPalette
+              active={activeTool}
+              tools={modalToolEntries}
+              onSelect={setActiveTool}
+            />
             <GestureProvider deltas={gestureDeltas}>
               <ScaledCanvas
                 selectableSpans={selectableSpans}
@@ -1510,7 +1533,7 @@ export function App({
                 selected={selected}
                 shapes={state.shapes}
                 gestureDeltas={gestureDeltas}
-                renderHandles={activeTool === 'select' && !gestureMeta}
+                renderHandles={activeTool === SELECT_TOOL && !gestureMeta}
                 startGesture={startGesture}
               />
               <GestureOverlayLayer
@@ -1786,9 +1809,16 @@ function startCreate(
   activeTool: Tool,
   setCreatePreview: (cp: CreatePreview) => void,
 ): void {
-  if (activeTool === 'select') return;
+  if (activeTool === SELECT_TOOL) return;
+  const insertion = components[activeTool]?.meta.insertion;
+  // No insertion contract → no create gesture. Should be unreachable
+  // (the toolbar only surfaces entries that opted in), but guard
+  // anyway so a stale `activeTool` from a removed component doesn't
+  // throw.
+  if (!insertion) return;
   setCreatePreview({
     tool: activeTool,
+    previewShape: insertion.modalPreview ?? 'rect',
     freeformDiv: target.containerEl,
     pointerStartX: target.pointerStartX,
     pointerStartY: target.pointerStartY,
@@ -1881,7 +1911,7 @@ function CreatePreviewOverlay({
   createPreview: CreatePreview | null;
 }): ReactNode {
   if (!createPreview) return null;
-  if (createPreview.tool === 'arrow') {
+  if (createPreview.previewShape === 'line') {
     return createPortal(
       <svg
         style={{

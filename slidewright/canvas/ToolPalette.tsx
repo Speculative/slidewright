@@ -5,39 +5,66 @@
 // state lives in App as `activeTool`; this component is purely
 // presentational + emits the user's tool choice.
 //
-// v0.2.f ships Select + Box. v0.2.g+ adds Ellipse / Text / Arrow.
-// Each tool is a separate entry rather than a polymorphic "shape"
-// dropdown — clearer affordance, and the underlying gesture
-// behavior may diverge per shape (e.g., text needs to enter edit
-// mode immediately after creation).
+// The entry list is registry-driven: the parent (App) walks the
+// component registry, filters to components that opt into the
+// 'modal' gesture via `meta.insertion`, and passes them in here.
+// 'select' is always the first entry. Categories + search arrive
+// in later steps; for now entries render as a flat list in their
+// supplied order.
 
 import type { ReactElement } from 'react';
 
-export type Tool = 'select' | 'box' | 'textbox' | 'arrow';
+// Identifier of the active tool. 'select' is the no-tool state;
+// any other string is a component name (registry key).
+export type Tool = string;
+export const SELECT_TOOL = 'select';
+
+// One entry in the tool palette beyond 'select' — derived from a
+// component's `slidewright` metadata at the call site.
+export interface ToolEntry {
+  // Component-registry key. Used as the tool identifier and as
+  // the lookup key when the create-gesture dispatches the
+  // component's insertion stub.
+  id: string;
+  // Display name. Defaults to the component name.
+  label: string;
+  // Tooltip / search-target text.
+  description?: string;
+  // Section heading. Used by the categorized layout in a later
+  // step; ignored by today's flat rendering.
+  category?: string;
+}
 
 interface Props {
   active: Tool;
+  tools: ToolEntry[];
   onSelect: (tool: Tool) => void;
 }
 
-const TOOLS: Array<{ id: Tool; label: string; hint: string }> = [
-  { id: 'select', label: 'Select', hint: 'V' },
-  { id: 'box', label: 'Box', hint: 'B' },
-  { id: 'textbox', label: 'Text', hint: 'T' },
-  { id: 'arrow', label: 'Arrow', hint: 'A' },
-];
-
-export function ToolPalette({ active, onSelect }: Props): ReactElement {
+export function ToolPalette({
+  active,
+  tools,
+  onSelect,
+}: Props): ReactElement {
   return (
     <div className="sw-tool-palette" role="toolbar" aria-label="Drawing tools">
-      {TOOLS.map((t) => (
+      <button
+        type="button"
+        className={'sw-tool' + (active === SELECT_TOOL ? ' active' : '')}
+        aria-pressed={active === SELECT_TOOL}
+        title="Select (V)"
+        aria-keyshortcuts="V"
+        onClick={() => onSelect(SELECT_TOOL)}
+      >
+        Select
+      </button>
+      {tools.map((t) => (
         <button
           key={t.id}
           type="button"
           className={'sw-tool' + (active === t.id ? ' active' : '')}
           aria-pressed={active === t.id}
-          aria-keyshortcuts={t.hint}
-          title={`${t.label} (${t.hint})`}
+          title={t.description ? `${t.label} — ${t.description}` : t.label}
           onClick={() => onSelect(t.id)}
         >
           {t.label}

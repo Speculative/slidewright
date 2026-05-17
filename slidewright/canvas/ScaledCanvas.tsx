@@ -180,7 +180,11 @@ interface Props {
   // true. ScaledCanvas then skips body-drag. Returning false
   // falls through to existing dispatch.
   onChildDragStart?: (target: ChildDragStart) => boolean;
-  activeTool?: 'select' | 'box' | 'textbox' | 'arrow';
+  // 'select' is the no-tool state; any other string is a
+  // component-registry key. ScaledCanvas only cares about the
+  // 'select' vs not-'select' distinction, so the type stays
+  // intentionally permissive.
+  activeTool?: string;
 }
 
 // Components whose drag-to-move gesture is supported. Box and

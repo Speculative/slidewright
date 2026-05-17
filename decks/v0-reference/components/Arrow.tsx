@@ -48,6 +48,7 @@ export const slidewright: ComponentMeta = {
   description: 'Line with arrowhead between two points.',
   insertion: {
     gestures: ['modal'],
+    modalPreview: 'line',
     stub: (ctx) => {
       if (!acceptsTargetSlot('block', ctx.targetSlotType)) return null;
       // Arrow reads the unnormalized drag vector so the tail lands
