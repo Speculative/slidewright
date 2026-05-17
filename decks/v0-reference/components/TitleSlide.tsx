@@ -3,7 +3,12 @@
 // Mirrors design/sketches/title-slide.md.
 
 import type { ReactNode } from 'react';
-import type { ComponentMeta, ComponentRenderProps } from '../../../slidewright/runtime/contract.js';
+import {
+  acceptsTargetSlot,
+  type ComponentMeta,
+  type ComponentRenderProps,
+} from '../../../slidewright/runtime/contract.js';
+import { makeComponent } from '../../../slidewright/runtime/ast-builders.js';
 
 export const slidewright: ComponentMeta = {
   produces: 'slide',
@@ -19,6 +24,18 @@ export const slidewright: ComponentMeta = {
     accentColor: { type: 'color-token', default: 'accent' },
   },
   protocols: {},
+  category: 'Slides',
+  description: 'Cover slide with venue / title / presenter.',
+  insertion: {
+    gestures: ['drag'],
+    stub: (ctx) => {
+      if (!acceptsTargetSlot('slide', ctx.targetSlotType)) return null;
+      // Required slots surface as loader placeholders the user
+      // fills via the inspector. Headshot is a string asset path;
+      // the user supplies one on first edit.
+      return makeComponent('TitleSlide', []);
+    },
+  },
 };
 
 export default function TitleSlide({ slots, params }: ComponentRenderProps) {

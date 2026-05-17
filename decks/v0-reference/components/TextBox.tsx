@@ -12,10 +12,17 @@
 // for the user to double-click.
 
 import type { ReactNode } from 'react';
-import type {
-  ComponentMeta,
-  ComponentRenderProps,
+import {
+  acceptsTargetSlot,
+  type ComponentMeta,
+  type ComponentRenderProps,
 } from '../../../slidewright/runtime/contract.js';
+import {
+  makeComponent,
+  numberLit,
+  slotFill,
+  stringLit,
+} from '../../../slidewright/runtime/ast-builders.js';
 import { makeRectAdapter } from '../../../slidewright/canvas/rect-adapter.js';
 
 export const slidewright: ComponentMeta = {
@@ -32,6 +39,27 @@ export const slidewright: ComponentMeta = {
     color: { type: 'color-token', default: 'fg' },
   },
   protocols: {},
+  category: 'Shapes',
+  description: 'Absolutely-positioned text region.',
+  insertion: {
+    gestures: ['modal'],
+    stub: (ctx) => {
+      if (!ctx.rect) return null;
+      if (!acceptsTargetSlot('block', ctx.targetSlotType)) return null;
+      const { x, y, width, height } = ctx.rect;
+      // Seed `content: "Text"` so the rendered region has something
+      // for the user to double-click into edit mode on. Empty
+      // content would render an invisible region (no glyphs to
+      // hit).
+      return makeComponent('TextBox', [
+        slotFill('x', numberLit(Math.round(x))),
+        slotFill('y', numberLit(Math.round(y))),
+        slotFill('width', numberLit(Math.round(width))),
+        slotFill('height', numberLit(Math.round(height))),
+        slotFill('content', stringLit('Text')),
+      ]);
+    },
+  },
 };
 
 export default function TextBox({ slots, params }: ComponentRenderProps) {

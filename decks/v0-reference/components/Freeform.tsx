@@ -9,10 +9,12 @@
 // stack/grid layout.
 
 import type { ReactNode } from 'react';
-import type {
-  ComponentMeta,
-  ComponentRenderProps,
+import {
+  acceptsTargetSlot,
+  type ComponentMeta,
+  type ComponentRenderProps,
 } from '../../../slidewright/runtime/contract.js';
+import { makeComponent } from '../../../slidewright/runtime/ast-builders.js';
 
 export const slidewright: ComponentMeta = {
   produces: 'block',
@@ -21,6 +23,15 @@ export const slidewright: ComponentMeta = {
   },
   params: {},
   protocols: {},
+  category: 'Layouts',
+  description: 'Absolutely-positioned canvas for free-form diagrams.',
+  insertion: {
+    gestures: ['drag'],
+    stub: (ctx) => {
+      if (!acceptsTargetSlot('block', ctx.targetSlotType)) return null;
+      return makeComponent('Freeform', []);
+    },
+  },
 };
 
 export default function Freeform({ slots }: ComponentRenderProps) {

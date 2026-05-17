@@ -10,10 +10,16 @@
 // re-renders the Box with adjusted params every frame during a
 // gesture; no imperative DOM mutation here.
 
-import type {
-  ComponentMeta,
-  ComponentRenderProps,
+import {
+  acceptsTargetSlot,
+  type ComponentMeta,
+  type ComponentRenderProps,
 } from '../../../slidewright/runtime/contract.js';
+import {
+  makeComponent,
+  numberLit,
+  slotFill,
+} from '../../../slidewright/runtime/ast-builders.js';
 import { makeRectAdapter } from '../../../slidewright/canvas/rect-adapter.js';
 
 export const slidewright: ComponentMeta = {
@@ -27,6 +33,28 @@ export const slidewright: ComponentMeta = {
     fill: { type: 'color-token', default: 'accent' },
   },
   protocols: {},
+  category: 'Shapes',
+  description: 'Absolutely-positioned rectangle.',
+  insertion: {
+    // Modal-only: matches the muscle memory of design tools where
+    // shape primitives are drawn by drag-rect rather than dropped.
+    gestures: ['modal'],
+    stub: (ctx) => {
+      if (!ctx.rect) return null;
+      if (!acceptsTargetSlot('block', ctx.targetSlotType)) return null;
+      const { x, y, width, height } = ctx.rect;
+      // No `fill:` — the schema default (`accent`) kicks in, so the
+      // stub stays deck-agnostic (no assumption that `accent` is a
+      // declared token name; the loader's default-wrapping path
+      // handles missing tokens via `var(--accent)`).
+      return makeComponent('Box', [
+        slotFill('x', numberLit(Math.round(x))),
+        slotFill('y', numberLit(Math.round(y))),
+        slotFill('width', numberLit(Math.round(width))),
+        slotFill('height', numberLit(Math.round(height))),
+      ]);
+    },
+  },
 };
 
 export default function Box({ params }: ComponentRenderProps) {

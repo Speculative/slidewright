@@ -11,9 +11,10 @@
 //   - endpoint move: drag tail (1) or tip (2); other endpoint
 //     stays fixed; line + arrowhead recompute every render
 
-import type {
-  ComponentMeta,
-  ComponentRenderProps,
+import {
+  acceptsTargetSlot,
+  type ComponentMeta,
+  type ComponentRenderProps,
 } from '../../../slidewright/runtime/contract.js';
 import type {
   HandlesProps,
@@ -25,6 +26,11 @@ import {
   findNumericSlot,
   findShapeChildIdx,
 } from '../../../slidewright/canvas/ast-edits.js';
+import {
+  makeComponent,
+  numberLit,
+  slotFill,
+} from '../../../slidewright/runtime/ast-builders.js';
 
 export const slidewright: ComponentMeta = {
   produces: 'block',
@@ -38,6 +44,36 @@ export const slidewright: ComponentMeta = {
     strokeWidth: { type: 'number', default: 4 },
   },
   protocols: {},
+  category: 'Shapes',
+  description: 'Line with arrowhead between two points.',
+  insertion: {
+    gestures: ['modal'],
+    stub: (ctx) => {
+      if (!acceptsTargetSlot('block', ctx.targetSlotType)) return null;
+      // Arrow reads the unnormalized drag vector so the tail lands
+      // at the pointerdown point and the tip at the release point
+      // — direction matters for the arrowhead. Falls back to the
+      // normalized rect's diagonal if dragStart/dragEnd weren't
+      // supplied (e.g., a drag-from-toolbar drop with no draw
+      // gesture); falls back to null if neither is present.
+      if (ctx.dragStart && ctx.dragEnd) {
+        return makeComponent('Arrow', [
+          slotFill('x1', numberLit(Math.round(ctx.dragStart.x))),
+          slotFill('y1', numberLit(Math.round(ctx.dragStart.y))),
+          slotFill('x2', numberLit(Math.round(ctx.dragEnd.x))),
+          slotFill('y2', numberLit(Math.round(ctx.dragEnd.y))),
+        ]);
+      }
+      if (!ctx.rect) return null;
+      const { x, y, width, height } = ctx.rect;
+      return makeComponent('Arrow', [
+        slotFill('x1', numberLit(Math.round(x))),
+        slotFill('y1', numberLit(Math.round(y))),
+        slotFill('x2', numberLit(Math.round(x + width))),
+        slotFill('y2', numberLit(Math.round(y + height))),
+      ]);
+    },
+  },
 };
 
 export default function Arrow({ params }: ComponentRenderProps) {

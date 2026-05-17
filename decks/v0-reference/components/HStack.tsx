@@ -8,7 +8,12 @@
 // rewrites the parent's `children` slot.
 
 import type { ReactNode } from 'react';
-import type { ComponentMeta, ComponentRenderProps } from '../../../slidewright/runtime/contract.js';
+import {
+  acceptsTargetSlot,
+  type ComponentMeta,
+  type ComponentRenderProps,
+} from '../../../slidewright/runtime/contract.js';
+import { makeComponent } from '../../../slidewright/runtime/ast-builders.js';
 import { makeStackAdapter } from '../../../slidewright/canvas/stack-adapter.js';
 
 export const slidewright: ComponentMeta = {
@@ -20,6 +25,15 @@ export const slidewright: ComponentMeta = {
     spacing: { type: 'number', default: 24 },
   },
   protocols: {},
+  category: 'Layouts',
+  description: 'Horizontal stack with configurable spacing.',
+  insertion: {
+    gestures: ['drag'],
+    stub: (ctx) => {
+      if (!acceptsTargetSlot('block', ctx.targetSlotType)) return null;
+      return makeComponent('HStack', []);
+    },
+  },
 };
 
 export const canvas = makeStackAdapter({ axis: 'h' });

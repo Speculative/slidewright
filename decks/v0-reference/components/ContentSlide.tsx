@@ -5,7 +5,12 @@
 // v0.2+).
 
 import type { ReactNode } from 'react';
-import type { ComponentMeta, ComponentRenderProps } from '../../../slidewright/runtime/contract.js';
+import {
+  acceptsTargetSlot,
+  type ComponentMeta,
+  type ComponentRenderProps,
+} from '../../../slidewright/runtime/contract.js';
+import { makeComponent } from '../../../slidewright/runtime/ast-builders.js';
 import type { LayoutAdapter } from '../../../slidewright/canvas/layout-adapter.js';
 
 export const slidewright: ComponentMeta = {
@@ -18,6 +23,15 @@ export const slidewright: ComponentMeta = {
   },
   params: {},
   protocols: {},
+  category: 'Slides',
+  description: 'Eyebrow / title / intro / body content slide.',
+  insertion: {
+    gestures: ['drag'],
+    stub: (ctx) => {
+      if (!acceptsTargetSlot('slide', ctx.targetSlotType)) return null;
+      return makeComponent('ContentSlide', []);
+    },
+  },
 };
 
 // Selectable + inspectable as a layout — exposes the optional slot

@@ -3,7 +3,12 @@
 // in the reference deck.
 
 import type { ReactNode } from 'react';
-import type { ComponentMeta, ComponentRenderProps } from '../../../slidewright/runtime/contract.js';
+import {
+  acceptsTargetSlot,
+  type ComponentMeta,
+  type ComponentRenderProps,
+} from '../../../slidewright/runtime/contract.js';
+import { makeComponent } from '../../../slidewright/runtime/ast-builders.js';
 import type { LayoutAdapter } from '../../../slidewright/canvas/layout-adapter.js';
 
 export const slidewright: ComponentMeta = {
@@ -17,6 +22,18 @@ export const slidewright: ComponentMeta = {
     color: { type: 'color-token', default: 'purple' },
   },
   protocols: {},
+  category: 'Layouts',
+  description: 'Card with eyebrow / heading / body text columns.',
+  insertion: {
+    gestures: ['drag'],
+    stub: (ctx) => {
+      if (!acceptsTargetSlot('block', ctx.targetSlotType)) return null;
+      // Empty body — required slots (eyebrow / heading / body)
+      // surface as loader-emitted placeholders for the user to
+      // fill in via the inspector or click-into-slot.
+      return makeComponent('CardRow', []);
+    },
+  },
 };
 
 // Selectable + inspectable composite. No gesture methods today;

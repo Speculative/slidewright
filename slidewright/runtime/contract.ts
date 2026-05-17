@@ -88,12 +88,36 @@ export interface InsertionContext {
   // drop landed on a Freeform (rect from the modal draw or from
   // the drag's release point) — required by shape primitives that
   // need geometry. Absent for layout-stack drops, where the
-  // component self-sizes.
+  // component self-sizes. Always normalized: width/height ≥ 0.
   rect?: { x: number; y: number; width: number; height: number };
+  // Raw drag-direction vector — pointerdown landing → release
+  // point — without normalization. Present iff `rect` is present
+  // for a modal-draw gesture; components that care about direction
+  // (Arrow: tail→tip) read these instead of `rect`. For
+  // drag-from-toolbar drops onto a Freeform there's no meaningful
+  // drag vector, so these may be absent even when `rect` is
+  // present (treated as a single point or a default-sized rect).
+  dragStart?: { x: number; y: number };
+  dragEnd?: { x: number; y: number };
   // Insertion index within an `array<…>` slot. Present for
   // gap-drag drops on array slots; absent for empty-slot drops
   // (which always splice as the slot's first/only fill).
   insertionIndex?: number;
+}
+
+// Convenience: does a component that produces `produces` satisfy
+// a slot of type `targetSlotType`? True when the slot's type is
+// the produced type directly, or `array<that-type>` for list slots.
+// Used by `insertion.stub` implementations to gate-out incompatible
+// drop targets in one line, and by the toolbar to dim incompatible
+// entries during a drag.
+export function acceptsTargetSlot(
+  produces: SlotTypeName,
+  targetSlotType: SlotType,
+): boolean {
+  return (
+    targetSlotType === produces || targetSlotType === `array<${produces}>`
+  );
 }
 
 export interface ComponentInsertion {
