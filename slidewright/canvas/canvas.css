@@ -275,6 +275,30 @@ html, body, #root {
   color: rgba(0, 0, 0, 0.45);
 }
 
+.sw-tool-search {
+  font: inherit;
+  font-size: 12px;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+  padding: 3px 8px;
+  margin-top: 2px;
+  color: #111;
+  outline: none;
+  transition: border-color 60ms ease;
+}
+
+.sw-tool-search:focus {
+  border-color: var(--accent, #0066ff);
+}
+
+.sw-tool-empty {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.5);
+  padding: 4px 6px;
+  font-style: italic;
+}
+
 .sw-tool:hover {
   background: rgba(0, 0, 0, 0.06);
 }

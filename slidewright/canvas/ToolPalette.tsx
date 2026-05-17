@@ -8,12 +8,16 @@
 // The entry list is registry-driven: the parent (App) walks the
 // component registry, filters to components that opt into the
 // 'modal' gesture via `meta.insertion`, and passes them in here.
-// 'select' is always the first entry, ungrouped. The remaining
-// entries are grouped by `category`:
+// 'select' is always the first entry, ungrouped. A search input
+// below it filters the rest by label / description (case-
+// insensitive substring); empty query renders everything. The
+// remaining entries are grouped by `category`:
 //
 //   - When ≥2 categories exist, each renders as a collapsible
 //     section with a header; collapsed state persists in
-//     localStorage so the user's layout survives reloads.
+//     localStorage so the user's layout survives reloads. A
+//     non-empty search query temporarily expands every section
+//     so matches aren't hidden behind a collapsed header.
 //   - When only 1 category exists, headers are hidden and the
 //     entries render as a flat list. Today's modal-only toolbar
 //     surfaces only `Shapes`, so this is the live shape. Step 6
@@ -109,6 +113,16 @@ function groupByCategory(tools: ToolEntry[]): Group[] {
   }));
 }
 
+// Substring-match an entry against a normalized (lowercase,
+// trimmed) query. Matches against label + description so users
+// can search by either the visible name or the tooltip body.
+function entryMatchesQuery(entry: ToolEntry, query: string): boolean {
+  if (!query) return true;
+  if (entry.label.toLowerCase().includes(query)) return true;
+  if (entry.description?.toLowerCase().includes(query)) return true;
+  return false;
+}
+
 export function ToolPalette({
   active,
   tools,
@@ -116,6 +130,7 @@ export function ToolPalette({
 }: Props): ReactElement {
   const groups = useMemo(() => groupByCategory(tools), [tools]);
   const [collapsed, setCollapsed] = useState<Set<string>>(readCollapsedState);
+  const [query, setQuery] = useState('');
   const toggleCategory = useCallback((category: string) => {
     setCollapsed((prev) => {
       const next = new Set(prev);
@@ -126,10 +141,29 @@ export function ToolPalette({
     });
   }, []);
 
+  const normalizedQuery = query.trim().toLowerCase();
+  const isSearching = normalizedQuery.length > 0;
+  // Filter each group's entries against the query; drop empty
+  // groups so the user doesn't see a header pointing at nothing.
+  // No-op when the query is empty.
+  const visibleGroups = useMemo(() => {
+    if (!isSearching) return groups;
+    const out: Group[] = [];
+    for (const g of groups) {
+      const matching = g.entries.filter((e) =>
+        entryMatchesQuery(e, normalizedQuery),
+      );
+      if (matching.length > 0) {
+        out.push({ category: g.category, entries: matching });
+      }
+    }
+    return out;
+  }, [groups, isSearching, normalizedQuery]);
+
   // Headers only make sense when the user has more than one
   // bucket to navigate between. With a single bucket the section
   // chrome would be pure overhead.
-  const showHeaders = groups.length > 1;
+  const showHeaders = visibleGroups.length > 1;
 
   return (
     <div className="sw-tool-palette" role="toolbar" aria-label="Drawing tools">
@@ -143,8 +177,20 @@ export function ToolPalette({
       >
         Select
       </button>
-      {groups.map((g) => {
-        const isCollapsed = showHeaders && collapsed.has(g.category);
+      <input
+        type="search"
+        className="sw-tool-search"
+        placeholder="Filter…"
+        aria-label="Filter tools"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+      />
+      {visibleGroups.map((g) => {
+        // Collapse state is suppressed while searching — matches
+        // shouldn't hide behind a header the user collapsed before
+        // they started typing.
+        const isCollapsed =
+          showHeaders && !isSearching && collapsed.has(g.category);
         return (
           <div key={g.category} className="sw-tool-section">
             {showHeaders ? (
@@ -186,6 +232,9 @@ export function ToolPalette({
           </div>
         );
       })}
+      {isSearching && visibleGroups.length === 0 ? (
+        <div className="sw-tool-empty">No matches</div>
+      ) : null}
     </div>
   );
 }
