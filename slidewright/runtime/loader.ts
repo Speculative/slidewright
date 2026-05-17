@@ -633,6 +633,13 @@ function renderComponent(comp: Component, ctx: LoadCtx): ReactNode {
           'data-sw-slot-name': slotName,
           'data-sw-slot-span-start': fill.span.start.offset,
           'data-sw-slot-span-end': fill.span.end.offset,
+          // Parent's span too — symmetric with the empty-slot
+          // placeholder wrapper, so the canvas-side hit-test can
+          // resolve the splice-target parent from any wrapper kind
+          // without re-walking the DOM.
+          'data-sw-slot-parent-start': comp.span.start.offset,
+          'data-sw-slot-parent-end': comp.span.end.offset,
+          'data-sw-slot-type': schema.type,
           style: { display: 'contents' },
           key: `slot-${slotName}-${fill.span.start.offset}`,
         },

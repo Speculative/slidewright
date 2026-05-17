@@ -57,6 +57,7 @@ import {
   findActiveSlideFreeform,
   findComponentAtSpan,
   findStringAt,
+  insertIntoArraySlot,
   materializeSlotFill,
   pathToComponent,
   removeShapeAtSpan,
@@ -290,18 +291,36 @@ interface ToolDragState {
   invalidHover: boolean;
 }
 
-// Resolved drop-target context — every field comes from the
-// placeholder's data attributes plus a registry lookup of the
-// parent's meta.
-interface ToolDragDropTarget {
-  // The placeholder DOM element — used for outline positioning
-  // (its `getBoundingClientRect` drives the overlay).
+// Resolved drop-target context. Two arms — empty-slot drops
+// materialize the slot fill from scratch; array-gap drops insert
+// at a position within an existing list.
+type ToolDragDropTarget =
+  | EmptySlotDropTarget
+  | ArrayGapDropTarget;
+
+interface EmptySlotDropTarget {
+  kind: 'empty-slot';
+  // The placeholder DOM element — outline rect comes from its
+  // `getBoundingClientRect`.
   el: HTMLElement;
   parentStart: number;
   parentEnd: number;
   parentName: string;
   slotName: string;
   slotType: SlotType;
+}
+
+interface ArrayGapDropTarget {
+  kind: 'array-gap';
+  // Geometric gap rect in viewport coords — drives the outline.
+  rect: { left: number; top: number; width: number; height: number };
+  parentStart: number;
+  parentEnd: number;
+  parentName: string;
+  slotName: string;
+  slotType: SlotType;
+  // Where to splice within the existing list. 0 ≤ index ≤ N.
+  insertionIndex: number;
 }
 
 const TOOL_DRAG_THRESHOLD = 4;
@@ -373,10 +392,31 @@ function hitTestDropTarget(
   if (!(hit instanceof HTMLElement)) {
     return { target: null, invalidHover: false };
   }
+  // Prefer the more specific match: an empty-slot placeholder is
+  // unambiguous, a filled array slot needs gap geometry. Try
+  // empty first.
   const placeholder = hit.closest<HTMLElement>(
     '[data-sw-slot-empty="true"]',
   );
-  if (!placeholder) return { target: null, invalidHover: false };
+  if (placeholder) {
+    return hitTestEmptySlot(placeholder, produces);
+  }
+  // Walk up to find the nearest filled array slot wrapper. Stack
+  // children render at the array's children level, so the
+  // wrapper is one ancestor up from any direct child.
+  const arrayWrapper = hit.closest<HTMLElement>(
+    '[data-sw-slot-name][data-sw-slot-type^="array<"]',
+  );
+  if (arrayWrapper) {
+    return hitTestArrayGap(arrayWrapper, clientX, clientY, produces);
+  }
+  return { target: null, invalidHover: false };
+}
+
+function hitTestEmptySlot(
+  placeholder: HTMLElement,
+  produces: SlotTypeName,
+): { target: ToolDragDropTarget | null; invalidHover: boolean } {
   const parentStart = Number(placeholder.dataset.swSlotParentStart);
   const parentEnd = Number(placeholder.dataset.swSlotParentEnd);
   const slotName = placeholder.dataset.swSlotName;
@@ -409,6 +449,7 @@ function hitTestDropTarget(
   const parentName = parentEl?.dataset.swComponent ?? '';
   return {
     target: {
+      kind: 'empty-slot',
       el: visual,
       parentStart,
       parentEnd,
@@ -418,6 +459,183 @@ function hitTestDropTarget(
     },
     invalidHover: false,
   };
+}
+
+// Filled array slot. Resolve which gap (before-first /
+// between-children / after-last) the pointer is closest to, and
+// return a drop target carrying the splice index + a rect for
+// the overlay. Skips Freeform — Freeform's children are
+// absolutely positioned with no obvious gap geometry, so its
+// existing rect-draw modal continues to govern there.
+function hitTestArrayGap(
+  wrapper: HTMLElement,
+  clientX: number,
+  clientY: number,
+  produces: SlotTypeName,
+): { target: ToolDragDropTarget | null; invalidHover: boolean } {
+  const parentStart = Number(wrapper.dataset.swSlotParentStart);
+  const parentEnd = Number(wrapper.dataset.swSlotParentEnd);
+  const slotName = wrapper.dataset.swSlotName;
+  const slotType = wrapper.dataset.swSlotType as SlotType | undefined;
+  if (
+    !Number.isFinite(parentStart) ||
+    !Number.isFinite(parentEnd) ||
+    !slotName ||
+    !slotType
+  ) {
+    return { target: null, invalidHover: false };
+  }
+  if (!acceptsTargetSlot(produces, slotType)) {
+    return { target: null, invalidHover: true };
+  }
+  const parentEl = wrapper.parentElement?.closest<HTMLElement>(
+    '[data-sw-component]',
+  );
+  const parentName = parentEl?.dataset.swComponent ?? '';
+  // Freeform children are absolutely positioned — gap geometry
+  // doesn't apply. Skip and leave the existing rect-draw modal
+  // to govern.
+  if (parentName === 'Freeform') {
+    return { target: null, invalidHover: false };
+  }
+  // The wrapper is `display: contents`, so its own
+  // bounding-client-rect is meaningless. The rendered children
+  // sit in its parent's flex layout — find them as the
+  // element descendants of the wrapper that carry
+  // `data-sw-component`.
+  const childEls: HTMLElement[] = [];
+  for (const c of wrapper.children) {
+    if (!(c instanceof HTMLElement)) continue;
+    // The wrapper's children are themselves shape-projection
+    // wrappers (data-sw-component) OR slot wrappers around a
+    // single child. Walk one level down if needed.
+    const compEl = c.matches('[data-sw-component]')
+      ? c
+      : c.querySelector<HTMLElement>(':scope > [data-sw-component]');
+    if (compEl) childEls.push(compEl);
+  }
+  if (childEls.length === 0) {
+    return { target: null, invalidHover: false };
+  }
+  // Detect axis from the first two children. Single-child case
+  // falls back to vertical (matches the v0 VStack default in the
+  // reference deck — HStack with one child is rare and the
+  // before/after gaps still resolve correctly under either
+  // assumption since they don't overlap).
+  const rects = childEls.map((c) => c.getBoundingClientRect());
+  const axis: 'v' | 'h' =
+    rects.length >= 2 && rects[1]!.top >= rects[0]!.bottom - 1
+      ? 'v'
+      : 'h';
+  // N+1 gap rects: before each child + after the last.
+  // Width / height orthogonal to the axis matches the child's
+  // extent; thickness along the axis is the half-gap-tolerance
+  // (12px) so adjacent strips don't overlap.
+  const THICKNESS = 12;
+  let bestIndex = -1;
+  let bestRect: { left: number; top: number; width: number; height: number } | null = null;
+  let bestDist = Infinity;
+  for (let i = 0; i <= rects.length; i++) {
+    const gap = computeGapRect(rects, i, axis, THICKNESS);
+    // Distance from pointer to the gap rect (0 if inside).
+    const dx = Math.max(gap.left - clientX, 0, clientX - (gap.left + gap.width));
+    const dy = Math.max(gap.top - clientY, 0, clientY - (gap.top + gap.height));
+    const dist = Math.hypot(dx, dy);
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestIndex = i;
+      bestRect = gap;
+    }
+  }
+  // Only commit to a gap target if the pointer is inside the
+  // wrapper's overall extent; otherwise we'd light up gaps from
+  // far away.
+  const wrapperBounds = boundsOfRects(rects);
+  if (
+    clientX < wrapperBounds.left - THICKNESS ||
+    clientX > wrapperBounds.right + THICKNESS ||
+    clientY < wrapperBounds.top - THICKNESS ||
+    clientY > wrapperBounds.bottom + THICKNESS
+  ) {
+    return { target: null, invalidHover: false };
+  }
+  if (bestIndex < 0 || !bestRect) {
+    return { target: null, invalidHover: false };
+  }
+  return {
+    target: {
+      kind: 'array-gap',
+      rect: bestRect,
+      parentStart,
+      parentEnd,
+      parentName,
+      slotName,
+      slotType,
+      insertionIndex: bestIndex,
+    },
+    invalidHover: false,
+  };
+}
+
+// Compute the i-th gap rect among `rects` along `axis`.
+// i ∈ [0, rects.length]:
+//   - i = 0          → before the first child
+//   - i = rects.length → after the last child
+//   - otherwise      → between rects[i-1] and rects[i]
+function computeGapRect(
+  rects: DOMRect[],
+  i: number,
+  axis: 'v' | 'h',
+  thickness: number,
+): { left: number; top: number; width: number; height: number } {
+  if (axis === 'v') {
+    // Horizontal strip at a vertical gap.
+    let centerY: number;
+    if (i === 0) centerY = rects[0]!.top;
+    else if (i === rects.length) centerY = rects[rects.length - 1]!.bottom;
+    else centerY = (rects[i - 1]!.bottom + rects[i]!.top) / 2;
+    // Span the union of the bracketing children's horizontal
+    // extents so the strip aligns with the visible flow.
+    const refIdx = i === rects.length ? rects.length - 1 : i;
+    const r = rects[refIdx]!;
+    return {
+      left: r.left,
+      top: centerY - thickness / 2,
+      width: r.width,
+      height: thickness,
+    };
+  }
+  let centerX: number;
+  if (i === 0) centerX = rects[0]!.left;
+  else if (i === rects.length) centerX = rects[rects.length - 1]!.right;
+  else centerX = (rects[i - 1]!.right + rects[i]!.left) / 2;
+  const refIdx = i === rects.length ? rects.length - 1 : i;
+  const r = rects[refIdx]!;
+  return {
+    left: centerX - thickness / 2,
+    top: r.top,
+    width: thickness,
+    height: r.height,
+  };
+}
+
+function boundsOfRects(rects: DOMRect[]): {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+} {
+  let left = Infinity;
+  let top = Infinity;
+  let right = -Infinity;
+  let bottom = -Infinity;
+  for (const r of rects) {
+    if (r.left < left) left = r.left;
+    if (r.top < top) top = r.top;
+    if (r.right > right) right = r.right;
+    if (r.bottom > bottom) bottom = r.bottom;
+  }
+  return { left, top, right, bottom };
 }
 
 function getAdapter(componentName: string): ShapeAdapter | null {
@@ -1288,21 +1506,41 @@ export function App({
     const onUp = () => {
       setToolDrag((prev) => {
         if (!prev || !prev.committed || !prev.target) return null;
-        const { parentStart, parentEnd, slotName, slotType } = prev.target;
+        const target = prev.target;
         const result = commitSourceEdit(
           sourceRef.current,
           '<tool-drag>',
           (ast) => {
-            const parent = findComponentAtSpan(ast, parentStart, parentEnd);
+            const parent = findComponentAtSpan(
+              ast,
+              target.parentStart,
+              target.parentEnd,
+            );
             if (!parent) return null;
             const node = insertion.stub({
               gesture: 'drag',
-              targetSlotType: slotType,
+              targetSlotType: target.slotType,
+              insertionIndex:
+                target.kind === 'array-gap'
+                  ? target.insertionIndex
+                  : undefined,
             });
             if (!node) return null;
-            if (!materializeSlotFill(parent, slotName, slotType, node)) {
-              return null;
-            }
+            const ok =
+              target.kind === 'empty-slot'
+                ? materializeSlotFill(
+                    parent,
+                    target.slotName,
+                    target.slotType,
+                    node,
+                  )
+                : insertIntoArraySlot(
+                    parent,
+                    target.slotName,
+                    target.insertionIndex,
+                    node,
+                  );
+            if (!ok) return null;
             return {};
           },
         );
@@ -1338,10 +1576,20 @@ export function App({
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
+    // Re-run on any target transition. For empty-slot targets
+    // we'd ideally key on `target.el`, but the union also has
+    // array-gap targets with no `el`; the broader `kind +
+    // insertion index` shape covers every transition either
+    // arm can take.
   }, [
     toolDrag?.committed,
     toolDrag?.invalidHover,
-    toolDrag?.target?.el,
+    toolDrag?.target?.kind,
+    toolDrag?.target?.parentStart,
+    toolDrag?.target?.slotName,
+    toolDrag?.target?.kind === 'array-gap'
+      ? toolDrag.target.insertionIndex
+      : undefined,
   ]);
 
   // ─── Marquee selection ──────────────────────────────────────────
@@ -2225,12 +2473,26 @@ function ToolDragOverlay({
   toolDrag: ToolDragState | null;
 }): ReactNode {
   if (!toolDrag || !toolDrag.committed || !toolDrag.target) return null;
-  const rect = toolDrag.target.el.getBoundingClientRect();
-  const { parentName, slotName } = toolDrag.target;
-  const label = parentName ? `${parentName}.${slotName}` : slotName;
+  const target = toolDrag.target;
+  const rect =
+    target.kind === 'empty-slot'
+      ? target.el.getBoundingClientRect()
+      : target.rect;
+  const { parentName, slotName } = target;
+  const baseLabel = parentName ? `${parentName}.${slotName}` : slotName;
+  // For array-gap targets, surface the position so users can
+  // tell "insert at index 2" from "insert at index 3" without
+  // counting children manually.
+  const label =
+    target.kind === 'array-gap'
+      ? `${baseLabel} (insert at #${target.insertionIndex})`
+      : `Drop into ${baseLabel}`;
   return createPortal(
     <div
-      className="sw-drop-target-overlay"
+      className={
+        'sw-drop-target-overlay' +
+        (target.kind === 'array-gap' ? ' sw-drop-target-gap' : '')
+      }
       style={{
         position: 'fixed',
         left: `${rect.left}px`,
@@ -2241,7 +2503,7 @@ function ToolDragOverlay({
         boxSizing: 'border-box',
       }}
     >
-      <span className="sw-drop-target-label">Drop into {label}</span>
+      <span className="sw-drop-target-label">{label}</span>
     </div>,
     document.body,
   );

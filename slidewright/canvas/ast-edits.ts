@@ -289,6 +289,25 @@ export function materializeSlotFill(
   return true;
 }
 
+// Insert a value into an existing array-typed slot at the given
+// index. Used by drag-into-gap on a filled `array<...>` slot.
+// `index` ranges from 0 (insert before first child) to N (append
+// after last child). Returns true on success; false if the slot
+// is missing or not a list.
+export function insertIntoArraySlot(
+  parent: Component,
+  slotName: string,
+  index: number,
+  value: Value,
+): boolean {
+  const fill = parent.fills.find((f) => f.name === slotName);
+  if (!fill || fill.value.kind !== 'list') return false;
+  const items = fill.value.items;
+  const clamped = Math.max(0, Math.min(index, items.length));
+  items.splice(clamped, 0, value);
+  return true;
+}
+
 // ─── Component-path identity ─────────────────────────────────────
 //
 // Source spans aren't stable across the canonical-emitter round-

@@ -311,6 +311,15 @@ html, body, #root {
   z-index: 1100;
 }
 
+/* Array-gap variant — a thin solid bar instead of an outlined
+ * rectangle. The center line marks the insertion position
+ * between (or before / after) the array's children. */
+.sw-drop-target-overlay.sw-drop-target-gap {
+  border: none;
+  background: var(--accent, #0066ff);
+  border-radius: 2px;
+}
+
 .sw-drop-target-label {
   position: absolute;
   top: 100%;
