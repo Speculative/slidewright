@@ -235,6 +235,46 @@ html, body, #root {
   transition: background 60ms ease, border-color 60ms ease;
 }
 
+/* Category section in the tool palette. Groups entries that share
+ * a `category` field on the component's `slidewright.insertion`
+ * metadata. Section header is hidden when only one category is
+ * present — see ToolPalette.tsx / showHeaders. */
+.sw-tool-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sw-tool-section-header {
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.55);
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  padding: 4px 6px;
+  margin-top: 2px;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sw-tool-section-header:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.sw-tool-section-chevron {
+  display: inline-block;
+  width: 10px;
+  font-size: 10px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
 .sw-tool:hover {
   background: rgba(0, 0, 0, 0.06);
 }

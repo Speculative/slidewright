@@ -267,9 +267,9 @@ The v0.4 tight cut + reorder + gap-drag + click-into-named-slots + empty-slot pl
   - **Stub factories live in component modules**, using AST-builder helpers exposed from `runtime/`. Keeps each component's "how to insert me" colocated with its meta + render.
 
   **Sequenced steps**:
-  1. Extend `ComponentMeta` with `category` / `description` / `insertion`; create `runtime/ast-builders.ts` exposing low-level node constructors (`makeComponent`, `slotFill`, `numberLit`, `stringLit`, `nameRef`, etc.) for component modules to consume.
-  2. Add `insertion` stubs to each of the 9 v0-reference components (Box / TextBox / Arrow as `modal`; VStack / HStack / CardRow / Freeform as `drag`; TitleSlide / ContentSlide as `drag` gated on `slide` target).
-  3. Replace `ToolPalette.tsx` with a registry-driven toolbar, behaviorally identical to today (modal-only, surfaces Box / TextBox / Arrow). Wire `App.tsx`'s create-gesture to dispatch via the registry's `insertion.stub` rather than hardcoded factories. Remove `makeBoxNode`/`makeTextBoxNode`/`makeArrowNode` from `ast-edits.ts` once unused.
+  1. Extend `ComponentMeta` with `category` / `description` / `insertion`; create `runtime/ast-builders.ts` exposing low-level node constructors (`makeComponent`, `slotFill`, `numberLit`, `stringLit`, `nameRef`, etc.) for component modules to consume. ✅ landed (36182ec).
+  2. Add `insertion` stubs to each of the 9 v0-reference components (Box / TextBox / Arrow as `modal`; VStack / HStack / CardRow / Freeform as `drag`; TitleSlide / ContentSlide as `drag` gated on `slide` target). ✅ landed (621066a).
+  3. Replace `ToolPalette.tsx` with a registry-driven toolbar, behaviorally identical to today (modal-only, surfaces Box / TextBox / Arrow). Wire `App.tsx`'s create-gesture to dispatch via the registry's `insertion.stub` rather than hardcoded factories. Remove `makeBoxNode`/`makeTextBoxNode`/`makeArrowNode` from `ast-edits.ts` once unused. ✅ landed (1a194d2).
   4. Categories + collapsible sections in the toolbar.
   5. Search/filter input in the toolbar.
   6. Drag-into-slot for layouts: pointerdown on toolbar entry → drag → valid drop targets highlight via selection-layer outlines (+ "Drop into `CardRow.body`" label) → release commits.
@@ -294,6 +294,8 @@ The v0.4 tight cut + reorder + gap-drag + click-into-named-slots + empty-slot pl
 - ~~**Drag-to-scrub on numeric inputs**~~ landed via the PropertyRow Pointer Lock pattern; ColorPicker reuses the same shape on its L/C/H labels.
 
 ### Gestures
+
+- **Esc-cancels-gesture-in-flight**. Today the gesture lifecycle (drag-to-move, resize, create-rect-on-Freeform, marquee) only ends on pointerup — pressing Escape mid-drag does nothing and the gesture commits whatever the pointer state is at release. Fix: add a `keydown` listener inside each gesture effect (main `gestureMeta` effect, `createPreview` effect, `marquee` effect) that on `Escape` aborts without committing — clear `gestureMeta` / `createPreview` / `marquee` and skip the `commitSourceEdit` call. Small standalone fix; not driving any current work.
 
 - **Shift to lock aspect ratio** during single-shape and group resize. Constraint applied at `gestureStateToDelta` time: clamp `sy` to `sx` (or vice versa) per direction. Doesn't require the matrix generalization below.
 
