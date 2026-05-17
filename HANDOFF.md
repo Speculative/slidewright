@@ -252,13 +252,31 @@ The v0.4 tight cut + reorder + gap-drag + click-into-named-slots + empty-slot pl
 
 - **Fold slide-content components into the Slide row (long-term)** — today the user sees two hierarchy rows for what they think of as "the slide": the `Slide` wrapper (label, notes) and the slide-content component that fills `Slide.content` (e.g., `ContentSlide` with `eyebrow / title / intro / body`). Option 1 has landed: slide-content components (those with `produces: 'slide'`) keep their selectability + property panel but don't draw a canvas outline (selection-layer reads `meta.produces`). Option 2 is the long-term direction: hide slide-content components from the hierarchy entirely and merge their slot rows into the Slide row's property panel — selecting "Slide" would show `label / notes` plus the content component's slots together. Has follow-on questions for decks where `Slide.content` is a `Freeform` of arbitrary shapes (no obvious slot rows to merge); needs design work. Until then, option 1's "selectable but not outlined" is the live behavior.
 
-- **Schema-aware un-omit defaults in the inspector** — toggle-OFF currently splices `""` (empty string) regardless of slot type. Works fine for text/string slots (the dominant case); for block / slide / array slots the user must hand-edit. Path forward: PropertyRow could read `meta.slots[fillName].type` (the schema is already on ShapeData per the omit gating) and pick a type-shaped default: `[]` for arrays, an empty stub like `Box { }` for `block`, etc.
+- **Component toolbar overhaul + insertion gestures (in progress)** — replace the four hardcoded toolbar buttons (`select` / `box` / `textbox` / `arrow`) with a registry-driven toolbar; generalize insertion so any registered component can be inserted into a compatible slot. Designed end-to-end with the user; sequenced in 8 steps so it can land across multiple sessions:
 
-- **Component toolbar overhaul** — today's tool palette is four hardcoded buttons (`select` / `box` / `textbox` / `arrow`). Once slotted layouts and composites become first-class, the toolbar needs categorization, search, and slot-aware filtering (only surface components whose `produces` matches the targeted slot type). The registry needs to expose per-component metadata (icon, category) for the toolbar to consume. Effectively a prerequisite for the layout-DM story below — you can't add a layout via direct manipulation without a way to summon it.
+  **Design decisions** (locked in before implementation):
+  - **Metadata**: extend `ComponentMeta` with optional `category?: string`, `description?: string`, and `insertion?: { gestures: ('drag' | 'modal')[]; stub: (ctx: InsertionContext) => AstNode | null }`. Components without `insertion` are author-in-source only (e.g., builtins `Span` / `Tokens`).
+  - **InsertionContext**: `{ gesture: 'drag' | 'modal'; targetSlotType: SlotType; rect?: { x, y, w, h }; insertionIndex?: number }`. The stub function judges whether the context is satisfiable (e.g., `Box` returns null without a `rect`; `ContentSlide` returns null unless `targetSlotType === 'slide'`).
+  - **Two gesture modes**, per-component opt-in:
+    - `modal` — click toolbar entry → modal cursor → drag-rect on Freeform. Matches today's Box/TextBox/Arrow muscle memory.
+    - `drag` — pointerdown on toolbar entry starts a drag; release on a valid drop target commits.
+    - Freeform shapes (`Box`, `TextBox`, `Arrow`) are `gestures: ['modal']`; layouts (`VStack`, `HStack`, `CardRow`, `Freeform`) and slide-content (`TitleSlide`, `ContentSlide`) are `gestures: ['drag']`. Per-component opt-in keeps each gesture surface where it makes sense.
+  - **Drop-target validity**: slot's declared type must match the component's `produces` (incl. `array<produces>`); the target must be a *loader-emitted placeholder* (truly empty slot or array-insertion gap). Filled non-array slots reject — user must clear first. `omit` rejects **silently** (no toolbar feedback) since `omit` may mean the parent has stopped rendering the slot entirely; no useful drop target exists.
+  - **Array insertion**: three insertion points — before-first / between-children / after-last. Reuses existing gap-drag machinery from VStack/HStack reorder.
+  - **Event model**: pointer events throughout (no HTML5 DnD).
+  - **Stub factories live in component modules**, using AST-builder helpers exposed from `runtime/`. Keeps each component's "how to insert me" colocated with its meta + render.
 
-- **Layout add / configure via direct manipulation** — adding a layout component into a slot, configuring its params, populating its children. Decomposes into:
-  - **Insertion gestures** — drag-from-toolbar-into-slot, click-empty-slot-then-pick, etc. With the opaque-delta refactor in place, these live in the layout adapter's `buildGestureState` / `combineGestureState` / `applyGesture` / `commit` rather than touching App.tsx.
-  - **Slot-typed acceptance** — only allow drops into slots whose type matches the inserted component's `produces`. Ties into empty-slot placeholders above.
+  **Sequenced steps**:
+  1. Extend `ComponentMeta` with `category` / `description` / `insertion`; create `runtime/ast-builders.ts` exposing low-level node constructors (`makeComponent`, `slotFill`, `numberLit`, `stringLit`, `nameRef`, etc.) for component modules to consume.
+  2. Add `insertion` stubs to each of the 9 v0-reference components (Box / TextBox / Arrow as `modal`; VStack / HStack / CardRow / Freeform as `drag`; TitleSlide / ContentSlide as `drag` gated on `slide` target).
+  3. Replace `ToolPalette.tsx` with a registry-driven toolbar, behaviorally identical to today (modal-only, surfaces Box / TextBox / Arrow). Wire `App.tsx`'s create-gesture to dispatch via the registry's `insertion.stub` rather than hardcoded factories. Remove `makeBoxNode`/`makeTextBoxNode`/`makeArrowNode` from `ast-edits.ts` once unused.
+  4. Categories + collapsible sections in the toolbar.
+  5. Search/filter input in the toolbar.
+  6. Drag-into-slot for layouts: pointerdown on toolbar entry → drag → valid drop targets highlight via selection-layer outlines (+ "Drop into `CardRow.body`" label) → release commits.
+  7. Array gap indicators for between/before/after insertion on `array<block>` slots in non-Freeform layouts. Freeform drops still fall through to the existing rect-draw modal.
+  8. Playwright e2e tests for the toolbar + insertion gestures.
+
+- **Layout configure via direct manipulation** — beyond insertion, layouts need gesture-driven param adjustment:
   - **Param configuration via gesture** — drag the gap between two `VStack` children to adjust `spacing`; drag a divider to change a `Grid` column width; drag an `HStack`'s alignment guide. Gestures bound to specific layout params, not just spatial position. The inspector covers the same params from the keyboard side; the gesture surface is the direct-manipulation peer.
 
 ### Editor and source surface

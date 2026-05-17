@@ -9,6 +9,7 @@
 // DSL slot fillings and dispatch resolved props to the default export.
 
 import type { ReactNode, ComponentType } from 'react';
+import type { Component as AstComponent } from './ast.js';
 
 // ── Type vocabulary (SLIDEWRIGHT.md / "Slot types and `produces` share
 // one vocabulary"). v0 ships this fixed set; the vocabulary is
@@ -46,6 +47,70 @@ export interface ComponentMeta {
   params?: Record<string, ParamSchema>;
   // Reserved for v0; populating is non-breaking.
   protocols?: Record<string, unknown>;
+
+  // ── Editor presentation + insertion (optional) ────────────────
+  // These fields are consumed by the canvas toolbar / insertion
+  // pipeline. Components that omit `insertion` don't appear in the
+  // toolbar — they're authored in source only. Builtins (Span,
+  // Tokens, Deck, Slide) intentionally don't set these.
+
+  // Toolbar grouping. Sibling components share a section; the
+  // string is the section title verbatim. Free-form so deck
+  // authors can introduce new categories without touching runtime.
+  category?: string;
+
+  // One-line description for tooltips / search.
+  description?: string;
+
+  // Insertion factory. Present iff the component is directly
+  // insertable from the toolbar. See InsertionContext below for
+  // the call shape.
+  insertion?: ComponentInsertion;
+}
+
+// What the editor passes when invoking `insertion.stub`. The stub
+// either returns a fresh `Component` AST node ready to splice into
+// the target, or `null` to signal the context can't satisfy this
+// component (e.g., a Box dragged onto a slot that doesn't expose a
+// rect; a slide-content component dropped onto a `block` slot).
+// Returning null is the principled way to opt out of a particular
+// drop; the toolbar uses it to dim incompatible entries during a
+// drag.
+export interface InsertionContext {
+  // Which toolbar gesture initiated this insertion. Components
+  // can branch on the gesture if they support both modes (most
+  // don't — they opt into exactly one via `insertion.gestures`).
+  gesture: 'drag' | 'modal';
+  // The declared slot type at the drop target. Includes `array<…>`
+  // forms for array slots.
+  targetSlotType: SlotType;
+  // Slide-design-space rectangle for the drop. Present when the
+  // drop landed on a Freeform (rect from the modal draw or from
+  // the drag's release point) — required by shape primitives that
+  // need geometry. Absent for layout-stack drops, where the
+  // component self-sizes.
+  rect?: { x: number; y: number; width: number; height: number };
+  // Insertion index within an `array<…>` slot. Present for
+  // gap-drag drops on array slots; absent for empty-slot drops
+  // (which always splice as the slot's first/only fill).
+  insertionIndex?: number;
+}
+
+export interface ComponentInsertion {
+  // Which toolbar gestures expose this component:
+  //   'modal' — click toolbar → modal cursor → drag-rect on Freeform.
+  //   'drag'  — pointerdown on toolbar entry starts a drag; release
+  //             on a valid drop target commits.
+  // A component may opt into both; freeform shape primitives
+  // ship as ['modal'] (matches design-tool muscle memory),
+  // layouts as ['drag'].
+  gestures: ('drag' | 'modal')[];
+
+  // Build the AST node to splice. The runtime layer doesn't
+  // assume any particular AST shape — the stub returns whatever
+  // is appropriate (typically a `Component` invocation, but
+  // `null` to refuse).
+  stub: (ctx: InsertionContext) => AstComponent | null;
 }
 
 // Whether a slot was filled, missing entirely, or explicitly
