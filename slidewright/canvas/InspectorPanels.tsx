@@ -936,7 +936,9 @@ function PropertyRow({
 
   // Current color value rendered as a CSS string — drives the
   // "current" indicator border on the matching swatch.
-  const currentCss = isColor ? readColorValueCss(fill.value) : null;
+  const currentCss = isColor
+    ? readColorValueCss(fill.value, paletteProps.colorTokens)
+    : null;
 
   // Picker open state — true while the color popover should render.
   // Set on cell focus; cleared by ColorPopover's outside-click /
@@ -1383,8 +1385,18 @@ function useResolvedDedup(
 // to drive the "current" swatch indicator). Mirrors the loader's
 // readColorValue path but doesn't error on unsupported kinds —
 // returns null for those.
-function readColorValueCss(v: Value): string | null {
-  if (v.kind === 'name_ref') return `var(--${v.name})`;
+// Render-time CSS for a fill value — drives the preview swatch and
+// the "current" indicator dot in the palette. Mirrors the loader's
+// `readColorValue` resolution: name_refs consult the merged
+// (registry + source-declared) token map first, only falling back
+// to `var(--name)` when the name isn't in the map. Without this
+// lookup, source-declared tokens would paint as `var(--brand)`,
+// which doesn't resolve to anything (no matching CSS variable).
+function readColorValueCss(
+  v: Value,
+  tokens: Record<string, string>,
+): string | null {
+  if (v.kind === 'name_ref') return tokens[v.name] ?? `var(--${v.name})`;
   if (v.kind === 'color_oklch') return `oklch(${v.l} ${v.c} ${v.h})`;
   if (v.kind === 'string') return v.value;
   return null;
