@@ -299,6 +299,32 @@ html, body, #root {
   font-style: italic;
 }
 
+/* Active drop-target outline drawn while dragging a component
+ * from the toolbar over a valid empty-slot placeholder. Portaled
+ * to document.body and positioned in viewport coords (rect from
+ * getBoundingClientRect) so it works regardless of the slot's
+ * positioned ancestor. */
+.sw-drop-target-overlay {
+  border: 2px solid var(--accent, #0066ff);
+  background: rgba(0, 102, 255, 0.08);
+  border-radius: 4px;
+  z-index: 1100;
+}
+
+.sw-drop-target-label {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: var(--accent, #0066ff);
+  color: #fff;
+  font-size: 11px;
+  font-family: var(--font-body);
+  padding: 2px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
 .sw-tool:hover {
   background: rgba(0, 0, 0, 0.06);
 }

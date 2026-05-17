@@ -21,7 +21,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import type { ReactElement, ReactNode } from 'react';
+import type { PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 import { emit } from '../runtime/emitter.js';
@@ -57,6 +57,7 @@ import {
   findActiveSlideFreeform,
   findComponentAtSpan,
   findStringAt,
+  materializeSlotFill,
   pathToComponent,
   removeShapeAtSpan,
   type PreserveSelection,
@@ -85,6 +86,11 @@ import {
   type SlotInfo,
 } from './InspectorPanels.js';
 import { ToolPalette, SELECT_TOOL, type Tool, type ToolEntry } from './ToolPalette.js';
+import {
+  acceptsTargetSlot,
+  type SlotType,
+  type SlotTypeName,
+} from '../runtime/contract.js';
 
 interface DeckMeta {
   name: string;
@@ -251,6 +257,55 @@ interface UndoEntry {
   slideIdx: number;
 }
 
+// ─── Tool-drag gesture (drag from toolbar onto a slot) ────────────
+//
+// Drag-mode toolbar entries (e.g., VStack, CardRow, TitleSlide)
+// kick off a document-level pointer drag that resolves a valid
+// drop target on each move and commits on release. Lives parallel
+// to `createPreview` (modal draw) and `marquee`; one of the three
+// is active at a time. See ToolPalette / `onDragStart`.
+
+interface ToolDragState {
+  // Component-registry key being dragged in.
+  tool: string;
+  // Whether the pointer has crossed the drag-commit threshold.
+  // Pointerdown without movement should fall back to onClick on
+  // entries that opt into both gestures; today's entries are
+  // exclusive so committed=false ends as a silent no-op.
+  committed: boolean;
+  // Pointerdown coords in client space — used by the threshold
+  // check before the drag commits.
+  pointerStartX: number;
+  pointerStartY: number;
+  // Latest pointer position in client space — drives both the
+  // hit-test and the drop-target overlay's positioning.
+  pointerCurrentX: number;
+  pointerCurrentY: number;
+  // Last identified valid drop target (or null). `validity`
+  // distinguishes "no candidate under pointer" (null) from
+  // "candidate but slot type rejects" — for cursor feedback.
+  target: ToolDragDropTarget | null;
+  // Pointer is over a slot placeholder but it rejected. Drives
+  // the `not-allowed` cursor. Mutually exclusive with `target`.
+  invalidHover: boolean;
+}
+
+// Resolved drop-target context — every field comes from the
+// placeholder's data attributes plus a registry lookup of the
+// parent's meta.
+interface ToolDragDropTarget {
+  // The placeholder DOM element — used for outline positioning
+  // (its `getBoundingClientRect` drives the overlay).
+  el: HTMLElement;
+  parentStart: number;
+  parentEnd: number;
+  parentName: string;
+  slotName: string;
+  slotType: SlotType;
+}
+
+const TOOL_DRAG_THRESHOLD = 4;
+
 // ─── Create gesture (drawing tools) ───────────────────────────────
 //
 // React-native preview state. Replaces the old imperative
@@ -294,6 +349,77 @@ interface MarqueeState {
 // Look up a shape's canvas adapter from the static registry. Used
 // by gesture-dispatch and commit code that doesn't have access to
 // the loader's resolved shape data.
+// Resolve which empty-slot placeholder (if any) sits under a
+// client-space point, and whether the dragged component is type-
+// compatible with that slot. Returns:
+//   - { target: T, invalidHover: false } when a valid placeholder
+//     is under the pointer and accepts the dragged component;
+//   - { target: null, invalidHover: true } when a placeholder is
+//     present but rejects the dragged component (different type);
+//   - { target: null, invalidHover: false } when no placeholder
+//     is under the pointer.
+//
+// Only loader-emitted placeholders (`data-sw-slot-empty="true"`)
+// participate. `omit` sigils don't render placeholders so they
+// reject silently. Filled slots reject silently. Empty `array<>`
+// slots authored as `children: []` don't render placeholders
+// today either — step 7's gap indicators add those targets.
+function hitTestDropTarget(
+  clientX: number,
+  clientY: number,
+  produces: SlotTypeName,
+): { target: ToolDragDropTarget | null; invalidHover: boolean } {
+  const hit = document.elementFromPoint(clientX, clientY);
+  if (!(hit instanceof HTMLElement)) {
+    return { target: null, invalidHover: false };
+  }
+  const placeholder = hit.closest<HTMLElement>(
+    '[data-sw-slot-empty="true"]',
+  );
+  if (!placeholder) return { target: null, invalidHover: false };
+  const parentStart = Number(placeholder.dataset.swSlotParentStart);
+  const parentEnd = Number(placeholder.dataset.swSlotParentEnd);
+  const slotName = placeholder.dataset.swSlotName;
+  const slotType = placeholder.dataset.swSlotType as SlotType | undefined;
+  if (
+    !Number.isFinite(parentStart) ||
+    !Number.isFinite(parentEnd) ||
+    !slotName ||
+    !slotType
+  ) {
+    return { target: null, invalidHover: false };
+  }
+  if (!acceptsTargetSlot(produces, slotType)) {
+    return { target: null, invalidHover: true };
+  }
+  // Locate the visible inner element (the dashed box / inline
+  // ghost-text span). The wrapper itself is `display: contents`,
+  // so its bounding rect is empty — we use the first element
+  // child for outline positioning.
+  const visual =
+    (placeholder.firstElementChild as HTMLElement | null) ?? placeholder;
+  // Walk up the DOM to find the parent component's element —
+  // its `data-sw-component` attr names the parent. Used in the
+  // overlay label ("Drop into CardRow.body"). The walk starts at
+  // the placeholder's parent so we don't bind to the placeholder
+  // wrapper itself.
+  const parentEl = placeholder.parentElement?.closest<HTMLElement>(
+    '[data-sw-component]',
+  );
+  const parentName = parentEl?.dataset.swComponent ?? '';
+  return {
+    target: {
+      el: visual,
+      parentStart,
+      parentEnd,
+      parentName,
+      slotName,
+      slotType,
+    },
+    invalidHover: false,
+  };
+}
+
 function getAdapter(componentName: string): ShapeAdapter | null {
   const loaded = components[componentName];
   if (!loaded) return null;
@@ -306,15 +432,14 @@ function getAdapter(componentName: string): ShapeAdapter | null {
 // `index.tsx` import order, which is a deliberate placement they
 // can shuffle to control toolbar order until categorization +
 // search land in later steps.
-const modalToolEntries: ToolEntry[] = Object.entries(components)
-  .filter(([, loaded]) =>
-    loaded.meta.insertion?.gestures.includes('modal'),
-  )
+const toolEntries: ToolEntry[] = Object.entries(components)
+  .filter(([, loaded]) => loaded.meta.insertion !== undefined)
   .map(([name, loaded]) => ({
     id: name,
     label: name,
     description: loaded.meta.description,
     category: loaded.meta.category,
+    gestures: loaded.meta.insertion!.gestures,
   }));
 
 // Read the current canvas scale (design pixels → CSS pixels). The
@@ -381,6 +506,7 @@ export function App({
   } | null>(null);
   const [createPreview, setCreatePreview] = useState<CreatePreview | null>(null);
   const [marquee, setMarquee] = useState<MarqueeState | null>(null);
+  const [toolDrag, setToolDrag] = useState<ToolDragState | null>(null);
   const [gestureMeta, setGestureMeta] = useState<GestureMeta | null>(null);
   const [gestureLive, setGestureLive] = useState<GestureLive>(ZERO_LIVE);
   const [activeTool, setActiveTool] = useState<Tool>(SELECT_TOOL);
@@ -1095,6 +1221,129 @@ export function App({
     };
   }, [createPreview, host]);
 
+  // ─── Tool-drag lifecycle (drag from toolbar onto a slot) ─────────
+  //
+  // Initialized by ToolPalette's pointerdown on a drag-mode entry.
+  // Document-level pointermove resolves the hovered drop target;
+  // pointerup commits (or silently cancels).
+  const handleToolDragStart = useCallback(
+    (tool: string, e: ReactPointerEvent) => {
+      // Pointerdown on the toolbar button propagates up through
+      // `.sw-canvas-stage` to the freeform's gesture handlers.
+      // Stop it here so the drag from the toolbar doesn't also
+      // kick off a marquee / create-rect. preventDefault keeps
+      // text from getting selected during the threshold window
+      // before the cursor effect installs `userSelect: 'none'`.
+      e.stopPropagation();
+      e.preventDefault();
+      setToolDrag({
+        tool,
+        committed: false,
+        pointerStartX: e.clientX,
+        pointerStartY: e.clientY,
+        pointerCurrentX: e.clientX,
+        pointerCurrentY: e.clientY,
+        target: null,
+        invalidHover: false,
+      });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!toolDrag) return;
+    const insertion = components[toolDrag.tool]?.meta.insertion;
+    const produces = components[toolDrag.tool]?.meta.produces;
+    if (!insertion || !produces) {
+      setToolDrag(null);
+      return;
+    }
+
+    const onMove = (e: PointerEvent) => {
+      const x = e.clientX;
+      const y = e.clientY;
+      setToolDrag((prev) => {
+        if (!prev) return prev;
+        const committed =
+          prev.committed ||
+          Math.hypot(
+            x - prev.pointerStartX,
+            y - prev.pointerStartY,
+          ) >= TOOL_DRAG_THRESHOLD;
+        if (!committed) {
+          return { ...prev, pointerCurrentX: x, pointerCurrentY: y };
+        }
+        const { target, invalidHover } = hitTestDropTarget(x, y, produces);
+        return {
+          ...prev,
+          committed: true,
+          pointerCurrentX: x,
+          pointerCurrentY: y,
+          target,
+          invalidHover,
+        };
+      });
+    };
+
+    const onUp = () => {
+      setToolDrag((prev) => {
+        if (!prev || !prev.committed || !prev.target) return null;
+        const { parentStart, parentEnd, slotName, slotType } = prev.target;
+        const result = commitSourceEdit(
+          sourceRef.current,
+          '<tool-drag>',
+          (ast) => {
+            const parent = findComponentAtSpan(ast, parentStart, parentEnd);
+            if (!parent) return null;
+            const node = insertion.stub({
+              gesture: 'drag',
+              targetSlotType: slotType,
+            });
+            if (!node) return null;
+            if (!materializeSlotFill(parent, slotName, slotType, node)) {
+              return null;
+            }
+            return {};
+          },
+        );
+        if (result) commitToHost(result.newSource);
+        return null;
+      });
+    };
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    return () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+    };
+    // Effect re-installs when the tool itself changes; pointer
+    // coords are committed via setState so listeners read fresh
+    // state without re-installing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toolDrag?.tool, host]);
+
+  // Cursor / user-select feedback while a tool-drag is active.
+  // Separate from the lifecycle effect above so the cursor updates
+  // on every state change (committed flag flip, valid/invalid
+  // target transitions) without reinstalling document listeners.
+  useEffect(() => {
+    if (!toolDrag || !toolDrag.committed) return;
+    let cursor = 'grabbing';
+    if (toolDrag.invalidHover) cursor = 'not-allowed';
+    else if (toolDrag.target) cursor = 'copy';
+    document.body.style.cursor = cursor;
+    document.body.style.userSelect = 'none';
+    return () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [
+    toolDrag?.committed,
+    toolDrag?.invalidHover,
+    toolDrag?.target?.el,
+  ]);
+
   // ─── Marquee selection ──────────────────────────────────────────
   //
   // Pointerdown on empty Freeform space → marquee. setState per
@@ -1461,8 +1710,9 @@ export function App({
           <div className="sw-canvas-stage">
             <ToolPalette
               active={activeTool}
-              tools={modalToolEntries}
+              tools={toolEntries}
               onSelect={setActiveTool}
+              onDragStart={handleToolDragStart}
             />
             <GestureProvider deltas={gestureDeltas}>
               <ScaledCanvas
@@ -1544,6 +1794,7 @@ export function App({
               />
               <MarqueePreviewOverlay marquee={marquee} />
               <CreatePreviewOverlay createPreview={createPreview} />
+              <ToolDragOverlay toolDrag={toolDrag} />
             </GestureProvider>
           </div>
         ) : null}
@@ -1956,6 +2207,43 @@ function CreatePreviewOverlay({
       }}
     />,
     createPreview.freeformDiv,
+  );
+}
+
+// ─── Tool-drag drop-target outline (portaled to body) ────────────
+//
+// Active while a drag-mode toolbar entry is being dragged AND the
+// pointer is over a valid empty-slot placeholder. Positions an
+// outline div over the placeholder's bounding rect with a label.
+// Portaled to document.body (rather than the freeform) because
+// drop targets may live in any positioned ancestor; body is the
+// stable root.
+
+function ToolDragOverlay({
+  toolDrag,
+}: {
+  toolDrag: ToolDragState | null;
+}): ReactNode {
+  if (!toolDrag || !toolDrag.committed || !toolDrag.target) return null;
+  const rect = toolDrag.target.el.getBoundingClientRect();
+  const { parentName, slotName } = toolDrag.target;
+  const label = parentName ? `${parentName}.${slotName}` : slotName;
+  return createPortal(
+    <div
+      className="sw-drop-target-overlay"
+      style={{
+        position: 'fixed',
+        left: `${rect.left}px`,
+        top: `${rect.top}px`,
+        width: `${rect.width}px`,
+        height: `${rect.height}px`,
+        pointerEvents: 'none',
+        boxSizing: 'border-box',
+      }}
+    >
+      <span className="sw-drop-target-label">Drop into {label}</span>
+    </div>,
+    document.body,
   );
 }
 

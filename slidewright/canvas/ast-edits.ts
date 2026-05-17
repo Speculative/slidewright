@@ -260,6 +260,35 @@ export function addStringSlotFill(
   return true;
 }
 
+// Splice an arbitrary AST value into a parent component's slot.
+// Caller passes the slot's declared type so array-typed slots get
+// their value wrapped in a single-element `ListLit`. Used by the
+// drag-from-toolbar insertion pipeline to materialize a stub into
+// a previously-empty slot.
+//
+// Returns true on success, false if the slot is already filled
+// (drag-into-filled-slot is rejected by the drop-target validity
+// check, but the AST-level guard belt-and-suspenders).
+export function materializeSlotFill(
+  parent: Component,
+  slotName: string,
+  slotType: string,
+  value: Value,
+): boolean {
+  if (parent.fills.some((f) => f.name === slotName)) return false;
+  if (slotType.startsWith('array<')) {
+    const list: ListLit = {
+      kind: 'list',
+      items: [value],
+      span: ZERO_SPAN,
+    };
+    parent.fills.push(makeSlotFill(slotName, list));
+  } else {
+    parent.fills.push(makeSlotFill(slotName, value));
+  }
+  return true;
+}
+
 // ─── Component-path identity ─────────────────────────────────────
 //
 // Source spans aren't stable across the canonical-emitter round-

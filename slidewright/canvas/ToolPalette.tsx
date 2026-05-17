@@ -29,6 +29,7 @@
 // classified registries.
 
 import { useCallback, useMemo, useState } from 'react';
+import type * as React from 'react';
 import type { ReactElement } from 'react';
 
 // Identifier of the active tool. 'select' is the no-tool state;
@@ -49,12 +50,25 @@ export interface ToolEntry {
   description?: string;
   // Section heading. Entries without one bucket into 'Other'.
   category?: string;
+  // Which gesture(s) this entry supports. Modal entries use
+  // click-to-select-tool; drag entries start a pointer drag on
+  // pointerdown that the parent's drop-target lifecycle
+  // consumes.
+  gestures: ('drag' | 'modal')[];
 }
 
 interface Props {
   active: Tool;
   tools: ToolEntry[];
+  // Click handler for modal entries. The clicked tool enters the
+  // modal-cursor state managed by the parent.
   onSelect: (tool: Tool) => void;
+  // Pointerdown handler for drag-mode entries. The parent
+  // attaches document-level pointermove/pointerup listeners to
+  // run the drag lifecycle. Receives the pointer event so it can
+  // capture start coords + run a threshold check before committing
+  // to drag mode.
+  onDragStart?: (tool: Tool, event: React.PointerEvent) => void;
 }
 
 const FALLBACK_CATEGORY = 'Other';
@@ -127,6 +141,7 @@ export function ToolPalette({
   active,
   tools,
   onSelect,
+  onDragStart,
 }: Props): ReactElement {
   const groups = useMemo(() => groupByCategory(tools), [tools]);
   const [collapsed, setCollapsed] = useState<Set<string>>(readCollapsedState);
@@ -210,24 +225,45 @@ export function ToolPalette({
               </button>
             ) : null}
             {!isCollapsed
-              ? g.entries.map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    className={
-                      'sw-tool' + (active === t.id ? ' active' : '')
-                    }
-                    aria-pressed={active === t.id}
-                    title={
-                      t.description
-                        ? `${t.label} — ${t.description}`
-                        : t.label
-                    }
-                    onClick={() => onSelect(t.id)}
-                  >
-                    {t.label}
-                  </button>
-                ))
+              ? g.entries.map((t) => {
+                  const supportsModal = t.gestures.includes('modal');
+                  const supportsDrag = t.gestures.includes('drag');
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      className={
+                        'sw-tool' + (active === t.id ? ' active' : '')
+                      }
+                      aria-pressed={active === t.id}
+                      title={
+                        t.description
+                          ? `${t.label} — ${t.description}`
+                          : t.label
+                      }
+                      // Modal entries enter the tool on click; drag
+                      // entries spin up a document-level drag on
+                      // pointerdown. If a component opts into both,
+                      // pointerdown starts a drag (preferred since
+                      // it gives stronger feedback); the click
+                      // handler still fires if the pointer never
+                      // moves enough to commit to drag, falling
+                      // back to modal selection. Today's components
+                      // are exclusive, so this fallback is
+                      // forward-looking.
+                      onClick={
+                        supportsModal ? () => onSelect(t.id) : undefined
+                      }
+                      onPointerDown={
+                        supportsDrag && onDragStart
+                          ? (e) => onDragStart(t.id, e)
+                          : undefined
+                      }
+                    >
+                      {t.label}
+                    </button>
+                  );
+                })
               : null}
           </div>
         );
