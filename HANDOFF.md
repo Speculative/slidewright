@@ -145,60 +145,33 @@ v0.4 has been delivered in successive cuts:
 - **`slotsState` API + custom omit treatments (landed).** `ComponentRenderProps` gains `slotsState: Record<string, SlotState>` where `SlotState = 'filled' | 'missing' | 'omit'`. Loader populates it during the same iteration that builds `slots` and forwards through `WrapShapeInput` (default wrap + canvas-side `ShapeProjection` both forward to the React render). Components opt in by reading specific names — ignoring it keeps the existing behavior. First consumer: `ContentSlide` reads `slotsState.eyebrow / .intro / .body` and drops the wrapper div when state is `'omit'` (so omit'd slots collapse the layout) while keeping the wrapper when state is `'missing'` (so the loader's placeholder has somewhere to render). `ContentSlide` gains `canvas: { kind: 'layout' }` to be selectable + inspectable; selection-layer suppresses the canvas outline for any component whose `meta.produces === 'slide'` (option 1 from the slide / slide-content design discussion; option 2 — folding slide-content rows into the Slide row entirely — is the long-term direction, see Deferred features).
 - **Wider cut (deferred).** Slot-targeted insertion gestures (drag-from-toolbar, click-empty-slot-then-pick). Component toolbar overhaul.
 
-### Color palette + picker (planned, not yet started)
+### Color palette + picker (landed)
 
-Goal: replace the current free-text input for `color-token`-typed rows in the inspector with a swatch palette + OKLCH picker. The picker is the first feature that asks the source language to express a *literal* color (not just a named token) — design commitments below cover both the surface syntax and the rendering path.
+Inspector replaces the free-text input for `color-token`-typed rows with a swatch palette + OKLCH picker hosted in a portaled popover.
 
-**Source representation: new `ColorLit` Value kind.**
+**Source representation: `ColorLit` Value kind.** `oklch(L C H)` — three space-separated numbers (L ∈ [0, 1], C ≥ 0, H ∈ [0, 360); no alpha, no hex). Lexer recognizes `oklch(` and consumes through the matching `)` as a single `color_oklch` token; parser unpacks via regex (malformed → parse diagnostic + zeroed literal). Emitter writes the canonical form with shortest-round-tripping decimals. Round-trip property test covers it.
 
-- Surface syntax: `oklch(L C H)`. Three required space-separated numbers — L ∈ [0, 1] (bare number, not `%`; matches emit form), C ∈ [0, ~0.4 in practice, no enforced cap], H ∈ [0, 360).
-- No alpha, no hex, no other color spaces. Tightly-scoped literal — easy to extend later, hard to walk back.
-- Parser: lexer adds a token kind for `oklch(` (recognized by lookahead — letter sequence followed by open-paren); parser produces an AST node `{ kind: 'color_oklch', l, c, h, span }`. Emitter writes `oklch(L C H)` with whatever numeric formatting the picker chose (likely 3-4 sig figs).
-- Round-trip property tests get extended to cover `ColorLit` fills.
-- `isEditableValue` in `InspectorPanels.tsx` accepts `color_oklch`; readValueSource returns the raw `oklch(…)` span text. The picker UI is the *primary* editor for this kind — plain text input is the fallback.
-- Color-token slot type continues to accept `name_ref` (existing tokens) AND now `color_oklch`. Same slot type, polymorphic value kinds. Components reading the slot pass the value into `var(--<name>)` for the name_ref case or pass through verbatim for the literal case; both end up as valid CSS color values.
-- Reserved-but-not-built: tokens that resolve to ColorLit (declarative `accent = oklch(...)` in the deck source rather than the registry-hardcoded map). Out of v0.4 scope; the design just needs to not preclude it.
+**Resolver: `readColorValue` returns ready-to-use CSS color strings** in `slidewright/runtime/loader.ts`:
+- `name_ref` → `ctx.colorTokens[name] ?? var(--<name>)`. Registry tokens fall through to the CSS-variable cascade; source-declared tokens (see below) override.
+- `color_oklch` → `oklch(L C H)` verbatim.
+- `string` → passed through (lets users hand-write hex / rgb / any CSS color).
+- Components consume the resolved string directly — no per-component `var(--${name})` wrapping. `color-token` param defaults are wrapped at injection time so `default: 'accent'` still works.
 
-**Render path: CSS `oklch()` everywhere, no manual sRGB conversion.**
+**Source-declared tokens via `Deck.tokens: Tokens { … }`.** `Tokens` is a builtin meta (`produces: 'block'`, empty schema); the loader's `processDeckTokens` iterates its fills *directly*, no `renderComponent` and no `validateAgainstMeta`, so the open-schema body doesn't trigger unknown-slot diagnostics. Resolved tokens land in `ctx.colorTokens` (separate from `scope.bindings` so text-slot name_refs aren't polluted with CSS-color strings) and are exposed as `LoadDeckResult.tokens`. App merges with the registry's `staticTokens` (wrapped to `var(--name)`) into a single map plumbed through to `PropertiesPanel` and `ColorPicker`.
 
-- Final shape rendering: components emit `style={{ background: 'oklch(L C H)' }}` (or `--fill: oklch(…)`) for ColorLit values, same path as `var(--<name>)` for token values.
-- Picker preview: each cell of the 2D rectangle is colored via the same `oklch()` CSS path. No JS-side OKLCH→sRGB conversion; the browser owns the clamp. Whatever Chrome / Safari render for an out-of-gamut value, the picker shows the same thing — by construction.
-- Browser support gate: `@supports (color: oklch(0 0 0))` — all evergreens since mid-2023. No fallback.
+**Picker UI (`slidewright/canvas/ColorPicker.tsx`).**
+- 2D L × C plane painted via `<canvas>` at 384×192. Per-pixel `oklab → linear sRGB → gamma → 8-bit RGB` via Björn Ottosson's forward matrices, inverted **numerically at module init** (his published 10-digit inverses leave a -1.4e-4 row-sum error on G that turns every achromatic point into magenta after channel clamping). Out-of-gamut points get chroma-compressed to `maxChromaForLH(L, H)` — matches what CSS Color 4 does at display time.
+- sRGB gamut boundary traced as SVG path (binary search per L row, ~14 iter for ~3e-5 precision). Memoized per hue.
+- Hue slider painted via `linear-gradient(in oklch longer hue, …)` — native browser interpolation.
+- L / C / H drag-to-scrub on the field labels via Pointer Lock (shift ×10, alt ×0.1). Plane + slider drags route through the inspector's scrub channel so a multi-frame drag becomes one undo entry.
+- Opens to the value's actual color (not the default blue) — `resolveToLCH` probes `name_ref`s through the merged token map. `parseOklchString` is a fast-path skipping the probe when the input CSS is already `oklch(...)` (also necessary because Chrome's `getComputedStyle` returns oklch backgrounds verbatim, not as `rgb()`).
+- L/C/H field wrappers use `<div>` (not `<label>`) — a `<label>` wrapping a form control auto-focuses on click within the label, which stole focus from the cell during scrub drags.
 
-**Picker UI: 2D rectangle (L × C) + hue slider + gamut overlay.**
+**Popover (`ColorPopover` in `InspectorPanels.tsx`).** Portaled to `document.body` via `createPortal` so the inspector pane's overflow can't clip it. Position computed from the anchor cell's `getBoundingClientRect`; flips above the cell when below would overflow the viewport (two-pass `useLayoutEffect` + `ResizeObserver`). Capture-phase scroll listener handles ancestor scrolls. Closes on outside mousedown / Escape via document-level listeners (not focus blur — the portaled popover would otherwise close on every click inside it).
 
-- Selected hue H drives the 2D plane: X axis = chroma 0 → ~0.4, Y axis = lightness 0 → 1. Implemented as a single CSS conic / linear gradient combo or a small canvas, TBD by perf.
-- **Gamut overlay**: compute the sRGB gamut boundary curve `Cmax(L)` for the current H. Binary-search (`~10` iter) per L-strip (~64-128 rows is enough for a visible curve). Render as an SVG path traced on top of the rectangle. Inside the curve: in-gamut. Outside: the cell still paints via `oklch()` (browser clamps for display), and clicks still register (the literal value the user picks may be out-of-gamut; we don't refuse it).
-- Hue slider: horizontal bar, full 0-360 range, painted via a `linear-gradient` of `oklch(0.7 0.15 0…360)` stops.
-- Recompute boundary on H change only. Cache by H (rounded to 1°) to avoid recomputation during slider drag.
-- Numeric inputs for L / C / H next to the canvas — let users hand-tune without the canvas.
+**Palette (`ColorPalette`).** Two rows: global tokens (registry + source-declared, merged) and per-slide colors (derived by `collectSlideColors` walking the active slide AST for `color-token`-typed fills, deduped against the global row). Resolved-RGB dedup via `useResolvedDedup` — an offscreen probe div resolves each candidate's CSS to its RGB form, keeping only the first occurrence per RGB. Catches CSS-variable aliases like `--accent: var(--blue)`.
 
-**Palette: two rows above the picker.**
-
-- **Global tokens row**: the deck's named tokens from `decks/v0-reference/registry.ts:staticTokens`. Each rendered as a swatch painted with `background: var(--<name>)`. Click → splices `<token>` (a name_ref) into the value span.
-- **Per-slide colors row**: derived. Walk the active slide's AST, collect every distinct color value (both `name_ref` tokens and `color_oklch` literals) that appears in a `color-token`-typed slot, dedupe by source text. Render as swatches. Click → splices the same value into the *target* slot. Promotion to global tokens deferred (registry today is hardcoded; making it deck-source-derived is its own task — see Deferred features).
-- Empty per-slide row when nothing's been picked yet: just hide the row, don't show empty state.
-
-**Out-of-gamut handling.**
-
-- The picker doesn't refuse out-of-gamut picks. The literal `oklch(L C H)` value is written to source; the browser clamps for display via its CSS Color 4 implementation (chroma compression at constant L+H). Picker preview uses the same path, so what the user sees in the picker matches what they see on the canvas.
-- The boundary overlay communicates "this region of color space isn't actually displayable" — without it, the out-of-gamut zone is visually indistinguishable from a flattened gradient.
-
-**Implementation order (sequenced; commit between cuts).**
-
-1. **AST + parser + emitter for `ColorLit`.** Add to `ast.ts` Value union; lexer + parser recognize `oklch(L C H)`; emitter writes canonical form. Round-trip property test passes for fills containing color literals.
-2. **Renderer side.** Components reading `color-token` slot values handle both `name_ref` and `color_oklch` — write a small helper `resolveColor(value): string` in registry or contract that returns either `var(--name)` or `oklch(L C H)`. Update Box / TextBox / Arrow to use it. Picker isn't built yet; verify by hand-editing a `.sw` file with an `oklch(...)` fill.
-3. **Inspector: palette only.** Render the two-row swatch grid in the property row when slot type is `color-token`. No picker yet; clicks just write `name_ref`s. Validates the layout, the per-slide-scan logic, and the click-to-commit splice.
-4. **Inspector: picker.** Add the 2D rectangle + hue slider + numeric inputs. Compute gamut boundary per-hue (cached). Picking writes a `color_oklch` literal. Picker mounts inline below the palette grid (or as a popover triggered by a "+ custom" swatch — TBD by space).
-5. **Polish.** Drag-on-rectangle should reuse the existing pointer-lock pattern from drag-to-scrub if movement is small relative to canvas size, or just track absolute pointer position. Keyboard support (arrows nudge selected position). Tests: round-trip, palette click, picker click, color-token slot rendering matrix.
-
-**Out of scope for this cut.**
-
-- Hex / RGB / HSL input — OKLCH only.
-- Alpha channel.
-- Promote-per-slide-to-global (registry must become deck-source-derived first).
-- ~~Tokens that resolve to OKLCH literals in source (vs registry-hardcoded names).~~ **Landed.** `Deck { tokens: Tokens { brand: oklch(...), ... } }` declares deck-scope color tokens in source. Loader resolves them to a separate `ctx.colorTokens` map (not `scope.bindings`, so text name_refs aren't affected) and `readColorValue` consults it for `color-token`-typed slots — source-declared wins over registry-static on name collision. Loader exposes the map as `LoadDeckResult.tokens`; App merges it with the registry tokens (wrapped to `var(--name)`) for the inspector palette. Picker's `resolveToLCH` consults the merged map; new `parseOklchString` fast-path skips the DOM probe for direct OKLCH inputs (also necessary because Chrome's `getComputedStyle` returns oklch backgrounds verbatim, not as `rgb()`). `Tokens` is a builtin meta with `produces: 'block'` and an empty schema; the loader processes its fills directly without `renderComponent`, so the open-schema body doesn't trigger unknown-slot diagnostics.
-- Color picker for properties that aren't typed as `color-token` (e.g., raw string fills that happen to contain a color).
+**Out of scope / not started.** Hex / RGB / HSL input. Alpha channel. Promote-per-slide-to-global (registry needs to be deck-source-derived first, then a UI gesture to write a chosen oklch into `Deck.tokens`). Color picker for properties not typed `color-token`.
 
 **Slide-level layouts (no Freeform ancestor) now work.** `slidewright/canvas/portal-target.ts` exposes `findPortalAncestor(el)` (non-hook helper) and `useSelectionPortal` (hook) that do a conditional lookup: prefer the closest Freeform's positioned div (preserves the existing coord system for shapes + layouts inside Freeforms), fall back to the slide stage (`.presentation-canvas`) for layouts at slide-level. Selection visuals + gesture overlays portal into whichever ancestor is appropriate. `layout-measurement.ts` uses the same fallback for measurement reference frames, so DOM measurements stay in the same frame as rendering. The `body: VStack { ... }` pattern (existing slide 3 in the reference deck) and the rebuilt "Stacks demo" slide both work now.
 
@@ -298,9 +271,9 @@ The v0.4 tight cut + reorder + gap-drag + click-into-named-slots + empty-slot pl
 
 ### Inspector polish
 
-- **Color palette / picker** for `fill`, `stroke`, and any color-valued name_ref param. The deck registry exposes a token palette (`amber`, `cyan`, `magenta`, etc. — see `decks/v0-reference/registry.ts:staticTokens`); the inspector should surface it as swatches with a free-form custom-color follow-up.
+- ~~**Color palette / picker**~~ landed — see **Color palette + picker (landed)** above in the v0.4 section.
 
-- **Drag-to-scrub on numeric inputs** — click-and-drag on the value (or a small grip / label) to change it, with shift = coarser, alt = finer. Matches Figma / Blender / DevTools layout-inspector ergonomics. Particularly useful for `x / y / width / height`.
+- ~~**Drag-to-scrub on numeric inputs**~~ landed via the PropertyRow Pointer Lock pattern; ColorPicker reuses the same shape on its L/C/H labels.
 
 ### Gestures
 
