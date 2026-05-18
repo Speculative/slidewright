@@ -389,28 +389,31 @@ function hitTestDropTarget(
   produces: SlotTypeName,
 ): { target: ToolDragDropTarget | null; invalidHover: boolean } {
   const hit = document.elementFromPoint(clientX, clientY);
-  if (!(hit instanceof HTMLElement)) {
-    return { target: null, invalidHover: false };
+  // Empty-slot placeholder: unambiguous, check first.
+  if (hit instanceof HTMLElement) {
+    const placeholder = hit.closest<HTMLElement>(
+      '[data-sw-slot-empty="true"]',
+    );
+    if (placeholder) {
+      return hitTestEmptySlot(placeholder, produces);
+    }
   }
-  // Prefer the more specific match: an empty-slot placeholder is
-  // unambiguous, a filled array slot needs gap geometry. Try
-  // empty first.
-  const placeholder = hit.closest<HTMLElement>(
-    '[data-sw-slot-empty="true"]',
-  );
-  if (placeholder) {
-    return hitTestEmptySlot(placeholder, produces);
-  }
-  // Walk up to find the nearest filled array slot wrapper. Stack
-  // children render at the array's children level, so the
-  // wrapper is one ancestor up from any direct child.
-  const arrayWrapper = hit.closest<HTMLElement>(
+  // Filled array slots: the wrapper is `display: contents` so
+  // elementFromPoint can't address it directly, and the
+  // before-first / after-last gaps land OUTSIDE the wrapper's
+  // DOM subtree anyway. Scan all visible array slot wrappers in
+  // the document and pick the one whose extended bounds contain
+  // the pointer.
+  const wrappers = document.querySelectorAll<HTMLElement>(
     '[data-sw-slot-name][data-sw-slot-type^="array<"]',
   );
-  if (arrayWrapper) {
-    return hitTestArrayGap(arrayWrapper, clientX, clientY, produces);
+  let firstInvalid = false;
+  for (const wrapper of wrappers) {
+    const result = hitTestArrayGap(wrapper, clientX, clientY, produces);
+    if (result.target) return result;
+    if (result.invalidHover) firstInvalid = true;
   }
-  return { target: null, invalidHover: false };
+  return { target: null, invalidHover: firstInvalid };
 }
 
 function hitTestEmptySlot(
@@ -500,19 +503,21 @@ function hitTestArrayGap(
   }
   // The wrapper is `display: contents`, so its own
   // bounding-client-rect is meaningless. The rendered children
-  // sit in its parent's flex layout — find them as the
-  // element descendants of the wrapper that carry
-  // `data-sw-component`.
+  // sit in its parent's flex layout. Each direct child is a
+  // shape-projection wrapper that itself uses `display: contents`
+  // (so the user's component renders directly in the parent's
+  // layout). Drill one more level to find the element whose box
+  // actually participates in layout — that's where the bounding
+  // rect is non-zero.
   const childEls: HTMLElement[] = [];
   for (const c of wrapper.children) {
     if (!(c instanceof HTMLElement)) continue;
-    // The wrapper's children are themselves shape-projection
-    // wrappers (data-sw-component) OR slot wrappers around a
-    // single child. Walk one level down if needed.
     const compEl = c.matches('[data-sw-component]')
       ? c
       : c.querySelector<HTMLElement>(':scope > [data-sw-component]');
-    if (compEl) childEls.push(compEl);
+    if (!compEl) continue;
+    const visible = visibleBoxFor(compEl);
+    if (visible) childEls.push(visible);
   }
   if (childEls.length === 0) {
     return { target: null, invalidHover: false };
@@ -617,6 +622,25 @@ function computeGapRect(
     width: thickness,
     height: r.height,
   };
+}
+
+// Drill into a `display: contents` wrapper until we find an
+// element that has actual layout (non-zero bounding rect). Used
+// by hitTestArrayGap to locate the visible box for a shape-
+// projection wrapper — display: contents wrappers report 0×0
+// rects on Chrome / Firefox, so geometry tied to them is
+// useless.
+function visibleBoxFor(el: HTMLElement): HTMLElement | null {
+  let cur: HTMLElement | null = el;
+  // Bounded walk — components are typically wrapped by at most
+  // a couple of `display: contents` layers (shape-projection +
+  // user component). Five hops is more than enough margin.
+  for (let i = 0; i < 5 && cur; i++) {
+    const rect = cur.getBoundingClientRect();
+    if (rect.width > 0 || rect.height > 0) return cur;
+    cur = cur.firstElementChild as HTMLElement | null;
+  }
+  return null;
 }
 
 function boundsOfRects(rects: DOMRect[]): {

@@ -270,11 +270,11 @@ The v0.4 tight cut + reorder + gap-drag + click-into-named-slots + empty-slot pl
   1. Extend `ComponentMeta` with `category` / `description` / `insertion`; create `runtime/ast-builders.ts` exposing low-level node constructors (`makeComponent`, `slotFill`, `numberLit`, `stringLit`, `nameRef`, etc.) for component modules to consume. ✅ landed (36182ec).
   2. Add `insertion` stubs to each of the 9 v0-reference components (Box / TextBox / Arrow as `modal`; VStack / HStack / CardRow / Freeform as `drag`; TitleSlide / ContentSlide as `drag` gated on `slide` target). ✅ landed (621066a).
   3. Replace `ToolPalette.tsx` with a registry-driven toolbar, behaviorally identical to today (modal-only, surfaces Box / TextBox / Arrow). Wire `App.tsx`'s create-gesture to dispatch via the registry's `insertion.stub` rather than hardcoded factories. Remove `makeBoxNode`/`makeTextBoxNode`/`makeArrowNode` from `ast-edits.ts` once unused. ✅ landed (1a194d2).
-  4. Categories + collapsible sections in the toolbar.
-  5. Search/filter input in the toolbar.
-  6. Drag-into-slot for layouts: pointerdown on toolbar entry → drag → valid drop targets highlight via selection-layer outlines (+ "Drop into `CardRow.body`" label) → release commits.
-  7. Array gap indicators for between/before/after insertion on `array<block>` slots in non-Freeform layouts. Freeform drops still fall through to the existing rect-draw modal.
-  8. Playwright e2e tests for the toolbar + insertion gestures.
+  4. Categories + collapsible sections in the toolbar. ✅ landed (4653604).
+  5. Search/filter input in the toolbar. ✅ landed (3387496).
+  6. Drag-into-slot for layouts: pointerdown on toolbar entry → drag → valid drop targets highlight via selection-layer outlines (+ "Drop into `CardRow.body`" label) → release commits. ✅ landed (4be7e47).
+  7. Array gap indicators for between/before/after insertion on `array<block>` slots in non-Freeform layouts. Freeform drops still fall through to the existing rect-draw modal. ✅ landed (c9ee55b).
+  8. Playwright e2e tests for the toolbar + insertion gestures. ✅ landed.
 
 - **Layout configure via direct manipulation** — beyond insertion, layouts need gesture-driven param adjustment:
   - **Param configuration via gesture** — drag the gap between two `VStack` children to adjust `spacing`; drag a divider to change a `Grid` column width; drag an `HStack`'s alignment guide. Gestures bound to specific layout params, not just spatial position. The inspector covers the same params from the keyboard side; the gesture surface is the direct-manipulation peer.
