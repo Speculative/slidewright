@@ -51,6 +51,7 @@ import {
 } from './ScaledCanvas.js';
 import {
   addStringSlotFill,
+  appendEmptySlide,
   appendShapeToFreeform,
   commitSourceEdit,
   componentByPath,
@@ -60,7 +61,10 @@ import {
   insertIntoArraySlot,
   materializeSlotFill,
   pathToComponent,
+  projectReorderedIndices,
   removeShapeAtSpan,
+  removeSlidesAtIndices,
+  reorderSlides,
   type PreserveSelection,
 } from './ast-edits.js';
 import type {
@@ -77,7 +81,7 @@ import { isLayoutAdapter, type LayoutAdapter } from './layout-adapter.js';
 import { SelectionLayer } from './selection-layer.js';
 import { GestureOverlayLayer } from './gesture-overlay-layer.js';
 import { DiagnosticsPanel } from './DiagnosticsPanel.js';
-import { SlideStrip } from './SlideStrip.js';
+import { SlideStrip, type SlideClickModifiers } from './SlideStrip.js';
 import { ResizeHandle } from './ResizeHandle.js';
 import {
   HierarchyPanel,
@@ -802,6 +806,13 @@ export function App({
 }): ReactElement {
   const [state, setState] = useState<RenderState | null>(null);
   const [activeIdx, setActiveIdx] = useState(0);
+  // Slide-strip multi-selection. Invariant: always contains
+  // `activeIdx`. The anchor pins the start of a shift-range so
+  // successive shift-clicks extend from the same origin. Plain
+  // click and cmd-toggle reset the anchor; keyboard nav resets
+  // both the selection and the anchor to the new active idx.
+  const [slideSelection, setSlideSelection] = useState<ReadonlyArray<number>>([0]);
+  const [slideAnchor, setSlideAnchor] = useState<number>(0);
   const [stripWidth, setStripWidth] = useState<number>(() =>
     readStoredSize(STRIP_WIDTH_KEY, STRIP_WIDTH_DEFAULT, STRIP_WIDTH_MIN, STRIP_WIDTH_MAX),
   );
@@ -1213,13 +1224,193 @@ export function App({
   }, [host]);
 
   const total = state?.slides.length ?? 0;
+  // Single-slide select: replaces selection with [idx] and resets
+  // the shift-range anchor. Used by source-cursor sync, keyboard
+  // nav, and number-key direct-select.
   const select = useCallback(
     (idx: number) => {
       if (total === 0) return;
       const clamped = Math.max(0, Math.min(total - 1, idx));
       setActiveIdx(clamped);
+      setSlideSelection([clamped]);
+      setSlideAnchor(clamped);
     },
     [total],
+  );
+  // Strip-click select with modifier semantics.
+  //   plain: replace → [idx]; anchor = idx; active = idx
+  //   shift: range from anchor to idx; active = idx; anchor stays
+  //   meta:  toggle idx in selection; active = idx (added) or
+  //          last remaining (removed); anchor = idx
+  const stripSelect = useCallback(
+    (idx: number, mods: SlideClickModifiers) => {
+      if (total === 0) return;
+      const clamped = Math.max(0, Math.min(total - 1, idx));
+      if (mods.shift) {
+        const lo = Math.min(slideAnchor, clamped);
+        const hi = Math.max(slideAnchor, clamped);
+        const range: number[] = [];
+        for (let i = lo; i <= hi; i++) range.push(i);
+        setSlideSelection(range);
+        setActiveIdx(clamped);
+        return;
+      }
+      if (mods.meta) {
+        const has = slideSelection.includes(clamped);
+        if (has) {
+          const next = slideSelection.filter((n) => n !== clamped);
+          if (next.length === 0) {
+            // Last item — keep at least one selected. Re-add idx.
+            setSlideSelection([clamped]);
+            setActiveIdx(clamped);
+            setSlideAnchor(clamped);
+            return;
+          }
+          setSlideSelection(next);
+          setActiveIdx(next[next.length - 1]!);
+          setSlideAnchor(clamped);
+          return;
+        }
+        setSlideSelection([...slideSelection, clamped]);
+        setActiveIdx(clamped);
+        setSlideAnchor(clamped);
+        return;
+      }
+      // Plain click.
+      setSlideSelection([clamped]);
+      setActiveIdx(clamped);
+      setSlideAnchor(clamped);
+    },
+    [total, slideAnchor, slideSelection],
+  );
+
+  // Append an empty `Slide {}` to the deck and activate it. The
+  // loader will surface placeholders for label / notes / content
+  // so the user can fill them via the inspector / toolbar.
+  const handleAddSlide = useCallback(() => {
+    const result = commitSourceEdit(sourceRef.current, '<add-slide>', (ast) => {
+      const idx = appendEmptySlide(ast);
+      if (idx < 0) return null;
+      return {};
+    });
+    if (!result) return;
+    commitToHost(result.newSource);
+    // The new slide is at the end of the list. The host subscribe
+    // round-trip will replace `state`; queue the activation so it
+    // runs after the new state lands.
+    queueMicrotask(() => {
+      const next = stateRef.current;
+      if (!next) return;
+      const newIdx = next.slides.length - 1;
+      if (newIdx < 0) return;
+      setActiveIdx(newIdx);
+      setSlideSelection([newIdx]);
+      setSlideAnchor(newIdx);
+    });
+  }, [commitToHost]);
+
+  // Delete a set of slides in one commit (single undo entry).
+  // Active slide collapses to the nearest remaining slide.
+  const handleDeleteSlides = useCallback(
+    (indices: ReadonlyArray<number>) => {
+      if (indices.length === 0) return;
+      const result = commitSourceEdit(
+        sourceRef.current,
+        '<delete-slides>',
+        (ast) => (removeSlidesAtIndices(ast, indices) > 0 ? {} : null),
+      );
+      if (!result) return;
+      commitToHost(result.newSource);
+      // Pick the new active: smallest index that wasn't deleted
+      // and is ≤ current activeIdx; if everything ≤ activeIdx
+      // was deleted, pick the smallest survivor.
+      const dropped = new Set(indices);
+      const survivors: number[] = [];
+      for (let i = 0; i < total; i++) {
+        if (!dropped.has(i)) survivors.push(i);
+      }
+      if (survivors.length === 0) {
+        // Deck would be empty — bail out of the deletion. The
+        // commit already happened; the next render will show 0
+        // slides and the host's loader-level guards will catch
+        // it. Reset selection to [0].
+        setActiveIdx(0);
+        setSlideSelection([0]);
+        setSlideAnchor(0);
+        return;
+      }
+      // Map: original-index → new-index for survivors.
+      const indexMap = new Map<number, number>();
+      survivors.forEach((origIdx, newIdx) => indexMap.set(origIdx, newIdx));
+      let newActive = indexMap.get(activeIdxRef.current);
+      if (newActive === undefined) {
+        // Active was deleted. Prefer the slide that took its slot
+        // (same new-index in the survivor list) — i.e., the next
+        // slide after the deleted active. Fall back to the last
+        // survivor when the active was at the tail.
+        let chosen = -1;
+        for (const origIdx of survivors) {
+          if (origIdx >= activeIdxRef.current) {
+            chosen = indexMap.get(origIdx)!;
+            break;
+          }
+        }
+        if (chosen < 0) chosen = survivors.length - 1;
+        newActive = chosen;
+      }
+      setActiveIdx(newActive);
+      setSlideSelection([newActive]);
+      setSlideAnchor(newActive);
+    },
+    [commitToHost, total],
+  );
+
+  // Reorder: move the slides at `fromIndices` to `toIndex` of the
+  // pre-move list, preserving their relative order. Selection
+  // follows the moved set.
+  const handleReorderSlides = useCallback(
+    (fromIndices: ReadonlyArray<number>, toIndex: number) => {
+      const projected = projectReorderedIndices(total, fromIndices, toIndex);
+      if (!projected) return; // no-op (drop inside the moved range)
+      const result = commitSourceEdit(
+        sourceRef.current,
+        '<reorder-slides>',
+        (ast) => (reorderSlides(ast, fromIndices, toIndex) ? {} : null),
+      );
+      if (!result) return;
+      commitToHost(result.newSource);
+      // Update selection + active to the new positions of the
+      // moved slides. Active = the slide that was active before
+      // the move (if it was in the moved set), else its new index
+      // after the move (which equals projection if it was moved,
+      // or shifted accordingly if it stayed put).
+      setSlideSelection(projected);
+      // Find new index of the previously-active slide.
+      const prevActive = activeIdxRef.current;
+      const sortedFrom = Array.from(new Set(fromIndices))
+        .filter((i) => i >= 0 && i < total)
+        .sort((a, b) => a - b);
+      const movedIdx = sortedFrom.indexOf(prevActive);
+      let newActive: number;
+      if (movedIdx >= 0) {
+        newActive = projected[movedIdx]!;
+      } else {
+        // Not in moved set — adjust for the splice.
+        let shift = 0;
+        for (const i of sortedFrom) {
+          if (i < prevActive) shift--;
+        }
+        let adjusted = prevActive + shift;
+        // Account for insertion: count moved items inserted at or
+        // before adjusted's new home.
+        const insertAt = projected[0]!;
+        if (adjusted >= insertAt) adjusted += projected.length;
+        newActive = adjusted;
+      }
+      setActiveIdx(newActive);
+      setSlideAnchor(newActive);
+    },
+    [commitToHost, total],
   );
 
   // Source-cursor → canvas-slide sync. Walk slides by their data-
@@ -1924,29 +2115,59 @@ export function App({
         e.preventDefault();
         return;
       }
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selected.length > 0) {
-        const targets = selected;
-        const result = commitSourceEdit(sourceRef.current, '<delete>', (ast) => {
-          let any = false;
-          for (const target of targets) {
-            // Slot targets aren't deletable as components — clear-
-            // slot semantics is a separate gesture (deferred). Skip
-            // for now; only component selections are deleted.
-            if (target.kind !== 'component') continue;
-            if (removeShapeAtSpan(ast, target.span)) any = true;
-          }
-          return any ? {} : null;
-        });
-        if (result) {
-          commitToHost(result.newSource);
-          setSelected([]);
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        // Slide-strip deletion takes priority when the focused
+        // element is a slide thumb. A bulk delete is one commit /
+        // one undo entry. Single-slide deletion via this path is
+        // also supported (e.g., a single thumb focused by clicking
+        // it), since deleting "the focused slide" with the strip
+        // visibly selected is the natural strip-focus action.
+        const focused = document.activeElement as HTMLElement | null;
+        const onStrip = focused?.closest('.sw-thumb') != null;
+        if (onStrip && slideSelection.length > 0) {
+          handleDeleteSlides(slideSelection);
+          e.preventDefault();
+          return;
         }
-        e.preventDefault();
+        if (selected.length > 0) {
+          const targets = selected;
+          const result = commitSourceEdit(
+            sourceRef.current,
+            '<delete>',
+            (ast) => {
+              let any = false;
+              for (const target of targets) {
+                // Slot targets aren't deletable as components —
+                // clear-slot semantics is a separate gesture
+                // (deferred). Skip for now; only component
+                // selections are deleted.
+                if (target.kind !== 'component') continue;
+                if (removeShapeAtSpan(ast, target.span)) any = true;
+              }
+              return any ? {} : null;
+            },
+          );
+          if (result) {
+            commitToHost(result.newSource);
+            setSelected([]);
+          }
+          e.preventDefault();
+        }
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [activeTool, selected, host, gestureMeta, createPreview, marquee, toolDrag]);
+  }, [
+    activeTool,
+    selected,
+    host,
+    gestureMeta,
+    createPreview,
+    marquee,
+    toolDrag,
+    slideSelection,
+    handleDeleteSlides,
+  ]);
 
   // ─── Derived gesture deltas (for context distribution) ──────────
   //
@@ -2120,7 +2341,10 @@ export function App({
         <SlideStrip
           slides={state.slides}
           activeIdx={activeIdx}
-          onSelect={select}
+          selection={slideSelection}
+          onSelect={stripSelect}
+          onAddSlide={handleAddSlide}
+          onReorder={handleReorderSlides}
           width={stripWidth}
         />
         <ResizeHandle

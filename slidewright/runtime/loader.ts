@@ -489,6 +489,16 @@ function renderBuiltinSlide(comp: Component, ctx: LoadCtx, idx: number): ReactEl
   // order (matches `slides: ReactElement[]`).
   ctx.slidesData.push({ comp, meta: BUILTIN_META.Slide! });
   const contentFill = fills.get('content');
+  const label = readString(fills.get('label'), ctx);
+  const notes = readText(fills.get('notes'), ctx);
+  const chromeless = readBoolean(fills.get('chromeless'), ctx);
+  // Missing `content` is a warning, not a fatal — emit the
+  // diagnostic AND a slot-typed placeholder so the slide still
+  // renders (clickable to select the slot; droppable as an
+  // insertion target for any registered `produces: 'slide'`
+  // component via the toolbar). Lets newly-added empty slides
+  // be a starting canvas rather than a blank no-op.
+  let content: ReactNode;
   if (!contentFill) {
     emit(
       ctx,
@@ -496,12 +506,15 @@ function renderBuiltinSlide(comp: Component, ctx: LoadCtx, idx: number): ReactEl
       comp.span,
       'Slide is missing required `content` slot',
     );
-    return null;
+    content = createEmptySlotPlaceholder(
+      'content',
+      'slide',
+      comp.span.start.offset,
+      comp.span.end.offset,
+    );
+  } else {
+    content = renderBlockValue(contentFill.value, ctx);
   }
-  const label = readString(fills.get('label'), ctx);
-  const notes = readText(fills.get('notes'), ctx);
-  const chromeless = readBoolean(fills.get('chromeless'), ctx);
-  const content = renderBlockValue(contentFill.value, ctx);
   return wrapWithSpan(
     comp,
     createElement(SlideFrame, {

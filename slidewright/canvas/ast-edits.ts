@@ -488,6 +488,125 @@ export function removeShapeAtSpan(
   return removed;
 }
 
+// ─── Slide-list mutators ─────────────────────────────────────────
+//
+// Operate on the top-level `Deck.slides` array. The deck is always
+// the first item in a well-formed source file. Each helper returns
+// false (or a sentinel) when the slides list can't be located so
+// the caller can abort the commit.
+
+function findSlidesList(ast: SourceFile): ListLit | null {
+  const deck = ast.items[0];
+  if (!deck || deck.kind !== 'component' || deck.name !== 'Deck') return null;
+  const slidesFill = deck.fills.find((f) => f.name === 'slides');
+  if (!slidesFill || slidesFill.value.kind !== 'list') return null;
+  return slidesFill.value;
+}
+
+// Append an empty `Slide {}` to the deck's slides list. Returns
+// the new slide's index, or -1 if the deck/slides list can't be
+// found. Empty body means no label, no notes, no content —
+// the loader emits placeholders for each so the user can drop
+// content via the toolbar.
+export function appendEmptySlide(ast: SourceFile): number {
+  const list = findSlidesList(ast);
+  if (!list) return -1;
+  list.items.push({
+    kind: 'component',
+    name: 'Slide',
+    fills: [],
+    implicitChildren: [],
+    span: ZERO_SPAN,
+    bodySpan: ZERO_SPAN,
+  });
+  return list.items.length - 1;
+}
+
+// Remove slides at the given indices from the deck's slides list.
+// Returns the count actually removed. Indices outside [0, N) are
+// silently skipped. Duplicates are deduped. Single commit → single
+// undo entry.
+export function removeSlidesAtIndices(
+  ast: SourceFile,
+  indices: ReadonlyArray<number>,
+): number {
+  const list = findSlidesList(ast);
+  if (!list) return 0;
+  const drop = new Set<number>();
+  for (const i of indices) {
+    if (i >= 0 && i < list.items.length) drop.add(i);
+  }
+  if (drop.size === 0) return 0;
+  list.items = list.items.filter((_, i) => !drop.has(i));
+  return drop.size;
+}
+
+// Reorder slides: take the slides at `fromIndices` (in their
+// existing relative order) and splice them in at `toIndex` of the
+// original list. `toIndex` is interpreted relative to the
+// ORIGINAL indexing — i.e., "insert before slide N of the
+// pre-move list" — and indices in `fromIndices` count toward
+// neither the source nor destination after extraction. Returns
+// true if the list changed, false otherwise (no-op when the
+// destination falls inside the contiguous moved range).
+export function reorderSlides(
+  ast: SourceFile,
+  fromIndices: ReadonlyArray<number>,
+  toIndex: number,
+): boolean {
+  const list = findSlidesList(ast);
+  if (!list) return false;
+  const n = list.items.length;
+  const dedup = Array.from(new Set(fromIndices)).filter((i) => i >= 0 && i < n);
+  if (dedup.length === 0) return false;
+  dedup.sort((a, b) => a - b);
+  // No-op check: the moved range is already at toIndex (i.e.,
+  // toIndex is inside or just-after the moved indices and the
+  // group is contiguous). Specifically, if the original indices
+  // are [k, k+1, ..., k+m-1] and toIndex ∈ [k, k+m], it's a no-op.
+  const contiguous = dedup.every((v, i) => i === 0 || v === dedup[i - 1]! + 1);
+  if (contiguous && toIndex >= dedup[0]! && toIndex <= dedup[dedup.length - 1]! + 1) {
+    return false;
+  }
+  const moving = dedup.map((i) => list.items[i]!);
+  // Count how many removed slides are at indices < toIndex so we
+  // can adjust the insertion point after extraction.
+  let insertAt = toIndex;
+  for (const i of dedup) {
+    if (i < toIndex) insertAt--;
+  }
+  // Extract (filter) then splice in at the adjusted point.
+  list.items = list.items.filter((_, i) => !dedup.includes(i));
+  list.items.splice(insertAt, 0, ...moving);
+  return true;
+}
+
+// Compute, given an original list size, a set of from-indices,
+// and a destination toIndex, the resulting indices of the moved
+// slides in the post-reorder list. Mirrors reorderSlides's index
+// arithmetic so the caller can update slide-selection state
+// without re-parsing. Returns null on no-op (matching reorder-
+// Slides's no-op rule).
+export function projectReorderedIndices(
+  total: number,
+  fromIndices: ReadonlyArray<number>,
+  toIndex: number,
+): number[] | null {
+  const dedup = Array.from(new Set(fromIndices))
+    .filter((i) => i >= 0 && i < total)
+    .sort((a, b) => a - b);
+  if (dedup.length === 0) return null;
+  const contiguous = dedup.every((v, i) => i === 0 || v === dedup[i - 1]! + 1);
+  if (contiguous && toIndex >= dedup[0]! && toIndex <= dedup[dedup.length - 1]! + 1) {
+    return null;
+  }
+  let insertAt = toIndex;
+  for (const i of dedup) {
+    if (i < toIndex) insertAt--;
+  }
+  return dedup.map((_, k) => insertAt + k);
+}
+
 // ─── Edit pipeline ───────────────────────────────────────────────
 
 // Position of a shape in its containing Freeform, used by drag and
