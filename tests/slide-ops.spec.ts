@@ -165,6 +165,41 @@ async function dragThumbToGap(
   await letReactCatchUp(page);
 }
 
+// The insertion-line indicator must have a visible width at every
+// gap position, including the after-last gap (a regression caught
+// by visual inspection — the after-last line was rendered as a
+// direct flex child of .sw-strip, which uses align-items: center,
+// and collapsed to zero width without an explicit stretch).
+test('drag shows a visible insertion line at the after-last gap', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=three-slides');
+  const thumbs = page.locator('.sw-thumb');
+  const last = await thumbs.nth(2).boundingBox();
+  if (!last) throw new Error('last thumb not visible');
+  const firstBox = await thumbs.nth(0).boundingBox();
+  if (!firstBox) throw new Error('first thumb not visible');
+  // Press down on the first thumb and drag below the last thumb's
+  // bottom — without releasing — so the indicator is on screen.
+  await page.mouse.move(
+    firstBox.x + firstBox.width / 2,
+    firstBox.y + firstBox.height / 2,
+  );
+  await page.mouse.down();
+  await letReactCatchUp(page);
+  await page.mouse.move(
+    last.x + last.width / 2,
+    last.y + last.height + 6,
+    { steps: 10 },
+  );
+  await letReactCatchUp(page);
+  const insertionWidth = await page.evaluate(() => {
+    const el = document.querySelector('.sw-strip-insertion');
+    if (!el) return -1;
+    return el.getBoundingClientRect().width;
+  });
+  await page.mouse.up();
+  expect(insertionWidth).toBeGreaterThan(20);
+});
+
 test('drag-reorder moves a single slide to a new position', async ({ page }) => {
   await page.goto('/canvas.html?fixture=three-slides');
   // Drag slide 0 (Alpha) to after slide 2 (Gamma).

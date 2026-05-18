@@ -207,7 +207,17 @@ export function SlideStrip({
           />
         </div>
       ))}
-      {drag?.insertionIndex === slides.length ? <InsertionLine /> : null}
+      {drag?.insertionIndex === slides.length ? (
+        // Wrap in .sw-thumb-slot so the line inherits width:100%
+        // the same way the inter-thumb indicators do. As a direct
+        // flex child of .sw-strip (which uses align-items: center
+        // for the thumb buttons), align-self: stretch didn't reach
+        // the visible width path even though the element took
+        // layout space.
+        <div className="sw-thumb-slot">
+          <InsertionLine />
+        </div>
+      ) : null}
       <button
         type="button"
         className="sw-add-slide"
