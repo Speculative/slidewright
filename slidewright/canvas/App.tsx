@@ -1338,7 +1338,21 @@ export function App({
       setGestureLive({ dx, dy });
     };
 
+    // Escape mid-gesture cancels: drop the gesture state without
+    // committing, ignoring any pending pointerup. The pointerup
+    // handler below checks `cancelled` so even if Escape fires
+    // between pointerup's event-loop dispatch and its handler
+    // running, the commit is skipped.
+    let cancelled = false;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      cancelled = true;
+      setGestureMeta(null);
+      setGestureLive(ZERO_LIVE);
+    };
+
     const onUp = (e: PointerEvent) => {
+      if (cancelled) return;
       const dx = (e.clientX - pointerStartX) / scale;
       const dy = (e.clientY - pointerStartY) / scale;
       // Treat near-zero motion as a click rather than a gesture
@@ -1384,11 +1398,13 @@ export function App({
 
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
+    document.addEventListener('keydown', onKey);
     if (cursor) document.body.style.cursor = cursor;
     document.body.style.userSelect = 'none';
     return () => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('keydown', onKey);
       if (cursor) document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
@@ -1411,7 +1427,18 @@ export function App({
       );
     };
 
+    let cancelled = false;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      cancelled = true;
+      setCreatePreview(null);
+      // Bounce back to Select so the user isn't left in an
+      // armed-tool state after Escape.
+      setActiveTool(SELECT_TOOL);
+    };
+
     const onUp = (e: PointerEvent) => {
+      if (cancelled) return;
       const designCurrentX = (e.clientX - pointerStartX) / scale + designStartX;
       const designCurrentY = (e.clientY - pointerStartY) / scale + designStartY;
       const result = commitSourceEdit(sourceRef.current, '<create>', (ast) => {
@@ -1453,11 +1480,13 @@ export function App({
 
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
+    document.addEventListener('keydown', onKey);
     document.body.style.cursor = 'crosshair';
     document.body.style.userSelect = 'none';
     return () => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('keydown', onKey);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
@@ -1527,7 +1556,18 @@ export function App({
       });
     };
 
+    let cancelled = false;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      cancelled = true;
+      setToolDrag(null);
+    };
+
     const onUp = () => {
+      if (cancelled) {
+        setToolDrag(null);
+        return;
+      }
       setToolDrag((prev) => {
         if (!prev || !prev.committed || !prev.target) return null;
         const target = prev.target;
@@ -1575,9 +1615,11 @@ export function App({
 
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
+    document.addEventListener('keydown', onKey);
     return () => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('keydown', onKey);
     };
     // Effect re-installs when the tool itself changes; pointer
     // coords are committed via setState so listeners read fresh
@@ -1634,7 +1676,15 @@ export function App({
       );
     };
 
+    let cancelled = false;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      cancelled = true;
+      setMarquee(null);
+    };
+
     const onUp = (e: PointerEvent) => {
+      if (cancelled) return;
       const designCurrentX = (e.clientX - pointerStartX) / scale + designStartX;
       const designCurrentY = (e.clientY - pointerStartY) / scale + designStartY;
       const dx = designCurrentX - designStartX;
@@ -1700,9 +1750,11 @@ export function App({
 
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
+    document.addEventListener('keydown', onKey);
     return () => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('keydown', onKey);
     };
   }, [marquee]);
 
@@ -1768,6 +1820,11 @@ export function App({
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
       if (e.key === 'Escape') {
+        // If a gesture is in flight, the per-gesture effect's own
+        // Escape handler owns the cancel — don't also clear
+        // selection / reset tool here. Lets the user re-try the
+        // gesture without re-selecting first.
+        if (gestureMeta || createPreview || marquee || toolDrag) return;
         if (activeTool !== SELECT_TOOL) setActiveTool(SELECT_TOOL);
         if (selected.length > 0) setSelected([]);
         e.preventDefault();
@@ -1795,7 +1852,7 @@ export function App({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [activeTool, selected, host]);
+  }, [activeTool, selected, host, gestureMeta, createPreview, marquee, toolDrag]);
 
   // ─── Derived gesture deltas (for context distribution) ──────────
   //

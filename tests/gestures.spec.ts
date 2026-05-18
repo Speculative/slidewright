@@ -406,3 +406,47 @@ test('group resize preserves multi-selection after commit', async ({ page }) => 
   await expect(page.locator('.sw-selection-outline')).toHaveCount(2);
   await expect(page.locator('.sw-selection-group')).toHaveCount(1);
 });
+
+// ─── Esc cancels in-flight gestures ──────────────────────────────
+
+test('Esc during drag-to-move cancels without committing', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-box');
+  const box = page.locator('.sw-canvas-stage [data-sw-component="Box"] > div').first();
+  const before = await getSource(page);
+  // Start a drag but press Escape mid-flight, then release.
+  const eb = await box.boundingBox();
+  if (!eb) throw new Error('box not visible');
+  const scale = await getCanvasScale(page);
+  const sx = eb.x + eb.width / 2;
+  const sy = eb.y + eb.height / 2;
+  await page.mouse.move(sx, sy);
+  await page.mouse.down();
+  await letReactCatchUp(page);
+  await page.mouse.move(sx + 50 * scale, sy + 30 * scale, { steps: 5 });
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  const after = await getSource(page);
+  expect(after).toBe(before);
+});
+
+test('Esc during create-rect cancels without adding a shape', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=empty-freeform');
+  await page.locator('.sw-tool', { hasText: /^Box$/ }).click();
+  const before = await getSource(page);
+  const freeform = page
+    .locator('.sw-canvas-stage [data-sw-component="Freeform"] > div')
+    .first();
+  const fb = await freeform.boundingBox();
+  if (!fb) throw new Error('freeform not visible');
+  const scale = await getCanvasScale(page);
+  const sx = fb.x + 300 * scale;
+  const sy = fb.y + 200 * scale;
+  await page.mouse.move(sx, sy);
+  await page.mouse.down();
+  await letReactCatchUp(page);
+  await page.mouse.move(sx + 200 * scale, sy + 150 * scale, { steps: 5 });
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  const after = await getSource(page);
+  expect(after).toBe(before);
+});

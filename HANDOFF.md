@@ -295,7 +295,7 @@ The v0.4 tight cut + reorder + gap-drag + click-into-named-slots + empty-slot pl
 
 ### Gestures
 
-- **Esc-cancels-gesture-in-flight**. Today the gesture lifecycle (drag-to-move, resize, create-rect-on-Freeform, marquee) only ends on pointerup — pressing Escape mid-drag does nothing and the gesture commits whatever the pointer state is at release. Fix: add a `keydown` listener inside each gesture effect (main `gestureMeta` effect, `createPreview` effect, `marquee` effect) that on `Escape` aborts without committing — clear `gestureMeta` / `createPreview` / `marquee` and skip the `commitSourceEdit` call. Small standalone fix; not driving any current work.
+- ~~**Esc-cancels-gesture-in-flight**~~ landed. Each gesture-lifecycle effect (main `gestureMeta`, `createPreview`, `marquee`, `toolDrag`) has a `keydown` listener that on Escape sets a `cancelled` flag and clears its state — the pointerup handler early-returns when `cancelled`. The top-level Escape handler (which resets `activeTool` + clears selection) bails when any gesture is in flight so Escape during a drag means *just* cancel the drag, selection preserved.
 
 - **Shift to lock aspect ratio** during single-shape and group resize. Constraint applied at `gestureStateToDelta` time: clamp `sy` to `sx` (or vice versa) per direction. Doesn't require the matrix generalization below.
 

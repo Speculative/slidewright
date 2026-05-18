@@ -246,6 +246,32 @@ test('click on a drag-only entry without movement makes no edit', async ({ page 
 
 // ─── Modal entries still work post-refactor ───────────────────────
 
+test('Esc during tool-drag cancels without inserting', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=empty-block-slot');
+  const before = await getSource(page);
+  const placeholder = page
+    .locator('[data-sw-slot-name="body"][data-sw-slot-empty="true"] > *')
+    .first();
+  const pb = await placeholder.boundingBox();
+  if (!pb) throw new Error('placeholder not visible');
+  // Start a drag from the VStack tool, move to the placeholder,
+  // press Escape, then release.
+  const tool = page.locator('.sw-tool', { hasText: /^VStack$/ });
+  const tb = await tool.boundingBox();
+  if (!tb) throw new Error('VStack tool not visible');
+  await page.mouse.move(tb.x + tb.width / 2, tb.y + tb.height / 2);
+  await page.mouse.down();
+  await letReactCatchUp(page);
+  await page.mouse.move(tb.x + tb.width / 2 + 8, tb.y + tb.height / 2);
+  await letReactCatchUp(page);
+  await page.mouse.move(pb.x + pb.width / 2, pb.y + pb.height / 2, { steps: 10 });
+  await letReactCatchUp(page);
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  const after = await getSource(page);
+  expect(after).toBe(before);
+});
+
 test('modal Box tool still draws a rect on Freeform after refactor', async ({ page }) => {
   await page.goto('/canvas.html?fixture=empty-freeform');
   await page.locator('.sw-tool', { hasText: /^Box$/ }).click();
