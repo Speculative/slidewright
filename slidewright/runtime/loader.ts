@@ -674,7 +674,31 @@ function renderComponent(comp: Component, ctx: LoadCtx): ReactNode {
     comp.implicitChildren.length > 0 &&
     loaded.meta.slots['children'] !== undefined
   ) {
-    slots['children'] = comp.implicitChildren.map((c) => renderComponent(c, ctx));
+    const childrenSchema = loaded.meta.slots['children'];
+    const rendered = comp.implicitChildren.map((c) => renderComponent(c, ctx));
+    // Wrap with the same data-sw-slot-* span the explicit-fills
+    // path emits, so the canvas's drop-target hit-test can find
+    // this slot. Implicit children have no SlotFill span, so we
+    // omit data-sw-slot-span-start/end; the canvas's selection
+    // chain (ScaledCanvas.tsx) skips slot wrappers without a span
+    // attr, so this stays correctly non-selectable as a slot —
+    // clicks select the parent component, as before.
+    if (isRenderableSlotType(childrenSchema.type)) {
+      slots['children'] = createElement(
+        'span',
+        {
+          'data-sw-slot-name': 'children',
+          'data-sw-slot-parent-start': comp.span.start.offset,
+          'data-sw-slot-parent-end': comp.span.end.offset,
+          'data-sw-slot-type': childrenSchema.type,
+          style: { display: 'contents' },
+          key: `slot-children-implicit-${comp.span.start.offset}`,
+        },
+        rendered as ReactNode,
+      );
+    } else {
+      slots['children'] = rendered;
+    }
     // Implicit children count as 'filled' for the children slot
     // regardless of the iteration above (which only saw explicit
     // fills).

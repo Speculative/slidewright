@@ -402,17 +402,54 @@ function hitTestDropTarget(
   // elementFromPoint can't address it directly, and the
   // before-first / after-last gaps land OUTSIDE the wrapper's
   // DOM subtree anyway. Scan all visible array slot wrappers in
-  // the document and pick the one whose extended bounds contain
-  // the pointer.
+  // the document; multiple may pass the bounds test for a single
+  // pointer position (a nested HStack inside a VStack — both
+  // wrappers' bounds contain the pointer). Pick the wrapper
+  // whose *closest gap rect* is nearest the pointer, breaking
+  // ties by DOM depth (innermost wins). This handles two cases
+  // the simpler "innermost wins" rule got wrong:
+  //   - User points at the outer VStack's before-first gap (the
+  //     strip at the inner stack's top edge): outer's gap-0 rect
+  //     contains the pointer at distance 0, while the inner's
+  //     gap-0 rect is far away along the orthogonal axis. Outer
+  //     wins — which is what the user wants when aiming at the
+  //     space *above* the inner stack.
+  //   - User points inside the inner stack proper: inner's
+  //     before-first / after-last gap rects sit at the inner's
+  //     edges and dominate. Inner wins.
   const wrappers = document.querySelectorAll<HTMLElement>(
     '[data-sw-slot-name][data-sw-slot-type^="array<"]',
   );
   let firstInvalid = false;
+  let bestMatch: {
+    wrapper: HTMLElement;
+    result: { target: ToolDragDropTarget; invalidHover: false };
+    distance: number;
+  } | null = null;
   for (const wrapper of wrappers) {
     const result = hitTestArrayGap(wrapper, clientX, clientY, produces);
-    if (result.target) return result;
-    if (result.invalidHover) firstInvalid = true;
+    if (result.target) {
+      const cand = {
+        wrapper,
+        result: result as { target: ToolDragDropTarget; invalidHover: false },
+        distance: result.distance,
+      };
+      if (!bestMatch) {
+        bestMatch = cand;
+      } else if (cand.distance < bestMatch.distance) {
+        bestMatch = cand;
+      } else if (
+        cand.distance === bestMatch.distance &&
+        bestMatch.wrapper.contains(wrapper)
+      ) {
+        // Tie on distance — prefer the innermost (deeper in DOM).
+        bestMatch = cand;
+      }
+    } else if (result.invalidHover) {
+      firstInvalid = true;
+    }
   }
+  if (bestMatch) return bestMatch.result;
   return { target: null, invalidHover: firstInvalid };
 }
 
@@ -475,7 +512,7 @@ function hitTestArrayGap(
   clientX: number,
   clientY: number,
   produces: SlotTypeName,
-): { target: ToolDragDropTarget | null; invalidHover: boolean } {
+): { target: ToolDragDropTarget | null; invalidHover: boolean; distance: number } {
   const parentStart = Number(wrapper.dataset.swSlotParentStart);
   const parentEnd = Number(wrapper.dataset.swSlotParentEnd);
   const slotName = wrapper.dataset.swSlotName;
@@ -486,10 +523,10 @@ function hitTestArrayGap(
     !slotName ||
     !slotType
   ) {
-    return { target: null, invalidHover: false };
+    return { target: null, invalidHover: false, distance: Infinity };
   }
   if (!acceptsTargetSlot(produces, slotType)) {
-    return { target: null, invalidHover: true };
+    return { target: null, invalidHover: true, distance: Infinity };
   }
   const parentEl = wrapper.parentElement?.closest<HTMLElement>(
     '[data-sw-component]',
@@ -499,7 +536,7 @@ function hitTestArrayGap(
   // doesn't apply. Skip and leave the existing rect-draw modal
   // to govern.
   if (parentName === 'Freeform') {
-    return { target: null, invalidHover: false };
+    return { target: null, invalidHover: false, distance: Infinity };
   }
   // The wrapper is `display: contents`, so its own
   // bounding-client-rect is meaningless. The rendered children
@@ -519,24 +556,69 @@ function hitTestArrayGap(
     const visible = visibleBoxFor(compEl);
     if (visible) childEls.push(visible);
   }
-  if (childEls.length === 0) {
-    return { target: null, invalidHover: false };
-  }
-  // Detect axis from the first two children. Single-child case
-  // falls back to vertical (matches the v0 VStack default in the
-  // reference deck — HStack with one child is rare and the
-  // before/after gaps still resolve correctly under either
-  // assumption since they don't overlap).
+  // Axis comes from the parent component's identity, not the
+  // two-child geometry heuristic. The heuristic fails at N=1 (no
+  // second child to compare against) and N=0 (no children at all).
+  // VStack/HStack are the only stacks today; other layouts with
+  // array slots fall back to the heuristic with 'v' default.
   const rects = childEls.map((c) => c.getBoundingClientRect());
-  const axis: 'v' | 'h' =
-    rects.length >= 2 && rects[1]!.top >= rects[0]!.bottom - 1
-      ? 'v'
-      : 'h';
+  let axis: 'v' | 'h';
+  if (parentName === 'VStack') axis = 'v';
+  else if (parentName === 'HStack') axis = 'h';
+  else
+    axis =
+      rects.length >= 2 && rects[1]!.top >= rects[0]!.bottom - 1 ? 'v' : 'h';
+  // The parent stack element has real flex geometry even when its
+  // children list is empty (CSS sizing, padding, min-height). Use
+  // it for: (a) the N=0 fallback gap, and (b) extending bounds
+  // along the stack axis so before-first/after-last gaps are
+  // reachable from pointers outside the children's collective
+  // extent.
+  const parentBox = parentEl ? visibleBoxFor(parentEl) : null;
+  const parentRect = parentBox ? parentBox.getBoundingClientRect() : null;
+  const THICKNESS = 12;
+  // Empty-array case: one full-extent gap at index 0 anchored to
+  // the parent's flex container. Without this, an empty stack is
+  // invisible to drop targeting.
+  if (rects.length === 0) {
+    if (!parentRect || (parentRect.width === 0 && parentRect.height === 0)) {
+      return { target: null, invalidHover: false, distance: Infinity };
+    }
+    if (
+      clientX < parentRect.left - THICKNESS ||
+      clientX > parentRect.right + THICKNESS ||
+      clientY < parentRect.top - THICKNESS ||
+      clientY > parentRect.bottom + THICKNESS
+    ) {
+      return { target: null, invalidHover: false, distance: Infinity };
+    }
+    // Pointer is inside the parent's flex container; treat as
+    // distance 0 (an empty stack's single gap is the whole stack
+    // area).
+    return {
+      target: {
+        kind: 'array-gap',
+        rect: {
+          left: parentRect.left,
+          top: parentRect.top,
+          width: parentRect.width,
+          height: parentRect.height,
+        },
+        parentStart,
+        parentEnd,
+        parentName,
+        slotName,
+        slotType,
+        insertionIndex: 0,
+      },
+      invalidHover: false,
+      distance: 0,
+    };
+  }
   // N+1 gap rects: before each child + after the last.
   // Width / height orthogonal to the axis matches the child's
   // extent; thickness along the axis is the half-gap-tolerance
   // (12px) so adjacent strips don't overlap.
-  const THICKNESS = 12;
   let bestIndex = -1;
   let bestRect: { left: number; top: number; width: number; height: number } | null = null;
   let bestDist = Infinity;
@@ -552,20 +634,31 @@ function hitTestArrayGap(
       bestRect = gap;
     }
   }
-  // Only commit to a gap target if the pointer is inside the
-  // wrapper's overall extent; otherwise we'd light up gaps from
-  // far away.
-  const wrapperBounds = boundsOfRects(rects);
-  if (
-    clientX < wrapperBounds.left - THICKNESS ||
-    clientX > wrapperBounds.right + THICKNESS ||
-    clientY < wrapperBounds.top - THICKNESS ||
-    clientY > wrapperBounds.bottom + THICKNESS
-  ) {
-    return { target: null, invalidHover: false };
+  // Containment test. Orthogonal to the stack axis: use the
+  // children's collective extent ± THICKNESS. Along the stack
+  // axis: use the parent layout's extent if available (so the
+  // before-first / after-last gaps are reachable from above/
+  // below the children's box), falling back to children extent ±
+  // THICKNESS.
+  const childBounds = boundsOfRects(rects);
+  let minX = childBounds.left - THICKNESS;
+  let maxX = childBounds.right + THICKNESS;
+  let minY = childBounds.top - THICKNESS;
+  let maxY = childBounds.bottom + THICKNESS;
+  if (parentRect) {
+    if (axis === 'v') {
+      minY = Math.min(minY, parentRect.top);
+      maxY = Math.max(maxY, parentRect.bottom);
+    } else {
+      minX = Math.min(minX, parentRect.left);
+      maxX = Math.max(maxX, parentRect.right);
+    }
+  }
+  if (clientX < minX || clientX > maxX || clientY < minY || clientY > maxY) {
+    return { target: null, invalidHover: false, distance: Infinity };
   }
   if (bestIndex < 0 || !bestRect) {
-    return { target: null, invalidHover: false };
+    return { target: null, invalidHover: false, distance: Infinity };
   }
   return {
     target: {
@@ -579,6 +672,7 @@ function hitTestArrayGap(
       insertionIndex: bestIndex,
     },
     invalidHover: false,
+    distance: bestDist,
   };
 }
 

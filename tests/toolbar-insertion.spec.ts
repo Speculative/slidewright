@@ -295,3 +295,165 @@ test('modal Box tool still draws a rect on Freeform after refactor', async ({ pa
   const source = await getSource(page);
   expect(source).toMatch(/Box\s*\{[^}]*x:\s*300/s);
 });
+
+// ─── Bug-fix regression coverage (2026-05-18) ─────────────────────
+//
+// Four bugs in the array-slot drop path, each blocking a different
+// authoring shape. Each test loads a fixture that exercises one
+// shape and asserts the drop commits.
+
+// Bug #1: single-child stack. Without parent-name axis derivation,
+// the two-child geometry heuristic falls back to the wrong axis at
+// N=1 and the wrapper-bounds containment test excludes the natural
+// drop region along the stack axis.
+test('drag inserts before the single child of a VStack', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-child-vstack');
+  const card = page
+    .locator(
+      '[data-sw-slot-name="children"][data-sw-slot-type^="array<"] [data-sw-component="CardRow"] > *',
+    )
+    .first();
+  const box = await card.boundingBox();
+  if (!box) throw new Error('single child not visible');
+  // Aim a few pixels above the card — the before-first gap. With
+  // the bug present, axis is 'h' and this point is outside the
+  // wrapper's vertical extent, so no drop registers.
+  await dragToolToPoint(page, 'VStack', box.x + box.width / 2, box.y - 2);
+  const source = await getSource(page);
+  // New VStack appears before the single CardRow.
+  expect(source).toMatch(/children:\s*\[\s*VStack\s*\{[^}]*\}\s*CardRow/s);
+});
+
+test('drag inserts after the single child of a VStack', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-child-vstack');
+  const card = page
+    .locator(
+      '[data-sw-slot-name="children"][data-sw-slot-type^="array<"] [data-sw-component="CardRow"] > *',
+    )
+    .first();
+  const box = await card.boundingBox();
+  if (!box) throw new Error('single child not visible');
+  await dragToolToPoint(
+    page,
+    'VStack',
+    box.x + box.width / 2,
+    box.y + box.height + 2,
+  );
+  const source = await getSource(page);
+  // New VStack appears after the existing CardRow.
+  expect(source).toMatch(/CardRow\s*\{[^}]*\}\s*VStack\s*\{[^}]*\}\s*\]/s);
+});
+
+// Bug #2: empty `children: []` array. No rendered children means
+// no rects to anchor a gap to. Falls back to the parent stack's
+// own bounding rect for a single index-0 gap.
+test('drag into an empty children:[] array materializes the first child', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=empty-vstack');
+  // The empty VStack renders as a flex container with no children.
+  // Aim at the VStack's rendered div directly (its first non-
+  // display-contents descendant).
+  const stack = page
+    .locator('[data-sw-component="VStack"] > div')
+    .first();
+  const box = await stack.boundingBox();
+  if (!box) throw new Error('empty VStack not visible');
+  // Place the pointer inside the stack's area. The parent box may
+  // be very thin (no children) — aim at its center.
+  await dragToolToPoint(
+    page,
+    'VStack',
+    box.x + box.width / 2,
+    box.y + Math.max(box.height / 2, 4),
+  );
+  const source = await getSource(page);
+  // After insertion, the children array contains exactly one
+  // VStack. Match the outer VStack's children specifically.
+  expect(source).toMatch(/children:\s*\[\s*VStack\s*\{/s);
+});
+
+// Bug #3: implicit-children syntax. `VStack { Box {...} }` (no
+// `children:` fill) skips the slot wrapper in the loader unless
+// the implicit-children branch also emits it.
+test('drag into an implicit-children VStack inserts via the slot wrapper', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=implicit-children-vstack');
+  // The implicit-children path should emit the same
+  // data-sw-slot-name="children" wrapper as explicit fills.
+  // Locate the first CardRow inside that wrapper.
+  const card = page
+    .locator(
+      '[data-sw-slot-name="children"][data-sw-slot-type^="array<"] [data-sw-component="CardRow"] > *',
+    )
+    .first();
+  const box = await card.boundingBox();
+  if (!box) throw new Error('first card not visible');
+  // Aim above the first card to hit the before-first gap.
+  await dragToolToPoint(page, 'VStack', box.x + box.width / 2, box.y - 2);
+  const source = await getSource(page);
+  // The implicit-children body now has a VStack ahead of the
+  // first CardRow. Match the new VStack appearing before the
+  // first eyebrow text.
+  expect(source).toMatch(/VStack\s*\{[^}]*\}\s*CardRow\s*\{[^}]*First/s);
+});
+
+// Bug #4: nested array wrappers. Outer VStack's children-wrapper
+// appears earlier in DOM order; without innermost-wins, it always
+// masks the inner HStack. This was the original user repro.
+test('drag into nested HStack targets the inner stack, not the outer VStack', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=nested-stacks');
+  // The inner CardRow lives inside the HStack. Hover the pointer
+  // on its right edge — that's the after-last gap of the HStack,
+  // but the outer VStack's bounds also contain this point.
+  const innerCard = page
+    .locator(
+      '[data-sw-component="HStack"] [data-sw-component="CardRow"] > *',
+    )
+    .first();
+  const box = await innerCard.boundingBox();
+  if (!box) throw new Error('inner card not visible');
+  await dragToolToPoint(
+    page,
+    'VStack',
+    box.x + box.width + 4,
+    box.y + box.height / 2,
+  );
+  const source = await getSource(page);
+  // After insertion, the HStack's children list has two entries:
+  // the original CardRow plus the new VStack. The outer VStack's
+  // children list should still be [HStack { ... }, CardRow] — only
+  // two top-level children, unchanged.
+  expect(source).toMatch(
+    /HStack\s*\{[^]*?CardRow\s*\{[^}]*Inner[^}]*\}\s*VStack\s*\{[^}]*\}[^]*?\]/,
+  );
+  // And the new VStack must NOT have landed at the outer VStack
+  // level (would have appeared between the HStack and the Outer
+  // CardRow).
+  expect(source).not.toMatch(/\}\s*VStack\s*\{[^}]*\}\s*CardRow\s*\{[^}]*Outer/s);
+});
+
+// Bug #4 follow-up: when the user aims above the inner HStack (the
+// outer VStack's before-first gap), the outer VStack must win
+// even though both wrappers contain the pointer along the inner
+// HStack's edge. Closest-gap-wins (not innermost-wins) gives the
+// outer's full-width gap-0 strip a distance-0 match while the
+// inner's gap-0 strip (at HStack.left) is far horizontally.
+test('drag aiming above the inner HStack inserts at outer VStack position 0', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=nested-stacks');
+  const hstack = page
+    .locator('[data-sw-component="HStack"]')
+    .first()
+    .locator(':scope > div')
+    .first();
+  const box = await hstack.boundingBox();
+  if (!box) throw new Error('inner HStack not visible');
+  // Aim 2px above the HStack's top edge, horizontally centered.
+  await dragToolToPoint(
+    page,
+    'VStack',
+    box.x + box.width / 2,
+    box.y - 2,
+  );
+  const source = await getSource(page);
+  // After insertion the outer VStack's children list reads:
+  // VStack, HStack, CardRow. The new VStack must come first.
+  expect(source).toMatch(/children:\s*\[\s*VStack\s*\{[^}]*\}\s*HStack/s);
+});

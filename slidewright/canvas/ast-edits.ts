@@ -294,6 +294,14 @@ export function materializeSlotFill(
 // `index` ranges from 0 (insert before first child) to N (append
 // after last child). Returns true on success; false if the slot
 // is missing or not a list.
+//
+// Special case: when `slotName === 'children'` and the parent has
+// implicit-children syntax (bare component invocations in its
+// body, no `children:` fill), splice into `implicitChildren`
+// instead — preserving the author's chosen surface form. The
+// inserted value must be a Component for this path; non-component
+// values can't be expressed as implicit children, so we fall back
+// to materializing an explicit `children: [...]` fill.
 export function insertIntoArraySlot(
   parent: Component,
   slotName: string,
@@ -301,11 +309,23 @@ export function insertIntoArraySlot(
   value: Value,
 ): boolean {
   const fill = parent.fills.find((f) => f.name === slotName);
-  if (!fill || fill.value.kind !== 'list') return false;
-  const items = fill.value.items;
-  const clamped = Math.max(0, Math.min(index, items.length));
-  items.splice(clamped, 0, value);
-  return true;
+  if (fill && fill.value.kind === 'list') {
+    const items = fill.value.items;
+    const clamped = Math.max(0, Math.min(index, items.length));
+    items.splice(clamped, 0, value);
+    return true;
+  }
+  if (
+    !fill &&
+    slotName === 'children' &&
+    parent.implicitChildren.length > 0 &&
+    value.kind === 'component'
+  ) {
+    const clamped = Math.max(0, Math.min(index, parent.implicitChildren.length));
+    parent.implicitChildren.splice(clamped, 0, value);
+    return true;
+  }
+  return false;
 }
 
 // ─── Component-path identity ─────────────────────────────────────
