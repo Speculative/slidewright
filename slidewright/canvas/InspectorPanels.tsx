@@ -47,6 +47,48 @@ import {
   type SelectionTarget,
 } from './selection-target.js';
 
+// Small SVG icons rendered inline. Sized to match a 12px text
+// baseline; stroke-only so they take on `currentColor` and play
+// well with hover/disabled state changes. No external icon library
+// — these two glyphs are all the inspector needs today.
+function ArrowRightIcon(): ReactElement {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M2 6h7" />
+      <path d="M6 3l3 3-3 3" />
+    </svg>
+  );
+}
+
+function XIcon(): ReactElement {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M3 3l6 6" />
+      <path d="M9 3l-6 6" />
+    </svg>
+  );
+}
+
 interface HierarchyPanelProps {
   shapes: ReadonlyMap<string, ShapeData>;
   activeIdx: number;
@@ -304,6 +346,11 @@ interface PropertiesPanelProps {
   // value, e.g.) — clicking drills the canvas + inspector into
   // that component's properties.
   onSelectComponent: (range: SourceRange) => void;
+  // Remove an item from a list-typed slot fill — invoked from the
+  // × button on each array-row item in the inspector. App handles
+  // the AST mutation (removing the item from its containing list)
+  // via commitSourceEdit. Range is the item's full source span.
+  onRemoveListItem: (range: SourceRange) => void;
   // Deck-scope color tokens (`accent`, `magenta`, …). Rendered as
   // the global swatch row above any color-typed PropertyRow editor.
   // Click → splices the bare token name into the slot's value span.
@@ -349,6 +396,7 @@ export function PropertiesPanel({
   onScrubEnd,
   onMaterializeTextSlot,
   onSelectComponent,
+  onRemoveListItem,
   colorTokens,
   slideColors,
 }: PropertiesPanelProps): ReactElement {
@@ -372,6 +420,7 @@ export function PropertiesPanel({
         scrubProps={scrubProps}
         paletteProps={paletteProps}
         onSelectComponent={onSelectComponent}
+        onRemoveListItem={onRemoveListItem}
       />
     );
   }
@@ -392,6 +441,7 @@ export function PropertiesPanel({
         scrubProps={scrubProps}
         paletteProps={paletteProps}
         onSelectComponent={onSelectComponent}
+        onRemoveListItem={onRemoveListItem}
       />
     );
   }
@@ -408,6 +458,7 @@ export function PropertiesPanel({
         scrubProps={scrubProps}
         paletteProps={paletteProps}
         onSelectComponent={onSelectComponent}
+        onRemoveListItem={onRemoveListItem}
       />
     );
   }
@@ -451,6 +502,7 @@ function ComponentPropertiesView({
   scrubProps,
   paletteProps,
   onSelectComponent,
+  onRemoveListItem,
 }: {
   shape: ShapeData;
   source: string;
@@ -458,6 +510,7 @@ function ComponentPropertiesView({
   scrubProps: ScrubProps;
   paletteProps: PaletteProps;
   onSelectComponent: (range: SourceRange) => void;
+  onRemoveListItem: (range: SourceRange) => void;
 }): ReactElement {
   const header = `${shape.comp.name} #${shape.childIdx}`;
   // Wrap commit to preserve selection on the same shape across the
@@ -473,7 +526,8 @@ function ComponentPropertiesView({
     };
     onCommit(newSource, [newRange]);
   };
-  if (shape.comp.fills.length === 0) {
+  const rows = buildPropertyRowDescriptors(shape.comp, shape.meta);
+  if (rows.length === 0) {
     return (
       <PanelFrame header={header}>
         <div className="sw-inspector-panel-empty">(no parameters)</div>
@@ -483,21 +537,86 @@ function ComponentPropertiesView({
   return (
     <PanelFrame header={header}>
       <div className="sw-properties-rows">
-        {shape.comp.fills.map((fill) => (
-          <PropertyRow
-            key={`${shape.slideIdx}-${shape.childIdx}-${fill.name}`}
-            fill={fill}
-            source={source}
-            onCommit={wrappedCommit}
-            slotType={fillSlotType(shape.meta, fill.name)}
-            omitType={omitSlotType(shape.meta, fill.name)}
-            paletteProps={paletteProps}
-            onSelectComponent={onSelectComponent}
-            {...scrubProps}
-          />
-        ))}
+        {rows.map((row) =>
+          row.kind === 'filled' ? (
+            <PropertyRow
+              key={`${shape.slideIdx}-${shape.childIdx}-${row.fill.name}`}
+              fill={row.fill}
+              source={source}
+              onCommit={wrappedCommit}
+              slotType={fillSlotType(shape.meta, row.fill.name)}
+              omitType={omitSlotType(shape.meta, row.fill.name)}
+              paletteProps={paletteProps}
+              onSelectComponent={onSelectComponent}
+              onRemoveListItem={onRemoveListItem}
+              {...scrubProps}
+            />
+          ) : (
+            <MissingPropertyRow
+              key={`missing-${shape.slideIdx}-${shape.childIdx}-${row.name}`}
+              name={row.name}
+              slotType={row.slotType}
+            />
+          ),
+        )}
       </div>
     </PanelFrame>
+  );
+}
+
+// Row descriptor for the property panel — either a filled slot (an
+// actual SlotFill) or a declared-but-missing slot/param (no fill in
+// source). Filled rows render today's PropertyRow; missing rows
+// render a placeholder so the user sees every slot the component
+// declares, not just the ones they happen to have authored.
+type PropertyRowDescriptor =
+  | { kind: 'filled'; fill: SlotFill }
+  | { kind: 'missing'; name: string; slotType: SlotType };
+
+function buildPropertyRowDescriptors(
+  comp: Component,
+  meta: ComponentMeta,
+): PropertyRowDescriptor[] {
+  const filled = new Set(comp.fills.map((f) => f.name));
+  const rows: PropertyRowDescriptor[] = [];
+  // Filled rows first, in source order — preserves the existing
+  // visual ordering the user is used to.
+  for (const fill of comp.fills) {
+    rows.push({ kind: 'filled', fill });
+  }
+  // Missing slots, then missing params. Within each group, follow
+  // the meta's declaration order (Object.entries on the schema —
+  // stable insertion order in modern JS).
+  for (const [name, schema] of Object.entries(meta.slots)) {
+    if (!filled.has(name)) {
+      rows.push({ kind: 'missing', name, slotType: schema.type });
+    }
+  }
+  for (const [name, schema] of Object.entries(meta.params ?? {})) {
+    if (!filled.has(name)) {
+      rows.push({ kind: 'missing', name, slotType: schema.type });
+    }
+  }
+  return rows;
+}
+
+function MissingPropertyRow({
+  name,
+  slotType,
+}: {
+  name: string;
+  slotType: SlotType;
+}): ReactElement {
+  return (
+    <div className="sw-property-row sw-property-row-missing">
+      <span className="sw-property-key">{name}</span>
+      <span className="sw-property-value sw-property-value-readonly sw-property-value-missing">
+        (empty)
+      </span>
+      <span className="sw-property-row-type" title={`slot type: ${slotType}`}>
+        {slotType}
+      </span>
+    </div>
   );
 }
 
@@ -636,6 +755,7 @@ function SlidePropertiesView({
   scrubProps,
   paletteProps,
   onSelectComponent,
+  onRemoveListItem,
 }: {
   slide: SlideAstData;
   source: string;
@@ -643,6 +763,7 @@ function SlidePropertiesView({
   scrubProps: ScrubProps;
   paletteProps: PaletteProps;
   onSelectComponent: (range: SourceRange) => void;
+  onRemoveListItem: (range: SourceRange) => void;
 }): ReactElement {
   const label = readSlideLabel(slide);
   const header = label ? `${slide.comp.name} · ${label}` : slide.comp.name;
@@ -651,7 +772,8 @@ function SlidePropertiesView({
   // "keep current". The wrapper-commit-shape-range trick used for
   // ComponentPropertiesView doesn't apply here.
   const wrappedCommit = (newSource: string): void => onCommit(newSource);
-  if (slide.comp.fills.length === 0) {
+  const rows = buildPropertyRowDescriptors(slide.comp, slide.meta);
+  if (rows.length === 0) {
     return (
       <PanelFrame header={header}>
         <div className="sw-inspector-panel-empty">(no parameters)</div>
@@ -661,19 +783,28 @@ function SlidePropertiesView({
   return (
     <PanelFrame header={header}>
       <div className="sw-properties-rows">
-        {slide.comp.fills.map((fill) => (
-          <PropertyRow
-            key={`slide-${fill.name}`}
-            fill={fill}
-            source={source}
-            onCommit={wrappedCommit}
-            slotType={fillSlotType(slide.meta, fill.name)}
-            omitType={omitSlotType(slide.meta, fill.name)}
-            paletteProps={paletteProps}
-            onSelectComponent={onSelectComponent}
-            {...scrubProps}
-          />
-        ))}
+        {rows.map((row) =>
+          row.kind === 'filled' ? (
+            <PropertyRow
+              key={`slide-${row.fill.name}`}
+              fill={row.fill}
+              source={source}
+              onCommit={wrappedCommit}
+              slotType={fillSlotType(slide.meta, row.fill.name)}
+              omitType={omitSlotType(slide.meta, row.fill.name)}
+              paletteProps={paletteProps}
+              onSelectComponent={onSelectComponent}
+              onRemoveListItem={onRemoveListItem}
+              {...scrubProps}
+            />
+          ) : (
+            <MissingPropertyRow
+              key={`missing-slide-${row.name}`}
+              name={row.name}
+              slotType={row.slotType}
+            />
+          ),
+        )}
       </div>
     </PanelFrame>
   );
@@ -764,6 +895,7 @@ function SlotPropertiesView({
   scrubProps,
   paletteProps,
   onSelectComponent,
+  onRemoveListItem,
 }: {
   slotInfo: SlotInfo;
   source: string;
@@ -771,6 +903,7 @@ function SlotPropertiesView({
   scrubProps: ScrubProps;
   paletteProps: PaletteProps;
   onSelectComponent: (range: SourceRange) => void;
+  onRemoveListItem: (range: SourceRange) => void;
 }): ReactElement {
   const { slotName, fill, parentShape } = slotInfo;
   const header = `Slot: ${slotName}`;
@@ -800,6 +933,7 @@ function SlotPropertiesView({
           omitType={omitSlotType(parentShape.meta, slotName)}
           paletteProps={paletteProps}
           onSelectComponent={onSelectComponent}
+          onRemoveListItem={onRemoveListItem}
           {...scrubProps}
         />
       </div>
@@ -830,6 +964,10 @@ interface PropertyRowProps {
   // Component. Routes the selection to that component's span so
   // the canvas + inspector switch focus into it.
   onSelectComponent: (range: SourceRange) => void;
+  // Remove an item from a list-typed value. Range is the item's
+  // own span; the App resolves which list it belongs to via the
+  // existing removeShapeAtSpan AST walker.
+  onRemoveListItem: (range: SourceRange) => void;
   // Drag-to-scrub session lifecycle. PropertyRow drives these on
   // numeric rows; the App pushes one undo entry per session and
   // applies intermediate previews without polluting the undo
@@ -847,6 +985,7 @@ function PropertyRow({
   omitType,
   paletteProps,
   onSelectComponent,
+  onRemoveListItem,
   onScrubBegin,
   onScrubPreview,
   onScrubEnd,
@@ -855,6 +994,7 @@ function PropertyRow({
   const isNumber = fill.value.kind === 'number';
   const isColor = slotType === 'color-token' && !isOmit;
   const isComponent = fill.value.kind === 'component';
+  const isList = fill.value.kind === 'list';
   const editable = !isOmit && isEditableValue(fill.value);
   const sourceText = readValueSource(fill.value, source);
   const [draft, setDraft] = useState<string>(sourceText);
@@ -1178,8 +1318,64 @@ function PropertyRow({
               });
             }}
           >
-            →
+            <ArrowRightIcon />
           </button>
+        </div>
+      ) : isList && fill.value.kind === 'list' ? (
+        // Array-typed value: enumerate the items. Each item shows
+        // its component name (or a short literal preview for
+        // primitives) + a drill button (component items only) + a
+        // remove (×) button. Lean scope: no add, no reorder —
+        // those live in the canvas/toolbar already.
+        <div className="sw-property-list-cell">
+          {fill.value.items.length === 0 ? (
+            <span className="sw-property-value sw-property-value-readonly">
+              (empty)
+            </span>
+          ) : (
+            <ul className="sw-property-list-items">
+              {fill.value.items.map((item, i) => {
+                const itemRange: SourceRange = {
+                  start: item.span.start.offset,
+                  end: item.span.end.offset,
+                };
+                const itemLabel =
+                  item.kind === 'component'
+                    ? item.name
+                    : source.slice(itemRange.start, itemRange.end);
+                return (
+                  <li
+                    key={`${itemRange.start}-${itemRange.end}-${i}`}
+                    className="sw-property-list-item"
+                  >
+                    <span className="sw-property-list-item-name">
+                      {itemLabel}
+                    </span>
+                    {item.kind === 'component' ? (
+                      <button
+                        type="button"
+                        className="sw-property-drill"
+                        title={`select ${item.name}`}
+                        aria-label={`select ${item.name}`}
+                        onClick={() => onSelectComponent(itemRange)}
+                      >
+                        <ArrowRightIcon />
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="sw-property-list-remove"
+                      title="remove item"
+                      aria-label="remove item"
+                      onClick={() => onRemoveListItem(itemRange)}
+                    >
+                      <XIcon />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
       ) : editable ? (
         <input

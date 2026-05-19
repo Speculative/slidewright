@@ -449,7 +449,25 @@ export function removeShapeAtSpan(
   ast: SourceFile,
   target: SourceRange,
 ): boolean {
+  return removeListItemAtSpan(ast, target, 'component-only');
+}
+
+// Walk the AST looking for a list whose items contain a node with
+// the given source span; splice it out. Used by canvas delete
+// (component-only mode, preserving the v0.2 behavior) and by the
+// inspector's array-row remove button (any-kind mode, lets primitive
+// list items be deleted too).
+export function removeListItemAtSpan(
+  ast: SourceFile,
+  target: SourceRange,
+  mode: 'component-only' | 'any-kind',
+): boolean {
   let removed = false;
+  const matches = (item: Value): boolean => {
+    if (item.span.start.offset !== target.start) return false;
+    if (item.span.end.offset !== target.end) return false;
+    return mode === 'any-kind' || item.kind === 'component';
+  };
   const visit = (node: Node | Value): void => {
     if (removed) return;
     switch (node.kind) {
@@ -465,14 +483,7 @@ export function removeShapeAtSpan(
         return;
       case 'list': {
         const before = node.items.length;
-        node.items = node.items.filter(
-          (item) =>
-            !(
-              item.kind === 'component' &&
-              item.span.start.offset === target.start &&
-              item.span.end.offset === target.end
-            ),
-        );
+        node.items = node.items.filter((item) => !matches(item));
         if (node.items.length !== before) {
           removed = true;
           return;

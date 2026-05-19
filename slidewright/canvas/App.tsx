@@ -62,6 +62,7 @@ import {
   materializeSlotFill,
   pathToComponent,
   projectReorderedIndices,
+  removeListItemAtSpan,
   removeShapeAtSpan,
   removeSlidesAtIndices,
   reorderSlides,
@@ -2503,6 +2504,46 @@ export function App({
                 onSelectComponent={(range) =>
                   setSelected([componentTarget(range)])
                 }
+                onRemoveListItem={(range) => {
+                  const preSource = sourceRef.current;
+                  const result = commitSourceEdit(
+                    preSource,
+                    '<remove-list-item>',
+                    (ast) =>
+                      removeListItemAtSpan(ast, range, 'any-kind')
+                        ? {}
+                        : null,
+                  );
+                  if (!result) return;
+                  // Preserve any selected component(s) by shifting
+                  // their spans relative to the edit. Inspector
+                  // changes should keep the parent selected — the
+                  // user is still working on it.
+                  const delta = result.newSource.length - preSource.length;
+                  const preserved: SourceRange[] = [];
+                  for (const t of selected) {
+                    if (t.kind !== 'component') continue;
+                    const s = t.span;
+                    if (s.end <= range.start) {
+                      preserved.push({ start: s.start, end: s.end });
+                    } else if (s.start <= range.start && s.end >= range.end) {
+                      preserved.push({
+                        start: s.start,
+                        end: s.end + delta,
+                      });
+                    } else if (s.start >= range.end) {
+                      preserved.push({
+                        start: s.start + delta,
+                        end: s.end + delta,
+                      });
+                    }
+                    // selection straddling the edit gets dropped
+                  }
+                  commitToHost(
+                    result.newSource,
+                    preserved.length > 0 ? preserved : undefined,
+                  );
+                }}
                 colorTokens={state.colorTokens}
                 slideColors={slideColors}
               />
