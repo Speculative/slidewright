@@ -329,6 +329,8 @@ The v0.4 tight cut + reorder + gap-drag + click-into-named-slots + empty-slot pl
 
 - ~~**Drag-to-scrub on numeric inputs**~~ landed via the PropertyRow Pointer Lock pattern; ColorPicker reuses the same shape on its L/C/H labels.
 
+- **Revisit `LayoutAdapter.chainMode: 'transparent'`.** Added 2026-05-19 so Freeform could show up in the hierarchy without entering the canvas drill chain (canvas clicks on Boxes still select the Box; canvas clicks on empty Freeform space still start the marquee; Freeform reaches the user via the hierarchy panel only). The longer-term direction may be the opposite — make Freeform a "regularly gesturable layout box" (resize handles, gesture surface) at which point `chainMode` becomes obsolete and Freeform participates in the chain normally. Check in when Freeform-as-resizable lands (see "Freeform sizing" item above). If it stays transparent indefinitely, the field earns its keep.
+
 ### Gestures
 
 - ~~**Esc-cancels-gesture-in-flight**~~ landed. Each gesture-lifecycle effect (main `gestureMeta`, `createPreview`, `marquee`, `toolDrag`) has a `keydown` listener that on Escape sets a `cancelled` flag and clears its state — the pointerup handler early-returns when `cancelled`. The top-level Escape handler (which resets `activeTool` + clears selection) bails when any gesture is in flight so Escape during a drag means *just* cancel the drag, selection preserved.

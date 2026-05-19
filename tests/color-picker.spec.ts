@@ -14,7 +14,7 @@ async function getSource(page: Page): Promise<string> {
 }
 
 async function selectFirstBox(page: Page): Promise<void> {
-  await page.locator('.sw-hierarchy-node').first().click();
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
 }
 
@@ -130,7 +130,7 @@ test('source-declared tokens render in shapes and appear in the palette', async 
   ).toHaveCSS('background-color', /.+/);
   // Open the picker on the first Box's fill row — global palette
   // should include a swatch for `brand`.
-  await page.locator('.sw-hierarchy-node').first().click();
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   await page.locator('.sw-color-cell input.sw-property-value').first().focus();
   await expect(page.locator('.sw-color-popover')).toBeVisible();
   // The brand swatch is in the global token row.
@@ -157,7 +157,7 @@ test('picker resolves source-declared tokens (no var(--name) in CSS)', async ({ 
   // token map rather than blindly trying `var(--brand)` (which
   // would fail and fall back to the default 240).
   await page.goto('/canvas.html?fixture=source-tokens');
-  await page.locator('.sw-hierarchy-node').first().click();
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   await page.locator('.sw-color-cell input.sw-property-value').first().focus();
   const hInput = page.locator('.sw-color-picker-fields input').nth(2);
   const hVal = parseFloat(await hInput.inputValue());
@@ -192,7 +192,7 @@ test('per-slide colors row surfaces oklch literals already in the slide', async 
   // third uses an `oklch(...)` literal).
   await page.locator('.sw-thumb').nth(1).click();
   // Select the first Box on that slide.
-  await page.locator('.sw-hierarchy-node').first().click();
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   await openFillPicker(page);
   // The per-slide palette row should be present (oklch literal is
   // not in the global tokens).

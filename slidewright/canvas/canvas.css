@@ -550,6 +550,11 @@ html, body, #root {
   font-size: 11px;
   color: #888;
 }
+.sw-hierarchy-node-slot {
+  font-family: var(--vscode-editor-font-family, "JetBrains Mono", ui-monospace, monospace);
+  font-size: 12px;
+  color: #777;
+}
 
 /* The slide row is the implicit container of everything below. Same
  * row footprint as the shape rows, but its own class so callers that

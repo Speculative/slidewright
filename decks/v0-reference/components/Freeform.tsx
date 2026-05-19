@@ -15,6 +15,7 @@ import {
   type ComponentRenderProps,
 } from '../../../slidewright/runtime/contract.js';
 import { makeComponent } from '../../../slidewright/runtime/ast-builders.js';
+import type { LayoutAdapter } from '../../../slidewright/canvas/layout-adapter.js';
 
 export const slidewright: ComponentMeta = {
   produces: 'block',
@@ -32,6 +33,21 @@ export const slidewright: ComponentMeta = {
       return makeComponent('Freeform', []);
     },
   },
+};
+
+// Bare layout adapter — makes Freeform selectable in the canvas
+// + inspectable in the hierarchy without opting into any gesture
+// surface (no reorder, no gap-drag, no own resize handles). Its
+// children's adapters handle drag / resize independently.
+//
+// chainMode: 'transparent' — clicks on a child component (Box,
+// TextBox, Arrow) select the child, not the Freeform. Freeform is
+// reachable via the hierarchy panel or by clicking on its own
+// empty area. Matches the v0 mental model where Freeform is a
+// transparent positioning context, not a thing-to-select.
+export const canvas: LayoutAdapter = {
+  kind: 'layout',
+  chainMode: 'transparent',
 };
 
 export default function Freeform({ slots }: ComponentRenderProps) {

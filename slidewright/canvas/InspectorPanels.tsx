@@ -39,6 +39,7 @@ import type {
   SlotType,
 } from '../runtime/contract.js';
 import { ColorPicker } from './ColorPicker.js';
+import { isLayoutAdapter } from './layout-adapter.js';
 import type { SourceRange } from './host.js';
 import {
   componentTarget,
@@ -60,6 +61,20 @@ interface HierarchyPanelProps {
   onJumpToSource: (range: SourceRange) => void;
 }
 
+// Tree node carried through the recursive walker. Only canvas-
+// registered components (those that resolve to ShapeData via
+// spanKey) earn a node — non-selectable components are skipped,
+// but the walker still recurses through them to find selectable
+// descendants. `inList` flips on for items inside an array-typed
+// fill; their slot label is omitted (the slot name is shared with
+// siblings and would just repeat).
+interface HierarchyNode {
+  comp: Component;
+  slotName: string | null;
+  depth: number;
+  inList: boolean;
+}
+
 export function HierarchyPanel({
   shapes,
   activeIdx,
@@ -68,20 +83,68 @@ export function HierarchyPanel({
   onSelect,
   onJumpToSource,
 }: HierarchyPanelProps): ReactElement {
-  // Active slide's shapes, ordered by childIdx so the tree matches
-  // source / render order in the Freeform.
-  const items = useMemo(() => {
-    const list: ShapeData[] = [];
-    for (const data of shapes.values()) {
-      if (data.slideIdx === activeIdx) list.push(data);
+  // Build the tree by walking the active slide's AST. The Slide
+  // itself is the implicit root (rendered as its own row above the
+  // tree); recursion starts at Slide.content. Only components with
+  // a registered ShapeData entry are emitted, but the walker
+  // recurses through non-canvas components too — a hypothetical
+  // CustomLayout without an adapter shouldn't hide its CardRow
+  // children.
+  const nodes = useMemo(() => {
+    if (!activeSlide) return [];
+    const out: HierarchyNode[] = [];
+    const visit = (
+      comp: Component,
+      slotName: string | null,
+      depth: number,
+      inList: boolean,
+    ): void => {
+      const key = `${comp.span.start.offset}-${comp.span.end.offset}`;
+      const hasShape = shapes.has(key);
+      let childDepth = depth;
+      if (hasShape) {
+        out.push({ comp, slotName, depth, inList });
+        childDepth = depth + 1;
+      }
+      // Explicit fills, in source order.
+      for (const fill of comp.fills) {
+        if (fill.value.kind === 'component') {
+          visit(fill.value, fill.name, childDepth, false);
+        } else if (fill.value.kind === 'list') {
+          for (const item of fill.value.items) {
+            if (item.kind === 'component') {
+              visit(item, fill.name, childDepth, true);
+            }
+          }
+        }
+      }
+      // Implicit children fill the `children` slot.
+      for (const child of comp.implicitChildren) {
+        visit(child, 'children', childDepth, true);
+      }
+    };
+    // Slide is the root. Recurse into Slide.content if it's a
+    // component (typical case: a slide-content component or
+    // Freeform); list-typed Slide.content isn't a supported shape
+    // today but the walker handles it generically.
+    for (const fill of activeSlide.comp.fills) {
+      if (fill.name !== 'content') continue;
+      if (fill.value.kind === 'component') {
+        visit(fill.value, 'content', 0, false);
+      } else if (fill.value.kind === 'list') {
+        for (const item of fill.value.items) {
+          if (item.kind === 'component') {
+            visit(item, 'content', 0, true);
+          }
+        }
+      }
     }
-    list.sort((a, b) => a.childIdx - b.childIdx);
-    return list;
-  }, [shapes, activeIdx]);
+    return out;
+  }, [activeSlide, shapes]);
 
-  const isSelected = (data: ShapeData): boolean => {
-    const start = data.comp.span.start.offset;
-    const end = data.comp.span.end.offset;
+  const isSelected = (comp: Component): boolean => {
+    const start = comp.span.start.offset;
+    const end = comp.span.end.offset;
     return selected.some(
       (s) =>
         s.kind === 'component' &&
@@ -128,17 +191,28 @@ export function HierarchyPanel({
               )}
             </li>
           ) : null}
-          {items.length === 0 ? (
+          {nodes.length === 0 ? (
             <li className="sw-inspector-panel-empty">
               (no shapes on this slide)
             </li>
           ) : null}
-          {items.map((data) => {
+          {nodes.map((node) => {
             const range: SourceRange = {
-              start: data.comp.span.start.offset,
-              end: data.comp.span.end.offset,
+              start: node.comp.span.start.offset,
+              end: node.comp.span.end.offset,
             };
-            const sel = isSelected(data);
+            const sel = isSelected(node.comp);
+            // Slot prefix appears only when this row fills a
+            // named, single-component slot (not when it's an item
+            // inside an array-typed fill — sharing siblings would
+            // just repeat the slot name).
+            const showSlot = node.slotName && !node.inList;
+            const data = shapes.get(`${range.start}-${range.end}`);
+            const adapterKind = data
+              ? isLayoutAdapter(data.canvas)
+                ? 'layout'
+                : 'shape'
+              : 'other';
             return (
               <li
                 key={`${range.start}-${range.end}`}
@@ -147,8 +221,12 @@ export function HierarchyPanel({
                 }
                 role="treeitem"
                 aria-selected={sel}
+                aria-level={node.depth + 1}
+                data-sw-component={node.comp.name}
+                data-sw-adapter-kind={adapterKind}
                 data-sw-span-start={range.start}
                 data-sw-span-end={range.end}
+                style={{ paddingLeft: `${8 + node.depth * 14}px` }}
                 onClick={(e) => {
                   // Ctrl/Cmd+click jumps the editor cursor to the
                   // shape's source span (VS Code "go to
@@ -161,11 +239,13 @@ export function HierarchyPanel({
                   onSelect(componentTarget(range), { shift: e.shiftKey });
                 }}
               >
+                {showSlot ? (
+                  <span className="sw-hierarchy-node-slot">
+                    {node.slotName} ·{' '}
+                  </span>
+                ) : null}
                 <span className="sw-hierarchy-node-name">
-                  {data.comp.name}
-                </span>
-                <span className="sw-hierarchy-node-meta">
-                  #{data.childIdx}
+                  {node.comp.name}
                 </span>
               </li>
             );

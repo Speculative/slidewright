@@ -24,6 +24,7 @@ import type {
 } from 'react';
 
 import type { SlotType } from '../runtime/contract.js';
+import { isLayoutAdapter } from './layout-adapter.js';
 import type { SourceRange } from './host.js';
 import {
   findTargetIndex,
@@ -262,37 +263,68 @@ function buildSelectableChain(
           ) {
             const pStart = parentComp.getAttribute('data-sw-span-start');
             const pEnd = parentComp.getAttribute('data-sw-span-end');
-            if (
-              pStart &&
-              pEnd &&
-              selectableSpans.has(`${pStart}-${pEnd}`)
-            ) {
-              chain.push({
-                kind: 'slot',
-                span: {
-                  start: parseInt(slotStart, 10),
-                  end: parseInt(slotEnd, 10),
-                },
-                parentSpan: {
-                  start: parseInt(pStart, 10),
-                  end: parseInt(pEnd, 10),
-                },
-                slotName,
-              });
+            if (pStart && pEnd) {
+              const parentEntry = selectableSpans.get(`${pStart}-${pEnd}`) as
+                | { canvas?: unknown }
+                | undefined;
+              if (parentEntry) {
+                // Slots whose parent layout is `chainMode:
+                // 'transparent'` aren't meaningful drill targets —
+                // the parent layout itself is transparent for chain
+                // purposes, so its slot wrappers shouldn't intercept
+                // clicks aimed at descendants either.
+                const parentTransparent =
+                  isLayoutAdapter(parentEntry.canvas) &&
+                  parentEntry.canvas.chainMode === 'transparent';
+                if (!parentTransparent) {
+                  chain.push({
+                    kind: 'slot',
+                    span: {
+                      start: parseInt(slotStart, 10),
+                      end: parseInt(slotEnd, 10),
+                    },
+                    parentSpan: {
+                      start: parseInt(pStart, 10),
+                      end: parseInt(pEnd, 10),
+                    },
+                    slotName,
+                  });
+                }
+              }
             }
           }
         }
       } else if (el.hasAttribute('data-sw-component')) {
         const start = el.getAttribute('data-sw-span-start');
         const end = el.getAttribute('data-sw-span-end');
-        if (start && end && selectableSpans.has(`${start}-${end}`)) {
-          chain.push({
-            kind: 'component',
-            span: {
-              start: parseInt(start, 10),
-              end: parseInt(end, 10),
-            },
-          });
+        if (start && end) {
+          const key = `${start}-${end}`;
+          const entry = selectableSpans.get(key) as
+            | { canvas?: unknown }
+            | undefined;
+          if (entry) {
+            // Transparent layouts (e.g. Freeform) are excluded
+            // from the canvas selection chain entirely. They're
+            // reachable via the hierarchy panel, but clicks on
+            // their own area fall through to background dispatch
+            // (which starts a marquee inside a Freeform, or clears
+            // selection outside). Matches the v0 mental model where
+            // a Freeform is a transparent positioning context, not
+            // a thing the user clicks on the canvas.
+            const adapter = entry.canvas;
+            const transparent =
+              isLayoutAdapter(adapter) &&
+              adapter.chainMode === 'transparent';
+            if (!transparent) {
+              chain.push({
+                kind: 'component',
+                span: {
+                  start: parseInt(start, 10),
+                  end: parseInt(end, 10),
+                },
+              });
+            }
+          }
         }
       }
     }

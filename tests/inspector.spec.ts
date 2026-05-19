@@ -14,19 +14,24 @@ test('hierarchy panel renders the active slide shapes', async ({ page }) => {
     page.locator('.sw-canvas-stage [data-sw-component="Box"]').first(),
   ).toBeVisible();
   // Two Box shapes on slide 1 → two tree rows.
-  const rows = page.locator('.sw-hierarchy-node');
+  const rows = page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]');
   await expect(rows).toHaveCount(2);
   await expect(rows.nth(0)).toContainText('Box');
   await expect(rows.nth(1)).toContainText('Box');
 });
 
-test('hierarchy panel shows placeholder copy on an empty slide', async ({ page }) => {
+test('hierarchy shows the Freeform row even when it has no shape children', async ({ page }) => {
+  // Freeform is itself a selectable layout in the hierarchy, so an
+  // empty-freeform fixture renders exactly one tree row (the
+  // Freeform) and no shape rows. The "empty" placeholder text only
+  // shows when there are zero tree rows at all (a Slide with no
+  // content fill).
   await page.goto('/canvas.html?fixture=empty-freeform');
   await expect(page.locator('.sw-hierarchy-panel')).toBeVisible();
-  await expect(page.locator('.sw-hierarchy-node')).toHaveCount(0);
+  await expect(page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]')).toHaveCount(0);
   await expect(
-    page.locator('.sw-hierarchy-panel .sw-inspector-panel-empty'),
-  ).toBeVisible();
+    page.locator('.sw-hierarchy-node[data-sw-component="Freeform"]'),
+  ).toHaveCount(1);
 });
 
 test('clicking a tree row selects the shape on the canvas', async ({ page }) => {
@@ -35,20 +40,20 @@ test('clicking a tree row selects the shape on the canvas', async ({ page }) => 
     page.locator('.sw-canvas-stage [data-sw-component="Box"]').first(),
   ).toBeVisible();
   await expect(page.locator('.sw-selection-outline')).toHaveCount(0);
-  await page.locator('.sw-hierarchy-node').first().click();
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   // Selection outline appears for the selected shape.
   await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
 });
 
 test('shift-clicking a tree row toggles selection', async ({ page }) => {
   await page.goto('/canvas.html?fixture=two-boxes');
-  await expect(page.locator('.sw-hierarchy-node')).toHaveCount(2);
-  await page.locator('.sw-hierarchy-node').nth(0).click();
-  await page.locator('.sw-hierarchy-node').nth(1).click({ modifiers: ['Shift'] });
+  await expect(page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]')).toHaveCount(2);
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').nth(0).click();
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').nth(1).click({ modifiers: ['Shift'] });
   // Two shapes selected → two outlines + a group bbox.
   await expect(page.locator('.sw-selection-outline')).toHaveCount(2);
   // Shift-click the second again removes it.
-  await page.locator('.sw-hierarchy-node').nth(1).click({ modifiers: ['Shift'] });
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').nth(1).click({ modifiers: ['Shift'] });
   await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
 });
 
@@ -63,9 +68,9 @@ test('canvas selection highlights the corresponding tree row', async ({ page }) 
     .locator('.sw-canvas-stage [data-sw-component="Box"] > div')
     .nth(0)
     .click();
-  const firstRow = page.locator('.sw-hierarchy-node').nth(0);
+  const firstRow = page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').nth(0);
   await expect(firstRow).toHaveClass(/selected/);
-  await expect(page.locator('.sw-hierarchy-node.selected')).toHaveCount(1);
+  await expect(page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"].selected')).toHaveCount(1);
 });
 
 test('Ctrl-clicking a tree row moves the editor caret to the source span', async ({ page }) => {
@@ -76,7 +81,7 @@ test('Ctrl-clicking a tree row moves the editor caret to the source span', async
   // Pull the expected span from the tree row's data attrs (matches
   // the wrapper attrs used by the canvas Ctrl-click test).
   const span = await page.evaluate(() => {
-    const row = document.querySelector('.sw-hierarchy-node');
+    const row = document.querySelector('.sw-hierarchy-node[data-sw-adapter-kind="shape"]');
     if (!row) throw new Error('hierarchy node not found');
     return {
       start: parseInt(row.getAttribute('data-sw-span-start') ?? '', 10),
@@ -84,7 +89,7 @@ test('Ctrl-clicking a tree row moves the editor caret to the source span', async
     };
   });
   await page
-    .locator('.sw-hierarchy-node')
+    .locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]')
     .first()
     .click({ modifiers: ['ControlOrMeta'] });
   const sel = await page.evaluate(() => {
@@ -123,7 +128,7 @@ test('hierarchy shows the active slide as the first row, distinct from shape row
   await expect(slideRow).toHaveCount(1);
   await expect(slideRow).toContainText('Slide');
   // Slide row is NOT also counted as a shape row.
-  await expect(page.locator('.sw-hierarchy-node')).toHaveCount(1);
+  await expect(page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]')).toHaveCount(1);
 });
 
 test('clicking the slide row selects the slide without drawing a canvas outline', async ({ page }) => {
@@ -162,7 +167,7 @@ test('property panel renders rows for the selected shape', async ({ page }) => {
   await expect(
     page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
   ).toBeVisible();
-  await page.locator('.sw-hierarchy-node').first().click();
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   // single-box has x, y, width, height, fill — five rows.
   await expect(page.locator('.sw-property-row')).toHaveCount(5);
   await expect(page.locator('.sw-property-row').nth(0)).toContainText('x');
@@ -173,7 +178,7 @@ test('editing a numeric param and pressing Enter commits to source', async ({ pa
   await expect(
     page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
   ).toBeVisible();
-  await page.locator('.sw-hierarchy-node').first().click();
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   const xRow = page.locator('.sw-property-row', { hasText: /^x/ }).first();
   const xInput = xRow.locator('input.sw-property-value');
   await xInput.fill('500');
@@ -188,7 +193,7 @@ test('Escape cancels the edit without committing', async ({ page }) => {
     page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
   ).toBeVisible();
   const before = await page.locator('.sw-editor-pane').inputValue();
-  await page.locator('.sw-hierarchy-node').first().click();
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   const xRow = page.locator('.sw-property-row', { hasText: /^x/ }).first();
   const xInput = xRow.locator('input.sw-property-value');
   await xInput.fill('999');
@@ -202,7 +207,7 @@ test('editing a name_ref param commits the new name', async ({ page }) => {
   await expect(
     page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
   ).toBeVisible();
-  await page.locator('.sw-hierarchy-node').first().click();
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   const fillRow = page.locator('.sw-property-row', { hasText: /^fill/ }).first();
   const fillInput = fillRow.locator('input.sw-property-value');
   await fillInput.fill('cyan');
@@ -216,8 +221,8 @@ test('property edits preserve selection on the same shape', async ({ page }) => 
   await expect(
     page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
   ).toBeVisible();
-  await page.locator('.sw-hierarchy-node').first().click();
-  await expect(page.locator('.sw-hierarchy-node.selected')).toHaveCount(1);
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
+  await expect(page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"].selected')).toHaveCount(1);
   const xRow = page.locator('.sw-property-row', { hasText: /^x/ }).first();
   const xInput = xRow.locator('input.sw-property-value');
   await xInput.fill('500');
@@ -225,7 +230,7 @@ test('property edits preserve selection on the same shape', async ({ page }) => 
   // Selection should still highlight the same Box (the property
   // panel passes the post-edit shape range as newSelections so the
   // subscribe handler doesn't fall through to the empty path).
-  await expect(page.locator('.sw-hierarchy-node.selected')).toHaveCount(1);
+  await expect(page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"].selected')).toHaveCount(1);
   await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
 });
 
@@ -235,7 +240,7 @@ test('property edits enter the undo stack', async ({ page }) => {
     page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
   ).toBeVisible();
   const before = await page.locator('.sw-editor-pane').inputValue();
-  await page.locator('.sw-hierarchy-node').first().click();
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   const xRow = page.locator('.sw-property-row', { hasText: /^x/ }).first();
   const xInput = xRow.locator('input.sw-property-value');
   await xInput.fill('500');
@@ -254,7 +259,7 @@ test('omit toggle marks a renderable slot as intentionally empty and disables it
   await expect(
     page.locator('.sw-canvas-stage [data-sw-component="TextBox"]'),
   ).toBeVisible();
-  await page.locator('.sw-hierarchy-node').first().click();
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   const contentRow = page.locator('.sw-property-row', { hasText: /^content/ }).first();
   const toggle = contentRow.locator('.sw-property-omit-toggle');
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
@@ -274,7 +279,7 @@ test('omit toggle re-enables editing when flipped off', async ({ page }) => {
   await expect(
     page.locator('.sw-canvas-stage [data-sw-component="TextBox"]'),
   ).toBeVisible();
-  await page.locator('.sw-hierarchy-node').first().click();
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   const contentRow = page.locator('.sw-property-row', { hasText: /^content/ }).first();
   const toggle = contentRow.locator('.sw-property-omit-toggle');
   await toggle.click();
@@ -294,7 +299,7 @@ test('omit toggle entries enter the undo stack', async ({ page }) => {
     page.locator('.sw-canvas-stage [data-sw-component="TextBox"]'),
   ).toBeVisible();
   const before = await page.locator('.sw-editor-pane').inputValue();
-  await page.locator('.sw-hierarchy-node').first().click();
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   const contentRow = page.locator('.sw-property-row', { hasText: /^content/ }).first();
   await contentRow.locator('.sw-property-omit-toggle').click();
   // Move focus to canvas so Cmd-Z routes to the canvas undo handler.
@@ -332,7 +337,7 @@ test('slide-content components (produces:slide) have no canvas selection outline
   // slide chrome the user already sees. Selection state + inspector
   // path remain — just no canvas border.
   await page.goto('/canvas.html?fixture=content-slide');
-  const treeRow = page.locator('.sw-hierarchy-node', { hasText: 'ContentSlide' });
+  const treeRow = page.locator('.sw-hierarchy-node[data-sw-adapter-kind="layout"]', { hasText: 'ContentSlide' });
   await treeRow.click();
   await expect(treeRow).toHaveClass(/selected/);
   await expect(
@@ -346,7 +351,7 @@ test('toggling omit on a ContentSlide slot collapses or restores its wrapper', a
   // Drill into ContentSlide via the canvas: click on the eyebrow
   // text twice (first click → ContentSlide; second → eyebrow slot).
   // Easier path: select ContentSlide via the hierarchy.
-  await page.locator('.sw-hierarchy-node', { hasText: 'ContentSlide' }).click();
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="layout"]', { hasText: 'ContentSlide' }).click();
   // Toggle omit on the eyebrow row.
   const eyebrowRow = page.locator('.sw-property-row', { hasText: /^eyebrow/ }).first();
   await eyebrowRow.locator('.sw-property-omit-toggle').click();
@@ -362,7 +367,7 @@ test('drag-to-scrub on a numeric key commits a single new value', async ({ page 
   await expect(
     page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
   ).toBeVisible();
-  await page.locator('.sw-hierarchy-node').first().click();
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   const xRow = page.locator('.sw-property-row', { hasText: /^x/ }).first();
   const xKey = xRow.locator('.sw-property-key');
   // Cursor cue is present.
@@ -391,7 +396,7 @@ test('drag-to-scrub shows live canvas feedback mid-drag (not only on release)', 
   await expect(
     page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
   ).toBeVisible();
-  await page.locator('.sw-hierarchy-node').first().click();
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   const xKey = page.locator('.sw-property-row', { hasText: /^x/ }).first()
     .locator('.sw-property-key');
   const box = await xKey.boundingBox();
@@ -417,7 +422,7 @@ test('drag-to-scrub click without movement does not commit', async ({ page }) =>
     page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
   ).toBeVisible();
   const before = await page.locator('.sw-editor-pane').inputValue();
-  await page.locator('.sw-hierarchy-node').first().click();
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   const xKey = page.locator('.sw-property-row', { hasText: /^x/ }).first()
     .locator('.sw-property-key');
   const box = await xKey.boundingBox();
@@ -435,7 +440,7 @@ test('drag-to-scrub commits a single undo entry per session', async ({ page }) =
     page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
   ).toBeVisible();
   const before = await page.locator('.sw-editor-pane').inputValue();
-  await page.locator('.sw-hierarchy-node').first().click();
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   const xKey = page.locator('.sw-property-row', { hasText: /^x/ }).first()
     .locator('.sw-property-key');
   const box = await xKey.boundingBox();
@@ -462,7 +467,7 @@ test('drag-to-scrub freezes hierarchy interactivity for the duration of the drag
   // selection mid-drag. On release the class is removed and rows
   // are clickable again.
   await page.goto('/canvas.html?fixture=two-boxes');
-  await page.locator('.sw-hierarchy-node').nth(0).click();
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').nth(0).click();
   const xKey = page.locator('.sw-property-row', { hasText: /^x/ }).first()
     .locator('.sw-property-key');
   const box = await xKey.boundingBox();
@@ -474,13 +479,13 @@ test('drag-to-scrub freezes hierarchy interactivity for the duration of the drag
   await expect(page.locator('body.sw-scrubbing')).toHaveCount(1);
   // Hierarchy rows have pointer-events: none, so the cursor can't
   // hit them. CSS computed-style check.
-  const hierarchyPointerEvents = await page.locator('.sw-hierarchy-node').first()
+  const hierarchyPointerEvents = await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first()
     .evaluate((el) => getComputedStyle(el).pointerEvents);
   expect(hierarchyPointerEvents).toBe('none');
   await page.mouse.up();
   // Post-release the class is gone and rows are interactive again.
   await expect(page.locator('body.sw-scrubbing')).toHaveCount(0);
-  const after = await page.locator('.sw-hierarchy-node').first()
+  const after = await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first()
     .evaluate((el) => getComputedStyle(el).pointerEvents);
   expect(after).not.toBe('none');
 });
@@ -490,7 +495,7 @@ test('drag-to-scrub does not apply to non-numeric rows', async ({ page }) => {
   await expect(
     page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
   ).toBeVisible();
-  await page.locator('.sw-hierarchy-node').first().click();
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   // `fill` is a color-token name_ref, not number — no scrub cursor.
   const fillKey = page.locator('.sw-property-row', { hasText: /^fill/ }).first()
     .locator('.sw-property-key');
@@ -501,7 +506,7 @@ test('un-omit picks a type-shaped default per slot', async ({ page }) => {
   // ContentSlide.body is `block` → un-omit should materialize a
   // stub Component invocation (`Box { }`), not an empty string.
   await page.goto('/canvas.html?fixture=content-slide');
-  await page.locator('.sw-hierarchy-node', { hasText: 'ContentSlide' }).click();
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="layout"]', { hasText: 'ContentSlide' }).click();
   const bodyRow = page.locator('.sw-property-row', { hasText: /^body/ }).first();
   // Body starts omit per the fixture; toggle OFF should splice
   // `Box { }`, not `""`.
@@ -517,7 +522,7 @@ test('omit toggle is hidden on param and non-renderable-slot rows', async ({ pag
   await expect(
     page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
   ).toBeVisible();
-  await page.locator('.sw-hierarchy-node').first().click();
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   await expect(page.locator('.sw-property-row')).toHaveCount(5);
   await expect(page.locator('.sw-property-omit-toggle')).toHaveCount(0);
 
@@ -527,7 +532,7 @@ test('omit toggle is hidden on param and non-renderable-slot rows', async ({ pag
   await expect(
     page.locator('.sw-canvas-stage [data-sw-component="TextBox"]'),
   ).toBeVisible();
-  await page.locator('.sw-hierarchy-node').first().click();
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   await expect(page.locator('.sw-property-omit-toggle')).toHaveCount(1);
   const xRow = page.locator('.sw-property-row', { hasText: /^x/ }).first();
   await expect(xRow.locator('.sw-property-omit-toggle')).toHaveCount(0);
@@ -535,9 +540,9 @@ test('omit toggle is hidden on param and non-renderable-slot rows', async ({ pag
 
 test('multi-selection shows the multi-edit hint', async ({ page }) => {
   await page.goto('/canvas.html?fixture=two-boxes');
-  await expect(page.locator('.sw-hierarchy-node')).toHaveCount(2);
-  await page.locator('.sw-hierarchy-node').nth(0).click();
-  await page.locator('.sw-hierarchy-node').nth(1).click({ modifiers: ['Shift'] });
+  await expect(page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]')).toHaveCount(2);
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').nth(0).click();
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').nth(1).click({ modifiers: ['Shift'] });
   await expect(
     page.locator('.sw-properties-panel .sw-inspector-panel-empty'),
   ).toContainText('multi-edit not supported');
@@ -556,7 +561,7 @@ test('slide-level VStack (no Freeform ancestor) is selectable + inspectable', as
   // child-drag-intercept that a direct canvas click would trigger).
   // Filter by component name since the hierarchy now also includes
   // CardRow (became selectable in the click-into-named-slots cut).
-  await page.locator('.sw-hierarchy-node', { hasText: 'VStack' }).click();
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="layout"]', { hasText: 'VStack' }).click();
   // Selection outline must render — verifies the slide-stage portal
   // fallback in useSelectionPortal is wired through.
   await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
@@ -614,7 +619,7 @@ test('selection outline survives slide nav away and back', async ({ page }) => {
   // nav-back and bounds never re-measured.
   await page.goto('/canvas.html?fixture=two-slides');
   // Select the shape on slide 1 via the hierarchy panel.
-  await page.locator('.sw-hierarchy-node').first().click();
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
   // Navigate to slide 2 — selection state persists, but the
   // outline shouldn't render here because the selected element
@@ -630,18 +635,18 @@ test('selection outline survives slide nav away and back', async ({ page }) => {
 
 test('switching slides updates the hierarchy tree', async ({ page }) => {
   await page.goto('/canvas.html?fixture=two-slides');
-  await expect(page.locator('.sw-hierarchy-node')).toHaveCount(1);
+  await expect(page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]')).toHaveCount(1);
   // Switch to slide 2 — it has its own Box, so the tree should still
   // have one row but for a different span.
   const span1 = await page
-    .locator('.sw-hierarchy-node')
+    .locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]')
     .first()
     .getAttribute('data-sw-span-start');
   await page.locator('.sw-thumb').nth(1).click();
   await expect(page.locator('.sw-thumb').nth(1)).toHaveClass(/active/);
-  await expect(page.locator('.sw-hierarchy-node')).toHaveCount(1);
+  await expect(page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]')).toHaveCount(1);
   const span2 = await page
-    .locator('.sw-hierarchy-node')
+    .locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]')
     .first()
     .getAttribute('data-sw-span-start');
   expect(span2).not.toBe(span1);

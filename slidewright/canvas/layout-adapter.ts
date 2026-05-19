@@ -71,6 +71,20 @@ export interface ChildDragContext {
 export interface LayoutAdapter {
   kind: 'layout';
 
+  // Canvas drill-chain participation.
+  //   - 'normal' (default): the layout appears in the selectable
+  //     chain whenever a click bubbles through it. The drill rule
+  //     can land on it as the outermost click target.
+  //   - 'transparent': the layout enters the chain only when the
+  //     click target's closest selectable IS this layout itself
+  //     (i.e., clicks on the layout's own empty area). Clicks on
+  //     a descendant component skip past. Used for "background"
+  //     containers like Freeform where the children are absolutely
+  //     positioned and the user expects clicks on shapes to select
+  //     the shape, not the container. The layout remains selectable
+  //     via the hierarchy panel and via the empty-area click.
+  chainMode?: 'normal' | 'transparent';
+
   // ─── Optional gesture entry points ─────────────────────────────
 
   // Pointerdown on a child of this layout. Return a non-null opaque
