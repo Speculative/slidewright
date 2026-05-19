@@ -2500,6 +2500,9 @@ export function App({
                 onScrubPreview={applyScrubPreview}
                 onScrubEnd={endScrub}
                 onMaterializeTextSlot={materializeTextSlot}
+                onSelectComponent={(range) =>
+                  setSelected([componentTarget(range)])
+                }
                 colorTokens={state.colorTokens}
                 slideColors={slideColors}
               />

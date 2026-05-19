@@ -891,6 +891,34 @@ input.sw-property-value:disabled {
   outline-offset: 1px;
 }
 
+.sw-property-component-cell {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.sw-property-component-name {
+  font-style: italic;
+  color: #555;
+}
+.sw-property-drill {
+  font-family: var(--vscode-editor-font-family, "JetBrains Mono", ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: #555;
+  cursor: pointer;
+}
+.sw-property-drill:hover {
+  border-color: var(--accent, #0066ff);
+  color: var(--accent, #0066ff);
+}
+
 .sw-property-omit-toggle {
   font-family: var(--vscode-editor-font-family, "JetBrains Mono", ui-monospace, monospace);
   font-size: 11px;

@@ -298,6 +298,12 @@ interface PropertiesPanelProps {
     slotName: string,
     value: string,
   ) => void;
+  // Navigate selection to a nested component referenced from inside
+  // the property panel. Used by the drill button on component-
+  // typed slot rows ("→" arrow next to a `content: ContentSlide`
+  // value, e.g.) — clicking drills the canvas + inspector into
+  // that component's properties.
+  onSelectComponent: (range: SourceRange) => void;
   // Deck-scope color tokens (`accent`, `magenta`, …). Rendered as
   // the global swatch row above any color-typed PropertyRow editor.
   // Click → splices the bare token name into the slot's value span.
@@ -342,6 +348,7 @@ export function PropertiesPanel({
   onScrubPreview,
   onScrubEnd,
   onMaterializeTextSlot,
+  onSelectComponent,
   colorTokens,
   slideColors,
 }: PropertiesPanelProps): ReactElement {
@@ -364,6 +371,7 @@ export function PropertiesPanel({
         onCommit={onCommit}
         scrubProps={scrubProps}
         paletteProps={paletteProps}
+        onSelectComponent={onSelectComponent}
       />
     );
   }
@@ -383,6 +391,7 @@ export function PropertiesPanel({
         onCommit={onCommit}
         scrubProps={scrubProps}
         paletteProps={paletteProps}
+        onSelectComponent={onSelectComponent}
       />
     );
   }
@@ -398,6 +407,7 @@ export function PropertiesPanel({
         onCommit={onCommit}
         scrubProps={scrubProps}
         paletteProps={paletteProps}
+        onSelectComponent={onSelectComponent}
       />
     );
   }
@@ -440,12 +450,14 @@ function ComponentPropertiesView({
   onCommit,
   scrubProps,
   paletteProps,
+  onSelectComponent,
 }: {
   shape: ShapeData;
   source: string;
   onCommit: (newSource: string, newSelections?: SourceRange[]) => void;
   scrubProps: ScrubProps;
   paletteProps: PaletteProps;
+  onSelectComponent: (range: SourceRange) => void;
 }): ReactElement {
   const header = `${shape.comp.name} #${shape.childIdx}`;
   // Wrap commit to preserve selection on the same shape across the
@@ -480,6 +492,7 @@ function ComponentPropertiesView({
             slotType={fillSlotType(shape.meta, fill.name)}
             omitType={omitSlotType(shape.meta, fill.name)}
             paletteProps={paletteProps}
+            onSelectComponent={onSelectComponent}
             {...scrubProps}
           />
         ))}
@@ -622,12 +635,14 @@ function SlidePropertiesView({
   onCommit,
   scrubProps,
   paletteProps,
+  onSelectComponent,
 }: {
   slide: SlideAstData;
   source: string;
   onCommit: (newSource: string, newSelections?: SourceRange[]) => void;
   scrubProps: ScrubProps;
   paletteProps: PaletteProps;
+  onSelectComponent: (range: SourceRange) => void;
 }): ReactElement {
   const label = readSlideLabel(slide);
   const header = label ? `${slide.comp.name} · ${label}` : slide.comp.name;
@@ -655,6 +670,7 @@ function SlidePropertiesView({
             slotType={fillSlotType(slide.meta, fill.name)}
             omitType={omitSlotType(slide.meta, fill.name)}
             paletteProps={paletteProps}
+            onSelectComponent={onSelectComponent}
             {...scrubProps}
           />
         ))}
@@ -747,12 +763,14 @@ function SlotPropertiesView({
   onCommit,
   scrubProps,
   paletteProps,
+  onSelectComponent,
 }: {
   slotInfo: SlotInfo;
   source: string;
   onCommit: (newSource: string, newSelections?: SourceRange[]) => void;
   scrubProps: ScrubProps;
   paletteProps: PaletteProps;
+  onSelectComponent: (range: SourceRange) => void;
 }): ReactElement {
   const { slotName, fill, parentShape } = slotInfo;
   const header = `Slot: ${slotName}`;
@@ -781,6 +799,7 @@ function SlotPropertiesView({
           slotType={fillSlotType(parentShape.meta, slotName)}
           omitType={omitSlotType(parentShape.meta, slotName)}
           paletteProps={paletteProps}
+          onSelectComponent={onSelectComponent}
           {...scrubProps}
         />
       </div>
@@ -806,6 +825,11 @@ interface PropertyRowProps {
   // default via `unOmitDefault`.
   omitType: SlotType | null;
   paletteProps: PaletteProps;
+  // Drill into a component-typed value: invoked when the user
+  // clicks the drill arrow on a row whose value is a nested
+  // Component. Routes the selection to that component's span so
+  // the canvas + inspector switch focus into it.
+  onSelectComponent: (range: SourceRange) => void;
   // Drag-to-scrub session lifecycle. PropertyRow drives these on
   // numeric rows; the App pushes one undo entry per session and
   // applies intermediate previews without polluting the undo
@@ -822,6 +846,7 @@ function PropertyRow({
   slotType,
   omitType,
   paletteProps,
+  onSelectComponent,
   onScrubBegin,
   onScrubPreview,
   onScrubEnd,
@@ -829,6 +854,7 @@ function PropertyRow({
   const isOmit = fill.value.kind === 'omit';
   const isNumber = fill.value.kind === 'number';
   const isColor = slotType === 'color-token' && !isOmit;
+  const isComponent = fill.value.kind === 'component';
   const editable = !isOmit && isEditableValue(fill.value);
   const sourceText = readValueSource(fill.value, source);
   const [draft, setDraft] = useState<string>(sourceText);
@@ -1131,6 +1157,30 @@ function PropertyRow({
           disabled
           readOnly
         />
+      ) : isComponent && fill.value.kind === 'component' ? (
+        // Component-typed value: show the nested component's name
+        // and a drill arrow that selects it. Replacing the value
+        // with a different component is deferred (lean scope).
+        <div className="sw-property-component-cell">
+          <span className="sw-property-value sw-property-component-name">
+            {fill.value.name}
+          </span>
+          <button
+            type="button"
+            className="sw-property-drill"
+            title={`select ${fill.value.name}`}
+            aria-label={`select ${fill.value.name}`}
+            onClick={() => {
+              if (fill.value.kind !== 'component') return;
+              onSelectComponent({
+                start: fill.value.span.start.offset,
+                end: fill.value.span.end.offset,
+              });
+            }}
+          >
+            →
+          </button>
+        </div>
       ) : editable ? (
         <input
           className="sw-property-value"
