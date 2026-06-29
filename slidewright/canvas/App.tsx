@@ -2544,6 +2544,7 @@ export function App({
                     preserved.length > 0 ? preserved : undefined,
                   );
                 }}
+                shapes={state.shapes}
                 colorTokens={state.colorTokens}
                 slideColors={slideColors}
               />

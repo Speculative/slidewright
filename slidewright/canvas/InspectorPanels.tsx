@@ -132,6 +132,13 @@ export function HierarchyPanel({
   // recurses through non-canvas components too — a hypothetical
   // CustomLayout without an adapter shouldn't hide its CardRow
   // children.
+  const unified = activeSlide
+    ? unifiedSlideContent(activeSlide, shapes)
+    : null;
+  const unifiedKey = unified
+    ? `${unified.comp.span.start.offset}-${unified.comp.span.end.offset}`
+    : null;
+
   const nodes = useMemo(() => {
     if (!activeSlide) return [];
     const out: HierarchyNode[] = [];
@@ -142,7 +149,10 @@ export function HierarchyPanel({
       inList: boolean,
     ): void => {
       const key = `${comp.span.start.offset}-${comp.span.end.offset}`;
-      const hasShape = shapes.has(key);
+      // The unified slide-content component is folded into the
+      // Slide row (see unifiedSlideContent) — no row of its own;
+      // its children surface at the top level.
+      const hasShape = shapes.has(key) && key !== unifiedKey;
       let childDepth = depth;
       if (hasShape) {
         out.push({ comp, slotName, depth, inList });
@@ -182,7 +192,7 @@ export function HierarchyPanel({
       }
     }
     return out;
-  }, [activeSlide, shapes]);
+  }, [activeSlide, shapes, unifiedKey]);
 
   const isSelected = (comp: Component): boolean => {
     const start = comp.span.start.offset;
@@ -195,7 +205,17 @@ export function HierarchyPanel({
     );
   };
 
-  const slideSelected = selected.some((s) => s.kind === 'slide');
+  // The slide row also reads as selected when the unified content
+  // component is what's actually selected (canvas drill chain) —
+  // the two are one surface in the inspector.
+  const slideSelected = selected.some(
+    (s) =>
+      s.kind === 'slide' ||
+      (unified !== null &&
+        s.kind === 'component' &&
+        s.span.start === unified.comp.span.start.offset &&
+        s.span.end === unified.comp.span.end.offset),
+  );
   const slideLabel = activeSlide ? readSlideLabel(activeSlide) : null;
 
   return (
@@ -351,6 +371,11 @@ interface PropertiesPanelProps {
   // the AST mutation (removing the item from its containing list)
   // via commitSourceEdit. Range is the item's full source span.
   onRemoveListItem: (range: SourceRange) => void;
+  // Loader's shapes registry. SlidePropertiesView reads it to look
+  // up the slide-content component's meta when unifying Slide +
+  // content rows into a single panel (per the eventual direction
+  // of making Slide abstract — see HANDOFF).
+  shapes: ReadonlyMap<string, ShapeData>;
   // Deck-scope color tokens (`accent`, `magenta`, …). Rendered as
   // the global swatch row above any color-typed PropertyRow editor.
   // Click → splices the bare token name into the slot's value span.
@@ -397,6 +422,7 @@ export function PropertiesPanel({
   onMaterializeTextSlot,
   onSelectComponent,
   onRemoveListItem,
+  shapes,
   colorTokens,
   slideColors,
 }: PropertiesPanelProps): ReactElement {
@@ -433,6 +459,33 @@ export function PropertiesPanel({
     );
   }
   if (componentShape) {
+    // A slide-content component that unifies with the Slide row has
+    // no panel of its own — selecting it on the canvas (drill chain)
+    // lands on the same unified panel as the slide row, so both
+    // routes show one surface.
+    const unified = activeSlide
+      ? unifiedSlideContent(activeSlide, shapes)
+      : null;
+    if (
+      unified &&
+      activeSlide &&
+      unified.comp.span.start.offset ===
+        componentShape.comp.span.start.offset &&
+      unified.comp.span.end.offset === componentShape.comp.span.end.offset
+    ) {
+      return (
+        <SlidePropertiesView
+          slide={activeSlide}
+          source={source}
+          onCommit={onCommit}
+          scrubProps={scrubProps}
+          paletteProps={paletteProps}
+          onSelectComponent={onSelectComponent}
+          onRemoveListItem={onRemoveListItem}
+          shapes={shapes}
+        />
+      );
+    }
     return (
       <ComponentPropertiesView
         shape={componentShape}
@@ -459,6 +512,7 @@ export function PropertiesPanel({
         paletteProps={paletteProps}
         onSelectComponent={onSelectComponent}
         onRemoveListItem={onRemoveListItem}
+        shapes={shapes}
       />
     );
   }
@@ -568,10 +622,13 @@ function ComponentPropertiesView({
 // actual SlotFill) or a declared-but-missing slot/param (no fill in
 // source). Filled rows render today's PropertyRow; missing rows
 // render a placeholder so the user sees every slot the component
-// declares, not just the ones they happen to have authored.
+// declares, not just the ones they happen to have authored. `owner`
+// tracks which Component this row's data came from — used by the
+// unified Slide+content panel to route metaFor lookups and keep
+// React keys unique across merged sources.
 type PropertyRowDescriptor =
-  | { kind: 'filled'; fill: SlotFill }
-  | { kind: 'missing'; name: string; slotType: SlotType };
+  | { kind: 'filled'; fill: SlotFill; owner: Component }
+  | { kind: 'missing'; name: string; slotType: SlotType; owner: Component };
 
 function buildPropertyRowDescriptors(
   comp: Component,
@@ -582,22 +639,29 @@ function buildPropertyRowDescriptors(
   // Filled rows first, in source order — preserves the existing
   // visual ordering the user is used to.
   for (const fill of comp.fills) {
-    rows.push({ kind: 'filled', fill });
+    rows.push({ kind: 'filled', fill, owner: comp });
   }
   // Missing slots, then missing params. Within each group, follow
   // the meta's declaration order (Object.entries on the schema —
   // stable insertion order in modern JS).
   for (const [name, schema] of Object.entries(meta.slots)) {
     if (!filled.has(name)) {
-      rows.push({ kind: 'missing', name, slotType: schema.type });
+      rows.push({ kind: 'missing', name, slotType: schema.type, owner: comp });
     }
   }
   for (const [name, schema] of Object.entries(meta.params ?? {})) {
     if (!filled.has(name)) {
-      rows.push({ kind: 'missing', name, slotType: schema.type });
+      rows.push({ kind: 'missing', name, slotType: schema.type, owner: comp });
     }
   }
   return rows;
+}
+
+function rowBelongsTo(
+  row: PropertyRowDescriptor,
+  comp: Component,
+): boolean {
+  return row.owner === comp;
 }
 
 function MissingPropertyRow({
@@ -748,6 +812,29 @@ function unOmitDefault(type: SlotType): string {
   }
 }
 
+// The slide's content component when it unifies with the Slide row:
+// a sole `content` fill holding a `produces: 'slide'` component with
+// a registered meta (i.e., it has a `canvas` export). Three surfaces
+// key off this — the slide property panel merges its rows in, the
+// hierarchy suppresses its row, and PropertiesPanel redirects a
+// direct selection of it to the unified panel. See HANDOFF / "Fold
+// slide-content into Slide row" (option 2). When content is a plain
+// block (Freeform, VStack, …) or missing, returns null and every
+// surface keeps the two-row behavior.
+function unifiedSlideContent(
+  slide: SlideAstData,
+  shapes: ReadonlyMap<string, ShapeData>,
+): { comp: Component; meta: ComponentMeta } | null {
+  const contentFill = slide.comp.fills.find((f) => f.name === 'content');
+  if (contentFill?.value.kind !== 'component') return null;
+  const comp = contentFill.value;
+  const meta = shapes.get(
+    `${comp.span.start.offset}-${comp.span.end.offset}`,
+  )?.meta;
+  if (meta?.produces !== 'slide') return null;
+  return { comp, meta };
+}
+
 function SlidePropertiesView({
   slide,
   source,
@@ -756,6 +843,7 @@ function SlidePropertiesView({
   paletteProps,
   onSelectComponent,
   onRemoveListItem,
+  shapes,
 }: {
   slide: SlideAstData;
   source: string;
@@ -764,15 +852,43 @@ function SlidePropertiesView({
   paletteProps: PaletteProps;
   onSelectComponent: (range: SourceRange) => void;
   onRemoveListItem: (range: SourceRange) => void;
+  shapes: ReadonlyMap<string, ShapeData>;
 }): ReactElement {
   const label = readSlideLabel(slide);
-  const header = label ? `${slide.comp.name} · ${label}` : slide.comp.name;
+  const unified = unifiedSlideContent(slide, shapes);
+  const contentComp = unified?.comp ?? null;
+  const contentMeta = unified?.meta ?? null;
+  const unify = unified !== null;
+  const displayName = unify && contentComp ? contentComp.name : slide.comp.name;
+  const header = label ? `${displayName} · ${label}` : displayName;
   // Preserve the slide selection across edits — the slide kind has
   // no span identity, so we pass an empty newSelections to mean
   // "keep current". The wrapper-commit-shape-range trick used for
   // ComponentPropertiesView doesn't apply here.
   const wrappedCommit = (newSource: string): void => onCommit(newSource);
-  const rows = buildPropertyRowDescriptors(slide.comp, slide.meta);
+  const rowName = (r: PropertyRowDescriptor): string =>
+    r.kind === 'filled' ? r.fill.name : r.name;
+  // Speaker notes are deliberately absent from the inspector — a
+  // dedicated notes surface is their eventual home (see HANDOFF /
+  // Speaker-notes editor tab). Until then they're edited in source.
+  let rows = buildPropertyRowDescriptors(slide.comp, slide.meta).filter(
+    (r) => rowName(r) !== 'notes',
+  );
+  if (unify && contentComp && contentMeta) {
+    // Hide the `content` row itself — it's redundant now that
+    // we're rendering the content component's rows below.
+    rows = rows.filter((r) => rowName(r) !== 'content');
+    rows = [
+      ...rows,
+      ...buildPropertyRowDescriptors(contentComp, contentMeta),
+    ];
+  }
+  // Tag each row with the parent context so duplicate slot names
+  // across Slide + content component get unique React keys.
+  const rowKeyPrefix = (row: PropertyRowDescriptor): string =>
+    unify && contentComp && rowBelongsTo(row, contentComp)
+      ? `content-${contentComp.span.start.offset}`
+      : 'slide';
   if (rows.length === 0) {
     return (
       <PanelFrame header={header}>
@@ -780,18 +896,25 @@ function SlidePropertiesView({
       </PanelFrame>
     );
   }
+  // Determine which meta governs a given row for slotType /
+  // omitType lookups — content rows use the content component's
+  // meta, slide rows use the slide's.
+  const metaFor = (row: PropertyRowDescriptor): ComponentMeta =>
+    unify && contentComp && rowBelongsTo(row, contentComp)
+      ? contentMeta!
+      : slide.meta;
   return (
     <PanelFrame header={header}>
       <div className="sw-properties-rows">
         {rows.map((row) =>
           row.kind === 'filled' ? (
             <PropertyRow
-              key={`slide-${row.fill.name}`}
+              key={`${rowKeyPrefix(row)}-${row.fill.name}`}
               fill={row.fill}
               source={source}
               onCommit={wrappedCommit}
-              slotType={fillSlotType(slide.meta, row.fill.name)}
-              omitType={omitSlotType(slide.meta, row.fill.name)}
+              slotType={fillSlotType(metaFor(row), row.fill.name)}
+              omitType={omitSlotType(metaFor(row), row.fill.name)}
               paletteProps={paletteProps}
               onSelectComponent={onSelectComponent}
               onRemoveListItem={onRemoveListItem}
@@ -799,7 +922,7 @@ function SlidePropertiesView({
             />
           ) : (
             <MissingPropertyRow
-              key={`missing-slide-${row.name}`}
+              key={`missing-${rowKeyPrefix(row)}-${row.name}`}
               name={row.name}
               slotType={row.slotType}
             />

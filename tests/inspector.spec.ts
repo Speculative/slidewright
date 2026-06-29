@@ -105,8 +105,8 @@ test('Ctrl-clicking a tree row moves the editor caret to the source span', async
 
 test('property panel shows the slide when nothing else is selected', async ({ page }) => {
   // No-selection state falls through to the active slide — the
-  // panel shows the slide's label / notes / content rows so the
-  // user has somewhere to land by default.
+  // panel shows the slide's rows (label / content; notes is
+  // inspector-hidden) so the user has somewhere to land by default.
   await page.goto('/canvas.html?fixture=single-box');
   await expect(
     page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
@@ -332,14 +332,19 @@ test('omit causes ContentSlide to drop the slot wrapper; missing keeps it (slots
   ).toHaveCount(0);
 });
 
-test('slide-content components (produces:slide) have no canvas selection outline', async ({ page }) => {
-  // ContentSlide spans the whole slide; an outline would trace the
-  // slide chrome the user already sees. Selection state + inspector
-  // path remain — just no canvas border.
+test('slide-content components (produces:slide) fold into the slide row, no canvas outline', async ({ page }) => {
+  // ContentSlide unifies with the Slide row: no hierarchy row of
+  // its own, and selecting it via the canvas drill chain highlights
+  // the slide row and lands on the unified panel. No outline — it
+  // spans the whole slide, so a border would just trace the slide
+  // chrome the user already sees.
   await page.goto('/canvas.html?fixture=content-slide');
-  const treeRow = page.locator('.sw-hierarchy-node[data-sw-adapter-kind="layout"]', { hasText: 'ContentSlide' });
-  await treeRow.click();
-  await expect(treeRow).toHaveClass(/selected/);
+  await expect(
+    page.locator('.sw-hierarchy-node', { hasText: 'ContentSlide' }),
+  ).toHaveCount(0);
+  // First canvas click on slide content selects ContentSlide.
+  await page.locator('.sw-canvas-stage .eyebrow').click();
+  await expect(page.locator('.sw-hierarchy-slide-row')).toHaveClass(/selected/);
   await expect(
     page.locator('.sw-properties-panel .sw-inspector-panel-header'),
   ).toContainText('ContentSlide');
@@ -348,10 +353,9 @@ test('slide-content components (produces:slide) have no canvas selection outline
 
 test('toggling omit on a ContentSlide slot collapses or restores its wrapper', async ({ page }) => {
   await page.goto('/canvas.html?fixture=content-slide');
-  // Drill into ContentSlide via the canvas: click on the eyebrow
-  // text twice (first click → ContentSlide; second → eyebrow slot).
-  // Easier path: select ContentSlide via the hierarchy.
-  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="layout"]', { hasText: 'ContentSlide' }).click();
+  // ContentSlide's rows live in the unified Slide panel — select
+  // the slide row to bring them up.
+  await page.locator('.sw-hierarchy-slide-row').click();
   // Toggle omit on the eyebrow row.
   const eyebrowRow = page.locator('.sw-property-row', { hasText: /^eyebrow/ }).first();
   await eyebrowRow.locator('.sw-property-omit-toggle').click();
@@ -506,7 +510,7 @@ test('un-omit picks a type-shaped default per slot', async ({ page }) => {
   // ContentSlide.body is `block` → un-omit should materialize a
   // stub Component invocation (`Box { }`), not an empty string.
   await page.goto('/canvas.html?fixture=content-slide');
-  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="layout"]', { hasText: 'ContentSlide' }).click();
+  await page.locator('.sw-hierarchy-slide-row').click();
   const bodyRow = page.locator('.sw-property-row', { hasText: /^body/ }).first();
   // Body starts omit per the fixture; toggle OFF should splice
   // `Box { }`, not `""`.

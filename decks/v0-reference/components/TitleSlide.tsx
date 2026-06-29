@@ -9,6 +9,7 @@ import {
   type ComponentRenderProps,
 } from '../../../slidewright/runtime/contract.js';
 import { makeComponent } from '../../../slidewright/runtime/ast-builders.js';
+import type { LayoutAdapter } from '../../../slidewright/canvas/layout-adapter.js';
 
 export const slidewright: ComponentMeta = {
   produces: 'slide',
@@ -37,6 +38,11 @@ export const slidewright: ComponentMeta = {
     },
   },
 };
+
+// Selectable + inspectable as a layout — registers TitleSlide in the
+// shapes registry so the unified Slide+content panel can resolve its
+// meta (the unify path only sees components with a `canvas` export).
+export const canvas: LayoutAdapter = { kind: 'layout' };
 
 export default function TitleSlide({ slots, params }: ComponentRenderProps) {
   const accent = (params.accentColor as string | undefined) ?? 'var(--accent)';
