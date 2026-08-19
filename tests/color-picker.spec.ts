@@ -8,9 +8,10 @@
 
 import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { getEditorSource } from './editor-helpers';
 
 async function getSource(page: Page): Promise<string> {
-  return page.locator('.sw-editor-pane').inputValue();
+  return getEditorSource(page);
 }
 
 async function selectFirstBox(page: Page): Promise<void> {
@@ -146,7 +147,7 @@ test('source-declared tokens render in shapes and appear in the palette', async 
     .first()
     .click();
   await expect
-    .poll(() => page.locator('.sw-editor-pane').inputValue())
+    .poll(() => getEditorSource(page))
     .toContain('fill: soft');
 });
 

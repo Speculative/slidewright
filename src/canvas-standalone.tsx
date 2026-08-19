@@ -24,7 +24,7 @@ function Standalone(): ReactElement {
   // Test hook. Exposes the canvas's host on window so e2e tests can
   // invoke host.setCursor / sendSelection / setSource directly,
   // bypassing the React event-system intricacies of programmatic
-  // textarea events. The host's *contract* is what we want to test
+  // source-editor events. The host's *contract* is what we want to test
   // (canvas responds to host.setCursor → active slide updates);
   // whether Playwright can fake React's synthetic onSelect is a
   // separate concern.
@@ -40,7 +40,14 @@ function Standalone(): ReactElement {
     (window as unknown as { __slidewrightHost: StandaloneHost }).__slidewrightHost = host;
   }, [host]);
 
-  return <App host={host} bottomExtra={<EditorPane host={host} />} />;
+  return (
+    <App
+      host={host}
+      bottomExtra={(projection) => (
+        <EditorPane host={host} projection={projection} />
+      )}
+    />
+  );
 }
 
 const rootEl = document.getElementById('root');

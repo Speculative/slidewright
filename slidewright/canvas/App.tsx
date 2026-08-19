@@ -36,6 +36,7 @@ import { components, staticTokens } from '../../decks/v0-reference/registry.js';
 import { DeckMetaContext } from '../../src/Slide.jsx';
 
 import type { Host, SourceRange } from './host.js';
+import type { EditorPaneProjection } from './editor-projection.js';
 import {
   componentTarget,
   findTargetIndex,
@@ -803,7 +804,10 @@ export function App({
   // strip, alongside the inspector. The standalone passes its
   // EditorPane here; the VS Code webview leaves it empty (VS Code's
   // own editor is the source surface).
-  bottomExtra?: ReactElement | null;
+  bottomExtra?:
+    | ReactElement
+    | ((projection: EditorPaneProjection) => ReactElement | null)
+    | null;
 }): ReactElement {
   const [state, setState] = useState<RenderState | null>(null);
   const [activeIdx, setActiveIdx] = useState(0);
@@ -882,7 +886,7 @@ export function App({
   //
   // VS Code's text-buffer undo also tracks each WorkspaceEdit-applied
   // canvas commit, so users in editor focus get editor-native undo
-  // (which our handler doesn't override since the editor textarea
+  // (which our handler doesn't override since the source editor
   // is excluded from the keyboard-handler input check). The two
   // mechanisms reach the same source states from different
   // directions; mixing them just clears our stack on the next
@@ -2070,7 +2074,7 @@ export function App({
         // Always preventDefault on Cmd-Z / Cmd-Shift-Z reaching the
         // canvas. Even when our undo / redo stack is empty, the
         // browser's native input-undo can reach back into the
-        // editor textarea's recent edits (especially after a
+        // source editor's recent edits (especially after a
         // programmatic .fill()), surprising the user. The canvas-
         // owned undo is the single source of truth from this
         // handler's perspective.
@@ -2279,6 +2283,41 @@ export function App({
     [state, activeIdx],
   );
 
+  // The standalone source surface consumes source-backed projections of
+  // this state. Keep the host's full source authoritative; the editor
+  // receives only the ranges/value it needs to present its current mode.
+  const editorProjection = useMemo<EditorPaneProjection>(() => {
+    const slide = state?.slidesData[activeIdx];
+    const activeSlide = slide
+      ? {
+          start: slide.comp.span.start.offset,
+          end: slide.comp.span.end.offset,
+        }
+      : null;
+    const notesFill = slide?.comp.fills.find((fill) => fill.name === 'notes');
+    const notesValue = notesFill?.value;
+    const notes = notesValue?.kind === 'string'
+      ? {
+          sourceRange: {
+            start: notesValue.span.start.offset,
+            end: notesValue.span.end.offset,
+          },
+          value: notesValue.value,
+          multiline: notesValue.multiline,
+        }
+      : null;
+    return {
+      activeSlide,
+      activeSlideIndex: activeSlide ? activeIdx : 0,
+      totalSlides: state?.slidesData.length ?? 0,
+      notes,
+    };
+  }, [state, activeIdx]);
+
+  const renderedBottomExtra = typeof bottomExtra === 'function'
+    ? bottomExtra(editorProjection)
+    : bottomExtra;
+
   if (!state) {
     return <div className="sw-canvas-status">waiting for source…</div>;
   }
@@ -2447,7 +2486,7 @@ export function App({
           </div>
         ) : null}
       </div>
-      {bottomExtra ? (
+      {renderedBottomExtra ? (
         <>
           <ResizeHandle
             axis="y"
@@ -2557,7 +2596,7 @@ export function App({
               max={PROPERTIES_WIDTH_MAX}
             />
             <div className="sw-bottom-col sw-bottom-col-flex">
-              {bottomExtra}
+              {renderedBottomExtra}
             </div>
           </div>
         </>
@@ -2952,4 +2991,3 @@ function ToolDragOverlay({
     document.body,
   );
 }
-

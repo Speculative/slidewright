@@ -12,18 +12,21 @@
 
 import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import {
+  getEditorSelection as readEditorSelection,
+  getEditorSource,
+  setHostSource,
+} from './editor-helpers';
 
 async function getSource(page: Page): Promise<string> {
-  return page.locator('.sw-editor-pane').inputValue();
+  return getEditorSource(page);
 }
 
 async function setSource(page: Page, source: string): Promise<void> {
-  // `.fill()` clears + types — replaces the whole editor pane,
-  // which is what we want when we're staging a known source state.
-  // Blur after so subsequent keypresses (e.g., Cmd-Z) don't get
-  // intercepted by the textarea's native handlers (the textarea
-  // tracks its own undo for typing; we want our canvas handler).
-  await page.locator('.sw-editor-pane').fill(source);
+  // Stage a known full-source state through the host. This exercises the
+  // same host update path as a file reload without making the test depend
+  // on typing a large source document through CodeMirror.
+  await setHostSource(page, source);
   await page.evaluate(() => {
     const el = document.activeElement as HTMLElement | null;
     if (el && el !== document.body) el.blur();
@@ -36,16 +39,12 @@ interface EditorSelection {
 }
 
 async function getEditorSelection(page: Page): Promise<EditorSelection> {
-  return page.evaluate(() => {
-    const ta = document.querySelector('.sw-editor-pane') as HTMLTextAreaElement | null;
-    if (!ta) throw new Error('editor pane not found');
-    return { start: ta.selectionStart ?? 0, end: ta.selectionEnd ?? 0 };
-  });
+  return readEditorSelection(page);
 }
 
 async function setEditorCursor(page: Page, offset: number): Promise<void> {
   // Use the host's setCursor directly. Programmatic
-  // textarea.setSelectionRange + dispatchEvent('select') doesn't
+  // Programmatic DOM selection + dispatchEvent('select') doesn't
   // reliably trigger React's onSelect (the synthetic event system
   // skips synthetic events that the underlying DOM didn't surface),
   // and we don't want this test to depend on simulating real
@@ -73,6 +72,20 @@ async function getActiveSlideOneBased(page: Page): Promise<number> {
 
 // ─── Source → canvas ─────────────────────────────────────────────
 
+test('standalone source pane is CodeMirror and edits the canonical deck', async ({
+  page,
+}) => {
+  await page.goto('/canvas.html?fixture=single-box');
+  await expect(page.locator('.sw-editor-view .cm-editor')).toBeVisible();
+
+  const original = await getSource(page);
+  await page.locator('.sw-editor-view .cm-content').click();
+  await page.keyboard.press('ControlOrMeta+End');
+  await page.keyboard.type(' ');
+
+  await expect.poll(() => getSource(page)).toBe(`${original} `);
+});
+
 test('typing in the editor pane re-renders the canvas', async ({ page }) => {
   await page.goto('/canvas.html?fixture=single-box');
   // Confirm the original Box is rendered.
@@ -99,6 +112,62 @@ test('typing in the editor pane re-renders the canvas', async ({ page }) => {
   await expect(
     page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
   ).toHaveCount(0);
+});
+
+test('slide and notes tabs edit projections of the full deck source', async ({
+  page,
+}) => {
+  await page.goto('/canvas.html?fixture=two-slides');
+  await expect(page.locator('.sw-thumb')).toHaveCount(2);
+
+  const fullSource = await getSource(page);
+  const firstSlideSpan = await page
+    .locator('.sw-strip [data-sw-component="Slide"]')
+    .first()
+    .evaluate((slide) => ({
+      start: Number(slide.getAttribute('data-sw-span-start')),
+      end: Number(slide.getAttribute('data-sw-span-end')),
+    }));
+  await page.locator('[data-editor-mode="slide"]').click();
+  await expect(page.locator('.sw-editor-pane')).toHaveAttribute(
+    'data-mode',
+    'slide',
+  );
+  const expectedSlideSource = fullSource.slice(
+    firstSlideSpan.start,
+    firstSlideSpan.end,
+  );
+  await expect.poll(() => getSource(page)).toBe(expectedSlideSource);
+  const slideSource = await getSource(page);
+  expect(slideSource).toBe(
+    fullSource.slice(firstSlideSpan.start, firstSlideSpan.end),
+  );
+
+  await page.locator('[data-editor-mode="deck"]').click();
+  await expect(page.locator('.sw-editor-pane')).toHaveAttribute(
+    'data-mode',
+    'deck',
+  );
+  await expect.poll(() => getSource(page)).toBe(fullSource);
+
+  await page.goto('/canvas.html?fixture=single-box');
+  await page.locator('[data-editor-mode="notes"]').click();
+  await expect(page.locator('.sw-editor-pane')).toHaveAttribute(
+    'data-mode',
+    'notes',
+  );
+  await expect.poll(() => getSource(page)).toBe('');
+  await page.locator('.sw-editor-view .cm-content').click();
+  await page.keyboard.type('Speaker notes');
+  await expect.poll(() => getSource(page)).toBe('Speaker notes');
+  await page.locator('[data-editor-mode="deck"]').click();
+  await expect(page.locator('.sw-editor-pane')).toHaveAttribute(
+    'data-mode',
+    'deck',
+  );
+  await expect
+    .poll(() => getSource(page))
+    .toContain('notes: "Speaker notes"');
 });
 
 test('source edit that moves a Box is reflected in the canvas', async ({
@@ -143,7 +212,7 @@ test('Ctrl-click on a shape moves the editor caret to its source range', async (
   // Ctrl/Cmd-click the rendered Box (VS Code "go to definition"
   // mental model). The canvas's selection-sync dispatch posts the
   // range upstream, host.sendSelection fires, EditorPane's
-  // onSelection listener calls textarea.setSelectionRange.
+  // onSelection listener applies a CodeMirror selection.
   await page
     .locator('.sw-canvas-stage [data-sw-component="Box"] > div')
     .first()
@@ -260,12 +329,7 @@ test('canvas Cmd-Z undoes a drag commit', async ({ page }) => {
     .first();
   await expect(box).toBeVisible();
   // Read initial source for the assertion baseline.
-  const beforeDrag = await page.evaluate(
-    () =>
-      (
-        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
-      ).value,
-  );
+  const beforeDrag = await getSource(page);
   // Drag the box, commit a new x position.
   await box.hover();
   const eb = await box.boundingBox();
@@ -283,25 +347,15 @@ test('canvas Cmd-Z undoes a drag commit', async ({ page }) => {
   });
   await page.mouse.up();
   // Confirm source actually changed.
-  const afterDrag = await page.evaluate(
-    () =>
-      (
-        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
-      ).value,
-  );
+  const afterDrag = await getSource(page);
   expect(afterDrag).not.toBe(beforeDrag);
   // Move focus away from the editor pane (Cmd-Z routes to our
-  // canvas handler only when focus isn't in the textarea — the
-  // textarea has its own native undo for typing).
+  // canvas handler only when focus isn't in the source editor — the
+  // editor has its own native undo for typing).
   await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
   // Cmd-Z (or Ctrl-Z, ControlOrMeta covers both).
   await page.keyboard.press('ControlOrMeta+Z');
-  const afterUndo = await page.evaluate(
-    () =>
-      (
-        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
-      ).value,
-  );
+  const afterUndo = await getSource(page);
   expect(afterUndo).toBe(beforeDrag);
 });
 
@@ -325,21 +379,11 @@ test('canvas Cmd-Shift-Z redoes the undone gesture', async ({ page }) => {
     steps: 5,
   });
   await page.mouse.up();
-  const afterDrag = await page.evaluate(
-    () =>
-      (
-        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
-      ).value,
-  );
+  const afterDrag = await getSource(page);
   await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
   await page.keyboard.press('ControlOrMeta+Z'); // undo
   await page.keyboard.press('ControlOrMeta+Shift+Z'); // redo
-  const afterRedo = await page.evaluate(
-    () =>
-      (
-        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
-      ).value,
-  );
+  const afterRedo = await getSource(page);
   expect(afterRedo).toBe(afterDrag);
 });
 
@@ -349,12 +393,7 @@ test('external edit clears the undo stack (barrier)', async ({ page }) => {
     .locator('.sw-canvas-stage [data-sw-component="Box"] > div')
     .first();
   await expect(box).toBeVisible();
-  const beforeDrag = await page.evaluate(
-    () =>
-      (
-        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
-      ).value,
-  );
+  const beforeDrag = await getSource(page);
   // Commit a drag → undo stack now has [beforeDrag].
   const eb = await box.boundingBox();
   if (!eb) throw new Error('box not found');
@@ -370,33 +409,18 @@ test('external edit clears the undo stack (barrier)', async ({ page }) => {
     steps: 5,
   });
   await page.mouse.up();
-  const afterDrag = await page.evaluate(
-    () =>
-      (
-        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
-      ).value,
-  );
+  const afterDrag = await getSource(page);
   // External edit: type in the editor pane.
   await setSource(page, afterDrag.replace(/y:\s*\d+/, 'y: 444'));
   // Confirm the external edit landed before testing the barrier.
-  const afterEdit = await page.evaluate(
-    () =>
-      (
-        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
-      ).value,
-  );
+  const afterEdit = await getSource(page);
   expect(afterEdit).toMatch(/y:\s*444\b/);
   // Try to undo. Stack was cleared by the external edit, so this
   // should be a no-op — source stays at the externally-edited
   // version (not afterDrag, not beforeDrag).
   await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
   await page.keyboard.press('ControlOrMeta+Z');
-  const after = await page.evaluate(
-    () =>
-      (
-        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
-      ).value,
-  );
+  const after = await getSource(page);
   expect(after).toMatch(/y:\s*444\b/);
   expect(after).not.toBe(beforeDrag);
   expect(after).not.toBe(afterDrag);
@@ -404,16 +428,11 @@ test('external edit clears the undo stack (barrier)', async ({ page }) => {
 
 test('undo walks back across edits made on different slides', async ({ page }) => {
   await page.goto('/canvas.html?fixture=two-slides');
-  // Wait for the deck to render so the textarea has its source.
+  // Wait for the deck to render so the source editor has its source.
   await expect(
     page.locator('.sw-canvas-stage [data-sw-component="Box"]').first(),
   ).toBeVisible();
-  const original = await page.evaluate(
-    () =>
-      (
-        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
-      ).value,
-  );
+  const original = await getSource(page);
   // Drag on slide 1.
   const dragInPlace = async () => {
     const box = page
@@ -448,12 +467,7 @@ test('undo walks back across edits made on different slides', async ({ page }) =
   await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
   await page.keyboard.press('ControlOrMeta+Z');
   await page.keyboard.press('ControlOrMeta+Z');
-  const after = await page.evaluate(
-    () =>
-      (
-        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
-      ).value,
-  );
+  const after = await getSource(page);
   expect(after).toBe(original);
 });
 
@@ -468,12 +482,7 @@ test('navigating slides preserves the undo stack', async ({ page }) => {
     .locator('.sw-canvas-stage [data-sw-component="Box"] > div')
     .first();
   await expect(box).toBeVisible();
-  const beforeDrag = await page.evaluate(
-    () =>
-      (
-        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
-      ).value,
-  );
+  const beforeDrag = await getSource(page);
   const eb = await box.boundingBox();
   if (!eb) throw new Error('box not found');
   await page.mouse.move(eb.x + eb.width / 2, eb.y + eb.height / 2);
@@ -495,19 +504,14 @@ test('navigating slides preserves the undo stack', async ({ page }) => {
   // Cmd-Z. Should revert to pre-drag.
   await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
   await page.keyboard.press('ControlOrMeta+Z');
-  const afterUndo = await page.evaluate(
-    () =>
-      (
-        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
-      ).value,
-  );
+  const afterUndo = await getSource(page);
   expect(afterUndo).toBe(beforeDrag);
 });
 
 test('clicking the canvas after focusing the editor restores Cmd-Z routing', async ({ page }) => {
   // Regression: divs aren't focusable, so a click on the canvas
-  // didn't naturally blur a previously-clicked editor textarea.
-  // Cmd-Z then hit the textarea's native undo (which has nothing
+  // didn't naturally blur a previously-clicked source editor.
+  // Cmd-Z then hit the editor's native undo (which has nothing
   // canvas-related on it) and the user had to switch slides — a
   // side-effect that happened to move focus — to recover.
   await page.goto('/canvas.html?fixture=single-box');
@@ -515,12 +519,7 @@ test('clicking the canvas after focusing the editor restores Cmd-Z routing', asy
     .locator('.sw-canvas-stage [data-sw-component="Box"] > div')
     .first();
   await expect(box).toBeVisible();
-  const beforeDrag = await page.evaluate(
-    () =>
-      (
-        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
-      ).value,
-  );
+  const beforeDrag = await getSource(page);
   const eb = await box.boundingBox();
   if (!eb) throw new Error('box not found');
   await page.mouse.move(eb.x + eb.width / 2, eb.y + eb.height / 2);
@@ -536,13 +535,13 @@ test('clicking the canvas after focusing the editor restores Cmd-Z routing', asy
   });
   await page.mouse.up();
   // User clicks into the editor (e.g., to read source) without typing.
-  await page.locator('.sw-editor-pane').focus();
+  await page.locator('.sw-editor-view .cm-content').focus();
   await expect
     .poll(() =>
       page.evaluate(() =>
-        (document.activeElement as HTMLElement | null)?.classList.contains(
-          'sw-editor-pane',
-        ) ?? false,
+        (document.activeElement as HTMLElement | null)?.closest(
+          '.sw-editor-pane',
+        ) != null,
       ),
     )
     .toBe(true);
@@ -553,17 +552,12 @@ test('clicking the canvas after focusing the editor restores Cmd-Z routing', asy
     .poll(() =>
       page.evaluate(() => {
         const a = document.activeElement as HTMLElement | null;
-        return a?.classList.contains('sw-editor-pane') ?? false;
+        return a?.closest('.sw-editor-pane') != null;
       }),
     )
     .toBe(false);
   await page.keyboard.press('ControlOrMeta+Z');
-  const afterUndo = await page.evaluate(
-    () =>
-      (
-        document.querySelector('.sw-editor-pane') as HTMLTextAreaElement
-      ).value,
-  );
+  const afterUndo = await getSource(page);
   expect(afterUndo).toBe(beforeDrag);
 });
 

@@ -7,6 +7,7 @@
 // wrapper.
 
 import { test, expect } from '@playwright/test';
+import { getEditorSelection, getEditorSource } from './editor-helpers';
 
 test('hierarchy panel renders the active slide shapes', async ({ page }) => {
   await page.goto('/canvas.html?fixture=two-boxes');
@@ -92,11 +93,7 @@ test('Ctrl-clicking a tree row moves the editor caret to the source span', async
     .locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]')
     .first()
     .click({ modifiers: ['ControlOrMeta'] });
-  const sel = await page.evaluate(() => {
-    const ta = document.querySelector('.sw-editor-pane') as HTMLTextAreaElement | null;
-    if (!ta) throw new Error('editor pane not found');
-    return { start: ta.selectionStart ?? 0, end: ta.selectionEnd ?? 0 };
-  });
+  const sel = await getEditorSelection(page);
   expect(sel.start).toBe(span.start);
   expect(sel.end).toBe(span.end);
 });
@@ -158,7 +155,7 @@ test('editing the slide label commits to source', async ({ page }) => {
   const labelInput = labelRow.locator('input.sw-property-value');
   await labelInput.fill('"Renamed"');
   await labelInput.press('Enter');
-  const src = await page.locator('.sw-editor-pane').inputValue();
+  const src = await getEditorSource(page);
   expect(src).toMatch(/label:\s*"Renamed"/);
 });
 
@@ -183,7 +180,7 @@ test('editing a numeric param and pressing Enter commits to source', async ({ pa
   const xInput = xRow.locator('input.sw-property-value');
   await xInput.fill('500');
   await xInput.press('Enter');
-  const src = await page.locator('.sw-editor-pane').inputValue();
+  const src = await getEditorSource(page);
   expect(src).toMatch(/x:\s*500/);
 });
 
@@ -192,13 +189,13 @@ test('Escape cancels the edit without committing', async ({ page }) => {
   await expect(
     page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
   ).toBeVisible();
-  const before = await page.locator('.sw-editor-pane').inputValue();
+  const before = await getEditorSource(page);
   await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   const xRow = page.locator('.sw-property-row', { hasText: /^x/ }).first();
   const xInput = xRow.locator('input.sw-property-value');
   await xInput.fill('999');
   await xInput.press('Escape');
-  const after = await page.locator('.sw-editor-pane').inputValue();
+  const after = await getEditorSource(page);
   expect(after).toBe(before);
 });
 
@@ -212,7 +209,7 @@ test('editing a name_ref param commits the new name', async ({ page }) => {
   const fillInput = fillRow.locator('input.sw-property-value');
   await fillInput.fill('cyan');
   await fillInput.press('Enter');
-  const src = await page.locator('.sw-editor-pane').inputValue();
+  const src = await getEditorSource(page);
   expect(src).toMatch(/fill:\s*cyan/);
 });
 
@@ -239,7 +236,7 @@ test('property edits enter the undo stack', async ({ page }) => {
   await expect(
     page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
   ).toBeVisible();
-  const before = await page.locator('.sw-editor-pane').inputValue();
+  const before = await getEditorSource(page);
   await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   const xRow = page.locator('.sw-property-row', { hasText: /^x/ }).first();
   const xInput = xRow.locator('input.sw-property-value');
@@ -248,7 +245,7 @@ test('property edits enter the undo stack', async ({ page }) => {
   // Move focus to the canvas so Cmd-Z routes to the canvas handler.
   await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
   await page.keyboard.press('ControlOrMeta+Z');
-  const after = await page.locator('.sw-editor-pane').inputValue();
+  const after = await getEditorSource(page);
   expect(after).toBe(before);
 });
 
@@ -265,7 +262,7 @@ test('omit toggle marks a renderable slot as intentionally empty and disables it
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
   await toggle.click();
   // Source picks up the keyword.
-  const src = await page.locator('.sw-editor-pane').inputValue();
+  const src = await getEditorSource(page);
   expect(src).toMatch(/content:\s*omit/);
   // Row's input is now disabled and shows the keyword.
   const input = contentRow.locator('input.sw-property-value');
@@ -286,7 +283,7 @@ test('omit toggle re-enables editing when flipped off', async ({ page }) => {
   await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   await toggle.click();
   // Source replaces the omit keyword with an editable empty-string.
-  const src = await page.locator('.sw-editor-pane').inputValue();
+  const src = await getEditorSource(page);
   expect(src).toMatch(/content:\s*""/);
   const input = contentRow.locator('input.sw-property-value');
   await expect(input).toBeEnabled();
@@ -298,14 +295,14 @@ test('omit toggle entries enter the undo stack', async ({ page }) => {
   await expect(
     page.locator('.sw-canvas-stage [data-sw-component="TextBox"]'),
   ).toBeVisible();
-  const before = await page.locator('.sw-editor-pane').inputValue();
+  const before = await getEditorSource(page);
   await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   const contentRow = page.locator('.sw-property-row', { hasText: /^content/ }).first();
   await contentRow.locator('.sw-property-omit-toggle').click();
   // Move focus to canvas so Cmd-Z routes to the canvas undo handler.
   await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
   await page.keyboard.press('ControlOrMeta+Z');
-  const after = await page.locator('.sw-editor-pane').inputValue();
+  const after = await getEditorSource(page);
   expect(after).toBe(before);
 });
 
@@ -387,7 +384,7 @@ test('drag-to-scrub on a numeric key commits a single new value', async ({ page 
   // user drag — exercises the per-move setScrub path.
   await page.mouse.move(startX + 50, startY, { steps: 10 });
   await page.mouse.up();
-  const src = await page.locator('.sw-editor-pane').inputValue();
+  const src = await getEditorSource(page);
   expect(src).toMatch(/x:\s*450/);
 });
 
@@ -411,12 +408,12 @@ test('drag-to-scrub shows live canvas feedback mid-drag (not only on release)', 
   await page.mouse.down();
   // Halfway through the drag.
   await page.mouse.move(startX + 25, startY, { steps: 5 });
-  const midSrc = await page.locator('.sw-editor-pane').inputValue();
+  const midSrc = await getEditorSource(page);
   expect(midSrc).toMatch(/x:\s*425/);
   // Continue to the end.
   await page.mouse.move(startX + 50, startY, { steps: 5 });
   await page.mouse.up();
-  const finalSrc = await page.locator('.sw-editor-pane').inputValue();
+  const finalSrc = await getEditorSource(page);
   expect(finalSrc).toMatch(/x:\s*450/);
 });
 
@@ -425,7 +422,7 @@ test('drag-to-scrub click without movement does not commit', async ({ page }) =>
   await expect(
     page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
   ).toBeVisible();
-  const before = await page.locator('.sw-editor-pane').inputValue();
+  const before = await getEditorSource(page);
   await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   const xKey = page.locator('.sw-property-row', { hasText: /^x/ }).first()
     .locator('.sw-property-key');
@@ -434,7 +431,7 @@ test('drag-to-scrub click without movement does not commit', async ({ page }) =>
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
   await page.mouse.down();
   await page.mouse.up();
-  const after = await page.locator('.sw-editor-pane').inputValue();
+  const after = await getEditorSource(page);
   expect(after).toBe(before);
 });
 
@@ -443,7 +440,7 @@ test('drag-to-scrub commits a single undo entry per session', async ({ page }) =
   await expect(
     page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
   ).toBeVisible();
-  const before = await page.locator('.sw-editor-pane').inputValue();
+  const before = await getEditorSource(page);
   await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   const xKey = page.locator('.sw-property-row', { hasText: /^x/ }).first()
     .locator('.sw-property-key');
@@ -460,7 +457,7 @@ test('drag-to-scrub commits a single undo entry per session', async ({ page }) =
   await page.keyboard.press('ControlOrMeta+Z');
   // ONE undo should fully restore — confirming the 10 previews
   // didn't pollute the stack.
-  const after = await page.locator('.sw-editor-pane').inputValue();
+  const after = await getEditorSource(page);
   expect(after).toBe(before);
 });
 
@@ -515,7 +512,7 @@ test('un-omit picks a type-shaped default per slot', async ({ page }) => {
   // Body starts omit per the fixture; toggle OFF should splice
   // `Box { }`, not `""`.
   await bodyRow.locator('.sw-property-omit-toggle').click();
-  const src = await page.locator('.sw-editor-pane').inputValue();
+  const src = await getEditorSource(page);
   expect(src).toMatch(/body:\s*Box\s*\{\s*\}/);
 });
 

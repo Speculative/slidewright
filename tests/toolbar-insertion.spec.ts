@@ -10,6 +10,7 @@
 
 import { test, expect } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
+import { getEditorSource } from './editor-helpers';
 
 async function letReactCatchUp(page: Page): Promise<void> {
   await page.evaluate(
@@ -21,7 +22,7 @@ async function letReactCatchUp(page: Page): Promise<void> {
 }
 
 async function getSource(page: Page): Promise<string> {
-  return page.locator('.sw-editor-pane').inputValue();
+  return getEditorSource(page);
 }
 
 // Same scale calc the canvas uses internally: presentation-canvas

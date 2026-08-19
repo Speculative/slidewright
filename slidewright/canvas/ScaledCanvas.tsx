@@ -508,8 +508,8 @@ export function ScaledCanvas({
     // Shed focus from any editor-side text input as soon as the user
     // touches the canvas. Canvas content is mostly non-focusable
     // divs, so a click here doesn't naturally move focus — leaving
-    // a previously-clicked editor textarea focused, which then
-    // swallows Cmd-Z (routing it to the textarea's native — and
+    // a previously-clicked source editor focused, which then
+    // swallows Cmd-Z (routing it to the editor's native — and
     // usually empty — undo instead of our canvas handler).
     const active = document.activeElement;
     if (

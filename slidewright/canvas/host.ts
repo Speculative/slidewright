@@ -58,7 +58,7 @@ export interface Host {
   // Sent by the canvas when the user clicks something in the rendered
   // slide. The host translates the source-range to whatever its
   // editor surface uses (revealRange + setSelection in VS Code, a
-  // textarea selection in the standalone source pane, etc.).
+  // source-editor selection in the standalone pane, etc.).
   sendSelection(range: SourceRange): void;
 
   // Subscribe to source-editor cursor changes. Lets the canvas

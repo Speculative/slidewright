@@ -17,6 +17,7 @@
 
 import { test, expect } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
+import { getEditorSource } from './editor-helpers';
 
 const DESIGN_W = 1920;
 
@@ -96,7 +97,7 @@ async function dragDesignPoints(
 }
 
 async function getSource(page: Page): Promise<string> {
-  return page.locator('.sw-editor-pane').inputValue();
+  return getEditorSource(page);
 }
 
 // ─── Drag-to-move ────────────────────────────────────────────────
