@@ -190,7 +190,7 @@ We've shipped one regression from this expanded root (the slide-nav case above).
 
 ## Tree-sitter investigation (deferred)
 
-Slidewright ships a hand-rolled recursive-descent parser. Tree-sitter was investigated and deferred. Triggers for re-opening: recovery code becomes a maintenance burden across new gestures; we want syntax highlighting in environments outside our own editor; we add a second grammar dialect. Until then `slidewright/grammar/grammar.js` is preserved as a precise specification.
+Slidewright ships a hand-rolled recursive-descent parser. Tree-sitter was investigated and deferred. Triggers for re-opening: recovery code becomes a maintenance burden across new gestures, or we add a second grammar dialect. Syntax highlighting is handled independently by the VS Code TextMate contribution and the standalone CodeMirror stream language. Until then `slidewright/grammar/grammar.js` is preserved as a precise specification.
 
 The full tree-sitter rationale lived in this file at v0.1 and is preserved in git history (commit `0790967` and earlier). The short version: every primary-language toolchain that prioritizes IDE-grade diagnostics is hand-rolled (rustc, Roslyn, TypeScript, Clang, Swift). Tree-sitter's strength is many-grammar plumbing; we have one grammar.
 
@@ -319,7 +319,7 @@ The v0.4 tight cut + reorder + gap-drag + click-into-named-slots + empty-slot pl
 
 - ~~**Standalone code editor upgrade**~~ — landed 2026-08-19 with CodeMirror 6. `EditorPane` owns one `EditorView`, keeps CodeMirror's text undo/history, routes edits through `Host.setSource`, and exposes Deck / active Slide / Notes projections over the Host's canonical full-deck source. Selection sync remains in global source offsets; host-driven replacements reset the CodeMirror history as an external-edit barrier.
 
-- **Syntax highlighting for `.sw`**. A TextMate / Tree-sitter / Lezer grammar for the brace-block surface syntax, used by *both* hosts: VS Code extension highlights `.sw` files in the editor pane; standalone editor highlights inside the embedded code editor. Pick the editor component first since it constrains the highlighting integration story.
+- ~~**Syntax highlighting for `.sw`**~~ — landed 2026-08-20. The VS Code extension contributes `extension/syntaxes/slidewright.tmLanguage.json`; the standalone CodeMirror 6 pane uses the stateful `slidewright/canvas/sw-language.ts` stream language. Both cover components, slot properties, literals, colors, strings, comments, punctuation, and identifiers; the standalone path has a syntax smoke test.
 
 - **Unified undo stack** across all source-mutating sources: canvas gestures, in-app CodeMirror editor, external edits. External edits enter as visible-but-unundoable barrier entries. The editor now has real text history, but it still runs alongside the canvas-owned `undoStackRef`; interleaving those histories remains future work.
 

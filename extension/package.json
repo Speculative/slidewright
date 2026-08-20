@@ -25,6 +25,13 @@
         "aliases": ["Slidewright", "slidewright"]
       }
     ],
+    "grammars": [
+      {
+        "language": "slidewright",
+        "scopeName": "source.slidewright",
+        "path": "./syntaxes/slidewright.tmLanguage.json"
+      }
+    ],
     "commands": [
       {
         "command": "slidewright.openCanvas",

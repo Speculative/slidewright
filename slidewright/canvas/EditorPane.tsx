@@ -15,6 +15,10 @@ import {
   type Extension,
 } from '@codemirror/state';
 import { indentWithTab } from '@codemirror/commands';
+import {
+  slidewrightHighlighting,
+  slidewrightLanguage,
+} from './sw-language.js';
 
 import type { Host, SourceRange } from './host.js';
 import type {
@@ -225,6 +229,8 @@ export function EditorPane({
     documentProjectionRef.current = initial;
     extensionsRef.current = [
       basicSetup,
+      slidewrightLanguage.extension,
+      slidewrightHighlighting,
       keymap.of([indentWithTab]),
       EditorView.editable.of(host.setSource != null),
       EditorView.updateListener.of((update) => {

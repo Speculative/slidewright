@@ -1,0 +1,109 @@
+{
+  "name": "Slidewright",
+  "scopeName": "source.slidewright",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#triple-string" },
+    { "include": "#string" },
+    { "include": "#color" },
+    { "include": "#keyword" },
+    { "include": "#number" },
+    { "include": "#property" },
+    { "include": "#component" },
+    { "include": "#identifier" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.slidewright",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.slidewright",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "triple-string": {
+      "name": "string.quoted.triple.slidewright",
+      "begin": "\"\"\"",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.slidewright" }
+      },
+      "end": "\"\"\"",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.slidewright" }
+      },
+      "patterns": [
+        {
+          "match": "\\\\.",
+          "name": "constant.character.escape.slidewright"
+        }
+      ]
+    },
+    "string": {
+      "name": "string.quoted.double.slidewright",
+      "begin": "\"",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.slidewright" }
+      },
+      "end": "\"",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.slidewright" }
+      },
+      "patterns": [
+        {
+          "match": "\\\\.",
+          "name": "constant.character.escape.slidewright"
+        }
+      ]
+    },
+    "color": {
+      "name": "constant.other.color.slidewright",
+      "match": "\\boklch\\([^\\)\\n]*\\)"
+    },
+    "keyword": {
+      "name": "constant.language.slidewright",
+      "match": "\\b(?:true|false|null|omit)\\b"
+    },
+    "number": {
+      "name": "constant.numeric.slidewright",
+      "match": "-?(?:\\b\\d+(?:\\.\\d+)?\\b)"
+    },
+    "property": {
+      "name": "variable.other.property.slidewright",
+      "match": "\\b[a-z_][A-Za-z0-9_]*(?=\\s*:)"
+    },
+    "component": {
+      "name": "entity.name.type.slidewright",
+      "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+    },
+    "identifier": {
+      "name": "variable.other.readwrite.slidewright",
+      "match": "\\b[a-z_][A-Za-z0-9_]*\\b"
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.section.braces.slidewright",
+          "match": "[{}]"
+        },
+        {
+          "name": "punctuation.section.brackets.slidewright",
+          "match": "[\\[\\]]"
+        },
+        {
+          "name": "punctuation.separator.slidewright",
+          "match": "[:,]"
+        },
+        {
+          "name": "keyword.operator.slidewright",
+          "match": "[()=<>+*/!-]"
+        }
+      ]
+    }
+  }
+}

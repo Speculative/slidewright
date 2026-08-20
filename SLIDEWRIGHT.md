@@ -388,7 +388,7 @@ The parser is **error-recovering**: malformed source produces a partial AST with
 
 The diagnostics translator (slot-type mismatches, missing-required hints, "did you mean...") lives in the parser and validator with full context, not as a post-hoc CST visitor.
 
-**Tree-sitter is investigated and deferred.** A `grammar.js` file in `slidewright/grammar/` captures the brace-block grammar in tree-sitter's declarative form as a precise specification independent of the runtime parser, and as the entry point if we ever revisit. The investigation that produced this decision is captured in `HANDOFF.md / Tree-sitter investigation`. Triggers for revisiting: (a) the recovery code becomes a maintenance burden, (b) we want syntax highlighting in environments outside our own editor, or (c) we add a second grammar dialect.
+**Tree-sitter is investigated and deferred.** A `grammar.js` file in `slidewright/grammar/` captures the brace-block grammar in tree-sitter's declarative form as a precise specification independent of the runtime parser, and as the entry point if we ever revisit. The investigation that produced this decision is captured in `HANDOFF.md / Tree-sitter investigation`. Triggers for revisiting: (a) the recovery code becomes a maintenance burden, or (b) we add a second grammar dialect. Syntax highlighting is handled independently by the VS Code TextMate contribution and the standalone CodeMirror stream language.
 
 **Worked recovery and round-trip emit are v0.2+ work**, not v0.0. The v0.0 bridge does enough recovery to keep simple smoke tests honest; full recovery synchronization at the floors above is deferred until the canvas + emit work needs it.
 
@@ -1044,7 +1044,7 @@ For ease of reference, the major unresolved questions:
 - **Outside-Freeform shape adapters** (Card resize, drop-shadow grip, diagram-specific handles). The `ShapeAdapter` contract supports them in principle; App's selection effect needs to generalize from "anchor handles to closest Freeform" to "anchor to closest positioned ancestor." Defer until an actual outside-Freeform shape needs canvas behavior.
 - **Long-term: snapshot-and-fold undo model** (post-v0; replaces external-edit barriers with a unified history)
 - **Long-term: hybrid emit** (canonical-on-editor-write, leave-alone on idle regions; replaces pure canonical re-emit if author churn becomes painful)
-- **Revisit: tree-sitter** (currently deferred; revisit if recovery becomes a maintenance burden, or we want syntax highlighting outside our own editor, or we add a second grammar dialect)
+- **Revisit: tree-sitter** (currently deferred; revisit if recovery becomes a maintenance burden or we add a second grammar dialect; syntax highlighting is already handled by the VS Code TextMate contribution and standalone CodeMirror stream language)
 
 Most of these should not be answered before v0. Several can only be answered by living with v0 for a while.
 
