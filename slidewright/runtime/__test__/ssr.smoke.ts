@@ -118,6 +118,16 @@ const expected: Record<string, string[]> = {
     // Third box uses a direct color_oklch literal.
     'oklch(0.62 0.22 25)',
   ],
+  'Rich text': [
+    'Slide-grade ',
+    'rich text',
+    'underline',
+    'strikethrough',
+    'Flat lists choose their marker style.',
+    'Structured lists can be ordered.',
+    'Nesting is explicit in source.',
+    'Shrink-to-fit keeps the authored font size in source.',
+  ],
   'Three obstacles': [
     'Three obstacles',
     'Behavior is hidden by default',

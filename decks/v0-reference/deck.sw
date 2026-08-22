@@ -52,6 +52,124 @@ Deck {
     }
 
     Slide {
+      label: "Rich text"
+      notes: """
+        Reference surface for source-backed slide text. It demonstrates
+        TextBox defaults, mixed Span runs, links and decorations, flat
+        numbered bullets, a nested structured list, wrapping, alignment,
+        and non-destructive shrink-to-fit.
+      """
+      content: Freeform {
+        children: [
+          TextBox {
+            x: 120
+            y: 70
+            width: 1680
+            height: 110
+            font: "display"
+            fontSize: 58
+            fontWeight: "700"
+            letterSpacing: -1
+            align: "center"
+            content: [
+              "Slide-grade "
+              Span { content: "rich text" color: brand italic: true }
+            ]
+          }
+          TextBox {
+            x: 120
+            y: 220
+            width: 790
+            height: 310
+            fontSize: 32
+            lineHeight: 1.4
+            wrap: true
+            content: [
+              "Mixed runs preserve "
+              Span { content: "weight" weight: "800" }
+              ", "
+              Span { content: "size" size: 42 }
+              ", "
+              Span { content: "mono" font: mono }
+              ", "
+              Span { content: "color" color: accent }
+              ", "
+              Span { content: "italic" italic: true }
+              ", "
+              Span { content: "underline" underline: true }
+              ", "
+              Span { content: "strikethrough" strikethrough: true }
+              ", and "
+              Span {
+                content: "links"
+                href: "https://example.com/slidewright"
+                color: blue
+                underline: true
+              }
+              "."
+            ]
+          }
+          TextBox {
+            x: 120
+            y: 570
+            width: 790
+            height: 330
+            fontSize: 32
+            lineHeight: 1.45
+            listStyle: "decimal"
+            listStart: 3
+            content: omit
+            bullets: [
+              "Flat lists choose their marker style."
+              ["Items still accept ", Span { content: "mixed runs" weight: "700" }, "."]
+              "The authored starting number round-trips."
+            ]
+          }
+          TextBox {
+            x: 1010
+            y: 220
+            width: 790
+            height: 510
+            fontSize: 32
+            lineHeight: 1.35
+            content: List {
+              style: "upper-alpha"
+              start: 2
+              items: [
+                ListItem { content: "Structured lists can be ordered." }
+                ListItem {
+                  content: ["A list item can own a ", Span { content: "nested list" weight: "700" }, "."]
+                  children: List {
+                    style: "square"
+                    items: [
+                      ListItem { content: "Nesting is explicit in source." }
+                      ListItem { content: "Child text remains canvas-editable." }
+                    ]
+                  }
+                }
+                ListItem { content: "Markers and start values remain semantic." }
+              ]
+            }
+          }
+          TextBox {
+            x: 1010
+            y: 790
+            width: 790
+            height: 105
+            font: "display"
+            fontSize: 54
+            fontWeight: "700"
+            align: "center"
+            wrap: false
+            shrinkToFit: true
+            color: muted
+            content: "Shrink-to-fit keeps the authored font size in source."
+          }
+        ]
+      }
+    }
+
+    Slide {
       label: "Three obstacles"
       notes: """
         - Behavior isn't a thing you can just look at.

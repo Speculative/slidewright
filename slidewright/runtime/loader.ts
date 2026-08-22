@@ -9,8 +9,8 @@
 //   - render: walk AST, dispatch each slide-producing component to its
 //     React function with resolved {slots, params}
 //
-// Built-in components (`Deck`, `Slide`, `Span`) are special-cased; all
-// other invocations go through the registry.
+// Built-in components (`Deck`, `Slide`, `Span`, `List`, `ListItem`) are
+// special-cased; all other invocations go through the registry.
 
 import { Fragment, createElement, type ReactElement, type ReactNode } from 'react';
 import { Slide as SlideFrameRaw } from '../../src/Slide.jsx';
@@ -751,6 +751,7 @@ function renderComponent(comp: Component, ctx: LoadCtx): ReactNode {
 }
 
 function renderSpanAsNode(comp: Component, ctx: LoadCtx): ReactNode {
+  validateAgainstMeta(comp, BUILTIN_META.Span!, ctx);
   const fills = byName(comp.fills);
   const content = fills.get('content');
   const color = readColorValue(fills.get('color'), ctx);
@@ -759,14 +760,22 @@ function renderSpanAsNode(comp: Component, ctx: LoadCtx): ReactNode {
   const weight = readNameOrString(fills.get('weight'), ctx);
   const letterSpacing = readNumber(fills.get('letterSpacing'), ctx);
   const italic = readBoolean(fills.get('italic'), ctx);
+  const underline = readBoolean(fills.get('underline'), ctx);
+  const strikethrough = readBoolean(fills.get('strikethrough'), ctx);
+  const href = readString(fills.get('href'), ctx);
   const inner = content ? resolveTextValue(content.value, ctx) : null;
   const style: Record<string, string> = {};
   if (color) style.color = color;
   if (font) style.fontFamily = `var(--font-${font})`;
-  if (size !== null) style.fontSize = `${size}px`;
+  if (size !== undefined) style.fontSize = `${size}px`;
   if (weight) style.fontWeight = weight;
-  if (letterSpacing !== null) style.letterSpacing = `${letterSpacing}px`;
+  if (letterSpacing !== undefined) style.letterSpacing = `${letterSpacing}px`;
   if (italic) style.fontStyle = 'italic';
+  const decorations = [
+    underline ? 'underline' : '',
+    strikethrough ? 'line-through' : '',
+  ].filter(Boolean);
+  if (decorations.length > 0) style.textDecorationLine = decorations.join(' ');
   // Span is a built-in rather than a registry component, but it is
   // still a first-class, source-backed text run. Register it as a
   // lightweight layout selection so mixed styles can be selected on
@@ -777,21 +786,113 @@ function renderSpanAsNode(comp: Component, ctx: LoadCtx): ReactNode {
       comp,
       canvas: { kind: 'layout' },
       meta: BUILTIN_META.Span!,
-      params: { color, font, size, weight, letterSpacing, italic },
+      params: {
+        color,
+        font,
+        size,
+        weight,
+        letterSpacing,
+        italic,
+        underline,
+        strikethrough,
+        href,
+      },
       slideIdx: ctx.currentSlideIdx,
       childIdx: -1,
     });
   }
   return createElement(
-    'span',
+    href ? 'a' : 'span',
     {
       style,
       key: cellKey(comp),
+      ...(href ? { href } : {}),
       'data-sw-component': 'Span',
       'data-sw-span-start': comp.span.start.offset,
       'data-sw-span-end': comp.span.end.offset,
     },
     inner,
+  );
+}
+
+const ORDERED_LIST_STYLES = new Set([
+  'decimal',
+  'decimal-leading-zero',
+  'lower-alpha',
+  'upper-alpha',
+  'lower-roman',
+  'upper-roman',
+]);
+
+function renderListAsNode(comp: Component, ctx: LoadCtx): ReactNode {
+  validateAgainstMeta(comp, BUILTIN_META.List!, ctx);
+  const fills = byName(comp.fills);
+  const style = readNameOrString(fills.get('style'), ctx) ?? 'disc';
+  const start = readNumber(fills.get('start'), ctx) ?? 1;
+  const items = fills.get('items');
+  const rendered: ReactNode[] = [];
+  if (items?.value.kind !== 'list') {
+    if (items) {
+      emit(ctx, 'slot-type-mismatch', items.value.span, '`List.items` must be a list');
+    }
+  } else {
+    for (const item of items.value.items) {
+      if (item.kind !== 'component' || item.name !== 'ListItem') {
+        emit(
+          ctx,
+          'slot-type-mismatch',
+          item.span,
+          '`List.items` entries must be `ListItem { ... }`',
+        );
+        continue;
+      }
+      rendered.push(renderListItemAsNode(item, ctx));
+    }
+  }
+  const ordered = ORDERED_LIST_STYLES.has(style);
+  return createElement(
+    ordered ? 'ol' : 'ul',
+    {
+      key: cellKey(comp),
+      ...(ordered ? { start } : {}),
+      style: { margin: 0, paddingInlineStart: '1.35em', listStyleType: style },
+      'data-sw-component': 'List',
+      'data-sw-list-style': style,
+      'data-sw-span-start': comp.span.start.offset,
+      'data-sw-span-end': comp.span.end.offset,
+    },
+    ...rendered,
+  );
+}
+
+function renderListItemAsNode(comp: Component, ctx: LoadCtx): ReactNode {
+  validateAgainstMeta(comp, BUILTIN_META.ListItem!, ctx);
+  const fills = byName(comp.fills);
+  const content = fills.get('content');
+  const children = fills.get('children');
+  let nested: ReactNode = null;
+  if (children) {
+    if (children.value.kind === 'component' && children.value.name === 'List') {
+      nested = renderListAsNode(children.value, ctx);
+    } else {
+      emit(
+        ctx,
+        'slot-type-mismatch',
+        children.value.span,
+        '`ListItem.children` must be a `List { ... }`',
+      );
+    }
+  }
+  return createElement(
+    'li',
+    {
+      key: cellKey(comp),
+      'data-sw-component': 'ListItem',
+      'data-sw-span-start': comp.span.start.offset,
+      'data-sw-span-end': comp.span.end.offset,
+    },
+    content ? resolveTextValue(content.value, ctx) : null,
+    nested,
   );
 }
 
@@ -933,7 +1034,8 @@ function resolveSlotValue(type: SlotType, value: Value, ctx: LoadCtx): unknown {
 }
 
 function resolveTextValue(value: Value, ctx: LoadCtx): ReactNode {
-  // text accepts: a string, a list of (string | Span | name_ref-resolving-to-string).
+  // text accepts a string, a structured List, or a list of inline
+  // string/Span/List runs. ListItem is intentionally only accepted by List.
   if (value.kind === 'string') {
     const lit = ctx.cellStore.registerLiteral(nextCellId(ctx, 'text'), value.value);
     const resolved = ctx.cellStore.resolve<string>(lit, EMPTY_CONTEXT);
@@ -946,6 +1048,9 @@ function resolveTextValue(value: Value, ctx: LoadCtx): ReactNode {
       }
       if (v.kind === 'component' && v.name === 'Span') {
         return renderSpanAsNode(v, ctx);
+      }
+      if (v.kind === 'component' && v.name === 'List') {
+        return renderListAsNode(v, ctx);
       }
       if (v.kind === 'name_ref') {
         const resolved = lookup(ctx.scope, v.name);
@@ -965,7 +1070,7 @@ function resolveTextValue(value: Value, ctx: LoadCtx): ReactNode {
         ctx,
         'slot-type-mismatch',
         v.span,
-        'text run items must be strings or `Span { ... }`',
+        'text run items must be strings, `Span { ... }`, or `List { ... }`',
       );
       return '';
     });
@@ -976,6 +1081,9 @@ function resolveTextValue(value: Value, ctx: LoadCtx): ReactNode {
     // earlier inner Fragment(key=i) wrap caused collisions with
     // other integer-keyed elements elsewhere in the tree.
     return createElement(Fragment, { key: cellKey(value) }, ...parts);
+  }
+  if (value.kind === 'component' && value.name === 'List') {
+    return renderListAsNode(value, ctx);
   }
   if (value.kind === 'name_ref') {
     const resolved = lookup(ctx.scope, value.name);

@@ -147,23 +147,32 @@ v0.4 has been delivered in successive cuts:
 
 ### Slide-grade text editing (landed)
 
-`TextBox` now exposes source-backed `font`, `fontSize`, `fontWeight`,
-`lineHeight`, `letterSpacing`, `align`, `wrap`, `shrinkToFit`, and `color`
-params. Its optional `bullets: array<text>` slot renders semantic list items;
-each item can be a string or a mixed run such as `["plain", Span { ... }]`.
-The existing `content: text` slot continues to accept plain strings and mixed
-runs. Canvas double-click edits every string literal in place and commits
-through the normal AST round trip.
+`TextBox` exposes source-backed `font`, `fontSize`, `fontWeight`, `lineHeight`,
+`letterSpacing`, `align`, `wrap`, `shrinkToFit`, and `color` params. Its
+optional `bullets: array<text>` slot renders a flat semantic list; `listStyle`
+selects unordered or ordered CSS marker styles and `listStart` preserves an
+authored starting number. Each flat item can be a string or a mixed run such
+as `["plain", Span { ... }]`. The `content: text` slot accepts plain strings,
+mixed runs, and built-in structured `List` / `ListItem` values. List items own
+their content and an optional child List, so ordered markers, explicit starts,
+and nesting round-trip without paragraph nodes or parallel indentation arrays.
+Canvas double-click edits every string literal in place, including nested list
+content, and commits through the normal AST round trip.
 
 Built-in `Span` runs are now registered as lightweight layout selections, so
 they appear in the hierarchy and their `color`, `font`, `size`, `weight`,
-`letterSpacing`, and `italic` fields are inspector-editable. The inspector can
+`letterSpacing`, `italic`, `underline`, `strikethrough`, and `href` fields are
+inspector-editable. A Span with `href` renders as an anchor; underline and
+strikethrough combine through `text-decoration-line`. The inspector can
 also edit primitive items inside list-valued properties and materialize
 previously-missing scalar params by parsing the candidate with the real DSL
 parser and canonical-emitting the deck. `shrinkToFit` derives a rendered font
 size with DOM measurement while retaining the requested `fontSize` unchanged
 in source; disabling it restores the authored size. Coverage lives in
-`tests/text-editing.spec.ts` and `tests/fixtures/slide-grade-text.sw`.
+`tests/text-editing.spec.ts` and `tests/fixtures/slide-grade-text.sw`. The
+reference deck's “Rich text” slide demonstrates all supported text features.
+Structured paragraphs/paragraph spacing and range-aware formatting controls
+remain separate deferred work.
 
 ### Color palette + picker (landed)
 

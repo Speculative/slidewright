@@ -52,6 +52,8 @@ export const slidewright: ComponentMeta = {
     align: { type: 'string', default: 'left' },
     wrap: { type: 'boolean', default: true },
     shrinkToFit: { type: 'boolean', default: false },
+    listStyle: { type: 'string', default: 'disc' },
+    listStart: { type: 'number', default: 1 },
     color: { type: 'color-token', default: 'fg' },
   },
   protocols: {},
@@ -97,6 +99,8 @@ export default function TextBox({ slots, params, slotsState }: ComponentRenderPr
   const align = (params.align as string | undefined) ?? 'left';
   const wrap = (params.wrap as boolean | undefined) ?? true;
   const shrinkToFit = (params.shrinkToFit as boolean | undefined) ?? false;
+  const listStyle = (params.listStyle as string | undefined) ?? 'disc';
+  const listStart = (params.listStart as number | undefined) ?? 1;
   const color = (params.color as string | undefined) ?? 'var(--fg)';
   const content = slots.content as ReactNode | undefined;
   const bullets = slotsState.bullets === 'filled'
@@ -175,30 +179,46 @@ export default function TextBox({ slots, params, slotsState }: ComponentRenderPr
         }}
       >
         {content}
-        {bullets ? (
-          <ul style={{ margin: 0, paddingInlineStart: '1.35em' }}>
-            {renderBullets(bullets)}
-          </ul>
-        ) : null}
+        {bullets
+          ? renderLegacyList(bullets, listStyle, listStart)
+          : null}
       </div>
     </div>
   );
 }
 
-function renderBullets(slotNode: ReactNode): ReactNode {
+const ORDERED_LIST_STYLES = new Set([
+  'decimal',
+  'decimal-leading-zero',
+  'lower-alpha',
+  'upper-alpha',
+  'lower-roman',
+  'upper-roman',
+]);
+
+function renderLegacyList(
+  slotNode: ReactNode,
+  listStyle: string,
+  listStart: number,
+): ReactNode {
   // Renderable array slots arrive inside the loader's source-bearing
   // wrapper. Clone that wrapper so its selection attrs survive, while
   // turning each resolved text item into a semantic list item.
-  if (isValidElement<{ children?: ReactNode }>(slotNode)) {
-    return cloneElement(
-      slotNode,
-      undefined,
-      Children.map(slotNode.props.children, (item, index) => (
-        <li key={index}>{item}</li>
-      )),
-    );
-  }
-  return <li>{slotNode}</li>;
+  const ordered = ORDERED_LIST_STYLES.has(listStyle);
+  const items = isValidElement<{ children?: ReactNode }>(slotNode)
+    ? cloneElement(
+        slotNode,
+        undefined,
+        Children.map(slotNode.props.children, (item, index) => (
+          <li key={index}>{item}</li>
+        )),
+      )
+    : <li>{slotNode}</li>;
+  const props = {
+    style: { margin: 0, paddingInlineStart: '1.35em', listStyleType: listStyle },
+    ...(ordered ? { start: listStart } : {}),
+  };
+  return ordered ? <ol {...props}>{items}</ol> : <ul {...props}>{items}</ul>;
 }
 
 export const canvas = makeRectAdapter({ width: 320, height: 120 });

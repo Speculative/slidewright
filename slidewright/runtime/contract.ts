@@ -236,8 +236,8 @@ export function buildRegistry(
 }
 
 // Built-in components have meta but their render path is special-cased
-// in the renderer (e.g., `Span` doesn't go through the regular dispatch
-// because text-run resolution treats it as data).
+// in the renderer (e.g., inline text structures don't go through regular
+// registry dispatch because text-value resolution treats them as data).
 export const BUILTIN_META: Record<string, ComponentMeta> = {
   Span: {
     produces: 'text',
@@ -251,6 +251,28 @@ export const BUILTIN_META: Record<string, ComponentMeta> = {
       weight: { type: 'string' },
       letterSpacing: { type: 'number' },
       italic: { type: 'boolean' },
+      underline: { type: 'boolean' },
+      strikethrough: { type: 'boolean' },
+      href: { type: 'string' },
+    },
+  },
+  List: {
+    produces: 'text',
+    slots: {
+      // Text is the closest v0 vocabulary type. Runtime resolution narrows
+      // each entry to the built-in `ListItem` structure.
+      items: { type: 'array<text>', required: true },
+    },
+    params: {
+      style: { type: 'string', default: 'disc' },
+      start: { type: 'number', default: 1 },
+    },
+  },
+  ListItem: {
+    produces: 'text',
+    slots: {
+      content: { type: 'text', required: true },
+      children: { type: 'text', required: false },
     },
   },
   Deck: {
