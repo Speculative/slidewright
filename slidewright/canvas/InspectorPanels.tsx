@@ -33,6 +33,8 @@ import {
   type SlideAstData,
 } from '../runtime/loader.js';
 import type { Component, SlotFill, Value } from '../runtime/ast.js';
+import { emit } from '../runtime/emitter.js';
+import { parse } from '../runtime/parser.js';
 import type {
   ComponentMeta,
   ComponentRegistry,
@@ -610,6 +612,10 @@ function ComponentPropertiesView({
               key={`missing-${shape.slideIdx}-${shape.childIdx}-${row.name}`}
               name={row.name}
               slotType={row.slotType}
+              defaultValue={row.defaultValue}
+              owner={row.owner}
+              source={source}
+              onCommit={wrappedCommit}
             />
           ),
         )}
@@ -628,7 +634,13 @@ function ComponentPropertiesView({
 // React keys unique across merged sources.
 type PropertyRowDescriptor =
   | { kind: 'filled'; fill: SlotFill; owner: Component }
-  | { kind: 'missing'; name: string; slotType: SlotType; owner: Component };
+  | {
+      kind: 'missing';
+      name: string;
+      slotType: SlotType;
+      defaultValue?: unknown;
+      owner: Component;
+    };
 
 function buildPropertyRowDescriptors(
   comp: Component,
@@ -651,7 +663,13 @@ function buildPropertyRowDescriptors(
   }
   for (const [name, schema] of Object.entries(meta.params ?? {})) {
     if (!filled.has(name)) {
-      rows.push({ kind: 'missing', name, slotType: schema.type, owner: comp });
+      rows.push({
+        kind: 'missing',
+        name,
+        slotType: schema.type,
+        defaultValue: schema.default,
+        owner: comp,
+      });
     }
   }
   return rows;
@@ -667,21 +685,145 @@ function rowBelongsTo(
 function MissingPropertyRow({
   name,
   slotType,
+  defaultValue,
+  owner,
+  source,
+  onCommit,
 }: {
   name: string;
   slotType: SlotType;
+  defaultValue?: unknown;
+  owner: Component;
+  source: string;
+  onCommit: (newSource: string) => void;
 }): ReactElement {
+  const editable =
+    !slotType.startsWith('array<') &&
+    !['block', 'slide'].includes(slotType);
+  const initial = missingValueSource(slotType, defaultValue);
+  const [draft, setDraft] = useState(initial);
+  const canceledRef = useRef(false);
+  const commit = (): void => {
+    if (canceledRef.current) {
+      canceledRef.current = false;
+      return;
+    }
+    if (!editable || draft.length === 0) return;
+    // Parse the candidate value through the real grammar, then graft that
+    // AST node into the real component and canonical-emit the whole deck.
+    // This rejects malformed inspector text without ever creating a second
+    // value parser or storing presentation-only state.
+    const probe = parse(`Probe { value: ${draft} }`, '<inspector-value>');
+    const probeFill = probe.ast.items[0]?.fills[0];
+    if (
+      !probeFill ||
+      probe.diagnostics.some((d) => d.severity === 'error') ||
+      !valueMatchesSlotType(probeFill.value, slotType)
+    ) {
+      setDraft(initial);
+      return;
+    }
+    const parsed = parse(source, '<inspector-materialize>');
+    if (parsed.diagnostics.some((d) => d.severity === 'error')) return;
+    const target = findComponentByExactSpan(parsed.ast.items, owner);
+    if (!target || target.fills.some((fill) => fill.name === name)) return;
+    target.fills.push({ ...probeFill, name });
+    onCommit(emit(parsed.ast));
+  };
   return (
     <div className="sw-property-row sw-property-row-missing">
       <span className="sw-property-key">{name}</span>
-      <span className="sw-property-value sw-property-value-readonly sw-property-value-missing">
-        (empty)
-      </span>
+      {editable ? (
+        <input
+          className="sw-property-value sw-property-value-missing"
+          value={draft}
+          spellCheck={false}
+          aria-label={`${name} (default)`}
+          onChange={(event) => setDraft(event.currentTarget.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              event.currentTarget.blur();
+            } else if (event.key === 'Escape') {
+              event.preventDefault();
+              canceledRef.current = true;
+              setDraft(initial);
+              event.currentTarget.blur();
+            }
+          }}
+        />
+      ) : (
+        <span className="sw-property-value sw-property-value-readonly sw-property-value-missing">
+          (empty)
+        </span>
+      )}
       <span className="sw-property-row-type" title={`slot type: ${slotType}`}>
         {slotType}
       </span>
     </div>
   );
+}
+
+function valueMatchesSlotType(value: Value, type: SlotType): boolean {
+  if (type === 'number') return value.kind === 'number';
+  if (type === 'boolean') return value.kind === 'boolean';
+  if (type === 'text') {
+    return (
+      value.kind === 'string' ||
+      value.kind === 'list' ||
+      value.kind === 'name_ref'
+    );
+  }
+  if (type === 'string' || type === 'image') {
+    return value.kind === 'string' || value.kind === 'name_ref';
+  }
+  if (type === 'color-token') {
+    return (
+      value.kind === 'string' ||
+      value.kind === 'name_ref' ||
+      value.kind === 'color_oklch'
+    );
+  }
+  if (type === 'font-token' || type === 'spacing-token') {
+    return value.kind === 'string' || value.kind === 'name_ref';
+  }
+  return false;
+}
+
+function missingValueSource(type: SlotType, value: unknown): string {
+  if (type === 'number') return String(typeof value === 'number' ? value : 0);
+  if (type === 'boolean') {
+    return String(typeof value === 'boolean' ? value : false);
+  }
+  if (type.startsWith('array<')) return '[]';
+  if (type === 'block' || type === 'slide') return '';
+  return JSON.stringify(typeof value === 'string' ? value : '');
+}
+
+function findComponentByExactSpan(
+  roots: readonly Component[],
+  needle: Component,
+): Component | null {
+  let found: Component | null = null;
+  const visitValue = (value: Value): void => {
+    if (found) return;
+    if (value.kind === 'component') visit(value);
+    else if (value.kind === 'list') value.items.forEach(visitValue);
+  };
+  const visit = (comp: Component): void => {
+    if (
+      comp.span.start.offset === needle.span.start.offset &&
+      comp.span.end.offset === needle.span.end.offset
+    ) {
+      found = comp;
+      return;
+    }
+    comp.fills.forEach((fill) => visitValue(fill.value));
+    comp.implicitChildren.forEach(visit);
+  };
+  roots.forEach(visit);
+  return found;
 }
 
 // Returns the slot type of a fill — looking in both `slots` and
@@ -925,6 +1067,10 @@ function SlidePropertiesView({
               key={`missing-${rowKeyPrefix(row)}-${row.name}`}
               name={row.name}
               slotType={row.slotType}
+              defaultValue={row.defaultValue}
+              owner={row.owner}
+              source={source}
+              onCommit={wrappedCommit}
             />
           ),
         )}
@@ -1471,9 +1617,17 @@ function PropertyRow({
                     key={`${itemRange.start}-${itemRange.end}-${i}`}
                     className="sw-property-list-item"
                   >
-                    <span className="sw-property-list-item-name">
-                      {itemLabel}
-                    </span>
+                    {item.kind !== 'component' && isEditableValue(item) ? (
+                      <ListItemEditor
+                        item={item}
+                        source={source}
+                        onCommit={onCommit}
+                      />
+                    ) : (
+                      <span className="sw-property-list-item-name">
+                        {itemLabel}
+                      </span>
+                    )}
                     {item.kind === 'component' ? (
                       <button
                         type="button"
@@ -1542,6 +1696,61 @@ function PropertyRow({
         </button>
       ) : null}
     </div>
+  );
+}
+
+function ListItemEditor({
+  item,
+  source,
+  onCommit,
+}: {
+  item: Value;
+  source: string;
+  onCommit: (newSource: string) => void;
+}): ReactElement {
+  const sourceText = readValueSource(item, source);
+  const [draft, setDraft] = useState(sourceText);
+  const canceledRef = useRef(false);
+  useEffect(() => setDraft(sourceText), [sourceText]);
+  const commit = (): void => {
+    if (canceledRef.current) {
+      canceledRef.current = false;
+      return;
+    }
+    if (draft === sourceText) return;
+    const probe = parse(`Probe { value: ${draft} }`, '<list-item-value>');
+    const candidate = probe.ast.items[0]?.fills[0]?.value;
+    if (
+      !candidate ||
+      probe.diagnostics.some((d) => d.severity === 'error') ||
+      candidate.kind !== item.kind
+    ) {
+      setDraft(sourceText);
+      return;
+    }
+    onCommit(
+      sliceReplace(source, item.span.start.offset, item.span.end.offset, draft),
+    );
+  };
+  return (
+    <input
+      className="sw-property-list-item-name sw-property-list-item-input"
+      value={draft}
+      spellCheck={false}
+      onChange={(event) => setDraft(event.currentTarget.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          event.currentTarget.blur();
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          canceledRef.current = true;
+          setDraft(sourceText);
+          event.currentTarget.blur();
+        }
+      }}
+    />
   );
 }
 

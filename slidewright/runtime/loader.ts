@@ -755,14 +755,33 @@ function renderSpanAsNode(comp: Component, ctx: LoadCtx): ReactNode {
   const content = fills.get('content');
   const color = readColorValue(fills.get('color'), ctx);
   const font = readNameOrString(fills.get('font'), ctx);
+  const size = readNumber(fills.get('size'), ctx);
   const weight = readNameOrString(fills.get('weight'), ctx);
+  const letterSpacing = readNumber(fills.get('letterSpacing'), ctx);
   const italic = readBoolean(fills.get('italic'), ctx);
   const inner = content ? resolveTextValue(content.value, ctx) : null;
   const style: Record<string, string> = {};
   if (color) style.color = color;
   if (font) style.fontFamily = `var(--font-${font})`;
+  if (size !== null) style.fontSize = `${size}px`;
   if (weight) style.fontWeight = weight;
+  if (letterSpacing !== null) style.letterSpacing = `${letterSpacing}px`;
   if (italic) style.fontStyle = 'italic';
+  // Span is a built-in rather than a registry component, but it is
+  // still a first-class, source-backed text run. Register it as a
+  // lightweight layout selection so mixed styles can be selected on
+  // canvas and edited through the same inspector as normal components.
+  if (ctx.currentSlideIdx >= 0) {
+    const key = `${comp.span.start.offset}-${comp.span.end.offset}`;
+    ctx.shapes.set(key, {
+      comp,
+      canvas: { kind: 'layout' },
+      meta: BUILTIN_META.Span!,
+      params: { color, font, size, weight, letterSpacing, italic },
+      slideIdx: ctx.currentSlideIdx,
+      childIdx: -1,
+    });
+  }
   return createElement(
     'span',
     {

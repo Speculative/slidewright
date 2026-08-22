@@ -247,7 +247,9 @@ export const BUILTIN_META: Record<string, ComponentMeta> = {
     params: {
       color: { type: 'color-token' },
       font: { type: 'font-token' },
+      size: { type: 'number' },
       weight: { type: 'string' },
+      letterSpacing: { type: 'number' },
       italic: { type: 'boolean' },
     },
   },

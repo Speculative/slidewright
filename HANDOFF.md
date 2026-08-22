@@ -145,6 +145,26 @@ v0.4 has been delivered in successive cuts:
 - **`slotsState` API + custom omit treatments (landed).** `ComponentRenderProps` gains `slotsState: Record<string, SlotState>` where `SlotState = 'filled' | 'missing' | 'omit'`. Loader populates it during the same iteration that builds `slots` and forwards through `WrapShapeInput` (default wrap + canvas-side `ShapeProjection` both forward to the React render). Components opt in by reading specific names — ignoring it keeps the existing behavior. First consumer: `ContentSlide` reads `slotsState.eyebrow / .intro / .body` and drops the wrapper div when state is `'omit'` (so omit'd slots collapse the layout) while keeping the wrapper when state is `'missing'` (so the loader's placeholder has somewhere to render). `ContentSlide` gains `canvas: { kind: 'layout' }` to be selectable + inspectable; selection-layer suppresses the canvas outline for any component whose `meta.produces === 'slide'` (option 1 from the slide / slide-content design discussion; option 2 — folding slide-content rows into the Slide row entirely — is the long-term direction, see Deferred features).
 - **Wider cut (deferred).** Click-empty-slot-then-pick insertion remains. The registry-driven component toolbar and drag-from-toolbar slot/array insertion are landed above.
 
+### Slide-grade text editing (landed)
+
+`TextBox` now exposes source-backed `font`, `fontSize`, `fontWeight`,
+`lineHeight`, `letterSpacing`, `align`, `wrap`, `shrinkToFit`, and `color`
+params. Its optional `bullets: array<text>` slot renders semantic list items;
+each item can be a string or a mixed run such as `["plain", Span { ... }]`.
+The existing `content: text` slot continues to accept plain strings and mixed
+runs. Canvas double-click edits every string literal in place and commits
+through the normal AST round trip.
+
+Built-in `Span` runs are now registered as lightweight layout selections, so
+they appear in the hierarchy and their `color`, `font`, `size`, `weight`,
+`letterSpacing`, and `italic` fields are inspector-editable. The inspector can
+also edit primitive items inside list-valued properties and materialize
+previously-missing scalar params by parsing the candidate with the real DSL
+parser and canonical-emitting the deck. `shrinkToFit` derives a rendered font
+size with DOM measurement while retaining the requested `fontSize` unchanged
+in source; disabling it restores the authored size. Coverage lives in
+`tests/text-editing.spec.ts` and `tests/fixtures/slide-grade-text.sw`.
+
 ### Color palette + picker (landed)
 
 Inspector replaces the free-text input for `color-token`-typed rows with a swatch palette + OKLCH picker hosted in a portaled popover.

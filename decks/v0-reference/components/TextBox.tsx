@@ -11,7 +11,15 @@
 // a "Text" placeholder so the editable span has visible content
 // for the user to double-click.
 
-import type { ReactNode } from 'react';
+import {
+  Children,
+  cloneElement,
+  isValidElement,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import {
   acceptsTargetSlot,
   type ComponentMeta,
@@ -29,13 +37,21 @@ export const slidewright: ComponentMeta = {
   produces: 'block',
   slots: {
     content: { type: 'text', required: false },
+    bullets: { type: 'array<text>', required: false },
   },
   params: {
     x: { type: 'number', default: 0 },
     y: { type: 'number', default: 0 },
     width: { type: 'number', default: 320 },
     height: { type: 'number', default: 120 },
+    font: { type: 'font-token', default: 'body' },
     fontSize: { type: 'number', default: 32 },
+    fontWeight: { type: 'string', default: '400' },
+    lineHeight: { type: 'number', default: 1.25 },
+    letterSpacing: { type: 'number', default: 0 },
+    align: { type: 'string', default: 'left' },
+    wrap: { type: 'boolean', default: true },
+    shrinkToFit: { type: 'boolean', default: false },
     color: { type: 'color-token', default: 'fg' },
   },
   protocols: {},
@@ -56,20 +72,76 @@ export const slidewright: ComponentMeta = {
         slotFill('y', numberLit(Math.round(y))),
         slotFill('width', numberLit(Math.round(width))),
         slotFill('height', numberLit(Math.round(height))),
+        slotFill('font', stringLit('body')),
+        slotFill('fontSize', numberLit(32)),
+        slotFill('fontWeight', stringLit('400')),
+        slotFill('lineHeight', numberLit(1.25)),
+        slotFill('letterSpacing', numberLit(0)),
+        slotFill('align', stringLit('left')),
         slotFill('content', stringLit('Text')),
       ]);
     },
   },
 };
 
-export default function TextBox({ slots, params }: ComponentRenderProps) {
+export default function TextBox({ slots, params, slotsState }: ComponentRenderProps) {
   const x = (params.x as number | undefined) ?? 0;
   const y = (params.y as number | undefined) ?? 0;
   const width = (params.width as number | undefined) ?? 320;
   const height = (params.height as number | undefined) ?? 120;
-  const fontSize = (params.fontSize as number | undefined) ?? 32;
+  const requestedFontSize = (params.fontSize as number | undefined) ?? 32;
+  const font = (params.font as string | undefined) ?? 'body';
+  const fontWeight = (params.fontWeight as string | undefined) ?? '400';
+  const lineHeight = (params.lineHeight as number | undefined) ?? 1.25;
+  const letterSpacing = (params.letterSpacing as number | undefined) ?? 0;
+  const align = (params.align as string | undefined) ?? 'left';
+  const wrap = (params.wrap as boolean | undefined) ?? true;
+  const shrinkToFit = (params.shrinkToFit as boolean | undefined) ?? false;
   const color = (params.color as string | undefined) ?? 'var(--fg)';
   const content = slots.content as ReactNode | undefined;
+  const bullets = slotsState.bullets === 'filled'
+    ? slots.bullets as ReactNode
+    : undefined;
+  const innerRef = useRef<HTMLDivElement | null>(null);
+  const [fontSize, setFontSize] = useState(requestedFontSize);
+
+  // Fit is deliberately derived from the rendered DOM: it handles mixed
+  // runs, browser font metrics, wrapping, and bullets uniformly. The AST
+  // keeps the requested size; fitting is a non-destructive presentation
+  // policy, so turning it off restores that exact source value.
+  useLayoutEffect(() => {
+    const inner = innerRef.current;
+    if (!inner || !shrinkToFit) {
+      setFontSize(requestedFontSize);
+      return;
+    }
+    const fit = (): void => {
+      let candidate = requestedFontSize;
+      inner.style.fontSize = `${candidate}px`;
+      while (
+        candidate > 8 &&
+        (inner.scrollHeight > inner.clientHeight + 0.5 ||
+          inner.scrollWidth > inner.clientWidth + 0.5)
+      ) {
+        candidate -= 0.5;
+        inner.style.fontSize = `${candidate}px`;
+      }
+      setFontSize(candidate);
+    };
+    fit();
+    const resize = new ResizeObserver(fit);
+    resize.observe(inner);
+    const mutations = new MutationObserver(fit);
+    mutations.observe(inner, { childList: true, characterData: true, subtree: true });
+    return () => {
+      resize.disconnect();
+      mutations.disconnect();
+    };
+  }, [requestedFontSize, shrinkToFit, width, height, wrap]);
+
+  const fontFamily = ['body', 'display', 'mono'].includes(font)
+    ? `var(--font-${font})`
+    : font;
   return (
     <div
       style={{
@@ -78,18 +150,55 @@ export default function TextBox({ slots, params }: ComponentRenderProps) {
         top: `${y}px`,
         width: `${width}px`,
         height: `${height}px`,
-        padding: '8px',
         boxSizing: 'border-box',
-        fontSize: `${fontSize}px`,
-        lineHeight: 1.25,
         color: color,
-        fontFamily: 'var(--font-body)',
         overflow: 'hidden',
       }}
     >
-      {content}
+      <div
+        ref={innerRef}
+        data-sw-textbox-content="true"
+        style={{
+          width: '100%',
+          height: '100%',
+          padding: '8px',
+          boxSizing: 'border-box',
+          overflow: 'hidden',
+          fontFamily,
+          fontSize: `${fontSize}px`,
+          fontWeight,
+          lineHeight,
+          letterSpacing: `${letterSpacing}px`,
+          textAlign: align as 'left' | 'center' | 'right' | 'justify',
+          whiteSpace: wrap ? 'pre-wrap' : 'pre',
+          overflowWrap: wrap ? 'break-word' : 'normal',
+        }}
+      >
+        {content}
+        {bullets ? (
+          <ul style={{ margin: 0, paddingInlineStart: '1.35em' }}>
+            {renderBullets(bullets)}
+          </ul>
+        ) : null}
+      </div>
     </div>
   );
+}
+
+function renderBullets(slotNode: ReactNode): ReactNode {
+  // Renderable array slots arrive inside the loader's source-bearing
+  // wrapper. Clone that wrapper so its selection attrs survive, while
+  // turning each resolved text item into a semantic list item.
+  if (isValidElement<{ children?: ReactNode }>(slotNode)) {
+    return cloneElement(
+      slotNode,
+      undefined,
+      Children.map(slotNode.props.children, (item, index) => (
+        <li key={index}>{item}</li>
+      )),
+    );
+  }
+  return <li>{slotNode}</li>;
 }
 
 export const canvas = makeRectAdapter({ width: 320, height: 120 });

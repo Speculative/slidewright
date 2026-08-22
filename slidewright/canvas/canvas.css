@@ -951,6 +951,18 @@ input.sw-property-value:disabled {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.sw-property-list-item-input {
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  padding: 2px 3px;
+}
+.sw-property-list-item-input:focus {
+  border-color: #0f766e;
+  background: #fff;
+  outline: none;
+}
 .sw-property-list-remove {
   display: inline-flex;
   align-items: center;
