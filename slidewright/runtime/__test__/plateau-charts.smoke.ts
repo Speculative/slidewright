@@ -1,3 +1,4 @@
+import { STEPS, executionFrames } from '../../../decks/plateau-2026/components/debugger-stages.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
@@ -25,3 +26,14 @@ assert.match(html, /data-chart-cursor/);
 assert.match(html, /data-chart-shipping/);
 assert.equal(emit(parse(emit(parse(source, 'charts.sw').ast), 'charts.sw').ast), emit(parse(source, 'charts.sw').ast));
 console.log('OK   PLATEAU trace fidelity, chart modes, SSR, and source round-trip');
+
+assert.equal(STEPS.length, 22);
+assert.equal(STEPS[21]!.phase, 'autopsy');
+assert.equal(executionFrames(11).at(-1)!.iteration, 1);
+assert.equal(executionFrames(12).at(-1)!.iteration, 7);
+for (const step of [15, 16, 18, 19]) {
+  const last = executionFrames(step).at(-1)!;
+  assert.deepEqual(last.terminal, STEPS[step]!.printTerminalLines);
+  assert.equal(last.row1, STEPS[step]!.printDotsVisibleRow1);
+  assert.equal(last.row2, STEPS[step]!.printDotsVisibleRow2);
+}

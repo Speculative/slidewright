@@ -21,6 +21,7 @@ import * as Freeform from './components/Freeform.js';
 import * as Box from './components/Box.js';
 import * as TextBox from './components/TextBox.js';
 import * as Arrow from './components/Arrow.js';
+import * as DebuggerDemo from '../plateau-2026/components/DebuggerDemo.js';
 import * as StateTimeChart from '../plateau-2026/components/StateTimeChart.js';
 import * as Image from './components/Image.js';
 import * as Video from './components/Video.js';
@@ -42,6 +43,7 @@ export const components = buildRegistry({
   InlineBadge,
   InlineFormula,
   StateTimeChart,
+  DebuggerDemo,
 });
 
 // Color/font token names that the .sw uses as bare lower-cased
