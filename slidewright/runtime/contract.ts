@@ -68,7 +68,29 @@ export interface ComponentMeta {
   // insertable from the toolbar. See InsertionContext below for
   // the call shape.
   insertion?: ComponentInsertion;
+
+  // Inline editing ownership is independent of rendering and inspector
+  // presentation. Omitted contracts are atomic in the outer text editor.
+  inlineEditing?: InlineEditing;
 }
+
+export type InlineEditing =
+  | { mode: 'leaf' }
+  | { mode: 'transparent'; contentSlot: string }
+  | { mode: 'owned'; mount?: OwnedInlineEditorMount };
+
+export interface OwnedInlineEditorContext {
+  component: AstComponent;
+  // Replace this occurrence through the element's explicit write-back
+  // contract. The outer editor never guesses from its displayed text.
+  onChange(component: AstComponent): void;
+  exit(direction: -1 | 1): void;
+}
+
+export type OwnedInlineEditorMount = (
+  container: HTMLElement,
+  context: OwnedInlineEditorContext,
+) => { destroy(): void; update?(component: AstComponent): void };
 
 // What the editor passes when invoking `insertion.stub`. The stub
 // either returns a fresh `Component` AST node ready to splice into

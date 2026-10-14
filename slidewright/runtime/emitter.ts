@@ -142,8 +142,14 @@ function emitValueInline(value: Value, level: number): string {
 function emitListInline(list: ListLit, level: number): string {
   if (list.items.length === 0) return '[]';
   const lines: string[] = ['['];
-  for (const item of list.items) {
-    lines.push(`${indent(level + 1)}${emitValueInline(item, level + 1)}`);
+  for (let index = 0; index < list.items.length; index++) {
+    const item = list.items[index]!;
+    const next = list.items[index + 1];
+    // A comma preserves distinct authored simple-string entries. Without
+    // it the parser's adjacency rule concatenates them after emission.
+    const separator = item.kind === 'string' && !item.multiline && next?.kind === 'string' && !next.multiline ? ',' : '';
+    const leading = item.kind === 'component' ? emitLeadingComments(item.leadingComments, level + 1) : '';
+    lines.push(`${leading}${indent(level + 1)}${emitValueInline(item, level + 1)}${separator}`);
   }
   lines.push(`${indent(level)}]`);
   return lines.join('\n');
