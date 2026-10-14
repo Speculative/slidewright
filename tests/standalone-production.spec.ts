@@ -15,6 +15,12 @@ test('production canvas loads all packaged PLATEAU media and saves a reloadable 
       expect(await video.getAttribute('src')).toContain('/assets/');
     }
   }
+  const fonts = await page.evaluate(async () => {
+    await document.fonts.ready;
+    return [...document.fonts].filter(face => face.family.includes('Plateau')).map(face => face.status);
+  });
+  expect(fonts.every(status => status === 'loaded')).toBe(true);
+  expect(fonts).toHaveLength(3);
   expect(failures).toEqual([]);
   await page.getByRole('button', { name: 'Save draft', exact: true }).click();
   await page.reload();

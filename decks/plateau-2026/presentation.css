@@ -1,0 +1,27 @@
+/* Use deck-specific names so loading this talk cannot change host typography. */
+@font-face {
+  font-family: 'Plateau Lato';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('@fontsource/lato/files/lato-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Plateau Lato';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('@fontsource/lato/files/lato-latin-700-normal.woff2') format('woff2');
+}
+/* The original imports the regular face and synthesizes bold code text. */
+@font-face {
+  font-family: 'Plateau Monaspace Neon';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('@fontsource/monaspace-neon/files/monaspace-neon-latin-400-normal.woff2') format('woff2');
+}
+[data-sw-plateau-slide] {
+  --font-body: 'Plateau Lato', sans-serif;
+  --font-mono: 'Plateau Monaspace Neon', monospace;
+}

@@ -12,6 +12,7 @@ import type { ReactElement } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import './styles.css';
+import '../decks/plateau-2026/presentation.css';
 import '../slidewright/canvas/canvas.css';
 
 import { App } from '../slidewright/canvas/App.js';

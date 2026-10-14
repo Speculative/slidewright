@@ -18,7 +18,10 @@ source. Video playback uses explicit Play/Pause/Restart controls.
 `PlateauSlide` supplies a full-slide positioning context independent of host
 chrome. `registry.ts` shares the current host component catalog. Named asset
 references resolve to files in `assets/` through the standalone host, including
-hashed Vite URLs in built output. `migration.json` records the original source
+hashed Vite URLs in built output. The browser hosts bundle the original Lato
+and Monaspace Neon fonts through `presentation.css`, scoped to PLATEAU slides
+so host/reference typography is preserved. Box border width/color and corner
+radius are source-backed; decorative title highlights have no border. `migration.json` records the original source
 hash and normalized speaker-note hashes for preservation checks.
 
 Use the Deck picker to switch between PLATEAU and the reference deck. Committed

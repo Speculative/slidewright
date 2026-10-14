@@ -18,6 +18,7 @@
 // regressions on the full loader→render path — without a browser.
 // Specific layout / CSS / pointer behavior belongs in Playwright.
 
+import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -185,4 +186,14 @@ if (failures > 0) {
   console.log(`\n${failures} failing assertion(s).`);
   process.exit(1);
 }
+
+
+// Decorative rectangles can opt out of the reference deck's border without
+// changing its existing default appearance.
+const defaultBox = renderToStaticMarkup(createElement(Box.default, { slots: {}, slotsState: {}, params: {} }));
+assert.match(defaultBox, /border:4px solid var\(--fg, #000\)/);
+const decorativeBox = renderToStaticMarkup(createElement(Box.default, { slots: {}, slotsState: {}, params: { borderWidth: 0, borderColor: '#bfdbfe', radius: 18 } }));
+assert.match(decorativeBox, /border:0px solid #bfdbfe/);
+assert.match(decorativeBox, /border-radius:18px/);
+
 console.log('\nall ssr assertions passed.');

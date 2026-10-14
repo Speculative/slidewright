@@ -40,6 +40,8 @@ const targets = [
       target: 'es2022',
       format: 'iife',
       jsx: 'automatic',
+      loader: { '.woff2': 'file' },
+      assetNames: 'fonts/[name]-[hash]',
       outfile: resolve(here, 'dist/webview.js'),
       sourcemap: true,
       logLevel: 'info',

@@ -31,6 +31,9 @@ export const slidewright: ComponentMeta = {
     width: { type: 'number', default: 200 },
     height: { type: 'number', default: 200 },
     fill: { type: 'color-token', default: 'accent' },
+    borderWidth: { type: 'number', default: 4 },
+    borderColor: { type: 'color-token', default: 'fg' },
+    radius: { type: 'number', default: 0 },
   },
   protocols: {},
   category: 'Shapes',
@@ -75,7 +78,8 @@ export default function Box({ params }: ComponentRenderProps) {
         width: `${width}px`,
         height: `${height}px`,
         background: fill,
-        border: '4px solid var(--fg, #000)',
+        border: `${Math.max(0, Number(params.borderWidth ?? 4))}px solid ${params.borderColor ?? 'var(--fg, #000)'}`,
+        borderRadius: Math.max(0, Number(params.radius ?? 0)),
         boxSizing: 'border-box',
       }}
     />

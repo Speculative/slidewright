@@ -33,6 +33,8 @@
   },
   "dependencies": {
     "@codemirror/language": "^6.12.4",
+    "@fontsource/lato": "^5.2.7",
+    "@fontsource/monaspace-neon": "^5.2.5",
     "@lezer/highlight": "^1.2.1",
     "codemirror": "^6.0.2",
     "prism-react-renderer": "^2.4.1",

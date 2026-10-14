@@ -38,6 +38,7 @@ Deck {
               width: 580
               height: 149
               fill: "#0000FF"
+              borderWidth: 0
             }
             TextBox {
               x: 140
@@ -72,7 +73,12 @@ Deck {
               content: [
                 Paragraph {
                   content: [
-                    "Jeffrey Tao, Xiaorui Liu, Ryan Marcus, Andrew Head"
+                    Span {
+                      content: "Jeffrey Tao"
+                      color: "#0000FF"
+                      weight: "700"
+                    }
+                    ", Xiaorui Liu, Ryan Marcus, Andrew Head"
                   ]
                 }
               ]
@@ -406,6 +412,9 @@ Deck {
               width: 790
               height: 440
               fill: "#fffbeb"
+              borderWidth: 3
+              borderColor: "#fde68a"
+              radius: 18
             }
             Box {
               x: 1010
@@ -413,6 +422,9 @@ Deck {
               width: 790
               height: 440
               fill: "#eff6ff"
+              borderWidth: 3
+              borderColor: "#bfdbfe"
+              radius: 18
             }
             TextBox {
               x: 150
@@ -608,6 +620,7 @@ Deck {
               width: 550
               height: 120
               fill: "#0000FF"
+              borderWidth: 0
             }
             TextBox {
               x: 135
@@ -634,6 +647,9 @@ Deck {
               width: 1680
               height: 410
               fill: "#f9fafb"
+              borderWidth: 1.5
+              borderColor: "#e5e7eb"
+              radius: 18
             }
             TextBox {
               x: 155

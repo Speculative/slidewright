@@ -82,3 +82,30 @@ test('title text fits its authored frames and the blue background contains the w
   await page.locator('.sw-tool-palette').evaluate(node => { (node as HTMLElement).style.visibility = 'hidden'; });
   await stage.screenshot({ path: test.info().outputPath('title-fitted.png') });
 });
+
+test('PLATEAU fonts load locally and panel borders match the original talk', async ({ page }) => {
+  await page.route('https://fonts.googleapis.com/**', route => route.abort());
+  await page.route('https://fonts.gstatic.com/**', route => route.abort());
+  await page.goto('/canvas.html?deck=plateau');
+  await expect(page.locator('.sw-canvas-stage [data-sw-plateau-slide]')).toBeVisible();
+  const fonts = await page.evaluate(async () => {
+    await document.fonts.ready;
+    return [...document.fonts].filter(face => face.family.includes('Plateau')).map(face => ({ family: face.family, status: face.status }));
+  });
+  expect(fonts).toHaveLength(3);
+  expect(fonts.every(face => face.status === 'loaded')).toBe(true);
+  const author = page.locator('.sw-canvas-stage').getByText('Jeffrey Tao', { exact: true });
+  await expect(author).toHaveCSS('color', 'rgb(0, 0, 255)');
+  await expect(author).toHaveCSS('font-weight', '700');
+  const mono = page.locator('.sw-canvas-stage [data-sw-textbox-content]').nth(1);
+  await expect(mono).toHaveCSS('font-family', '"Plateau Monaspace Neon", monospace');
+  await expect(page.locator('.sw-canvas-stage [data-sw-component="Box"] > div')).toHaveCSS('border-top-width', '0px');
+  await page.getByRole('option', { name: 'Slide 5', exact: true }).click();
+  const panels = page.locator('.sw-canvas-stage [data-sw-component="Box"] > div');
+  await expect(panels.first()).toHaveCSS('border-top-color', 'rgb(253, 230, 138)');
+  await expect(panels.last()).toHaveCSS('border-top-color', 'rgb(191, 219, 254)');
+  await expect(panels.first()).toHaveCSS('border-radius', '18px');
+  // The aliases do not redefine the host's font tokens.
+  await page.getByLabel('Deck', { exact: true }).selectOption('reference');
+  expect(await page.locator('.sw-canvas-stage .presentation-canvas').evaluate(node => getComputedStyle(node).getPropertyValue('--font-mono'))).not.toContain('Plateau');
+});
