@@ -14,7 +14,7 @@ export function FormattingToolbar({ session, state }: { session: RefObject<TextS
   const [paragraphField, setParagraphField] = useState<ParagraphField>('align');
   const [paragraphValue, setParagraphValue] = useState('');
   const describe = (value: FormattingValue | undefined) => value?.mixed ? 'Mixed' : !value || value.value === null ? 'Inherited' : String(value.value);
-  function pressed(field: 'weight' | 'italic' | 'underline'): boolean | 'mixed' {
+  function pressed(field: 'weight' | 'italic' | 'underline' | 'strikethrough'): boolean | 'mixed' {
     const current = state?.inline[field];
     return current?.mixed ? 'mixed' : field === 'weight' ? String(current?.value) === '700' : current?.value === true;
   }
@@ -37,9 +37,9 @@ export function FormattingToolbar({ session, state }: { session: RefObject<TextS
     }}>
     <span aria-label="Formatting target">{state?.caret ? 'Typing at caret' : 'Selected range'}</span>
     <div className="sw-text-formatting-buttons">
-      {(['weight', 'italic', 'underline'] as const).map((name, index) => <button key={name} type="button"
+      {(['weight', 'italic', 'underline', 'strikethrough'] as const).map((name, index) => <button key={name} type="button"
         aria-pressed={pressed(name)} onPointerDown={event => event.preventDefault()} onClick={() => session.current?.toggle(name)}>
-        {['Bold', 'Italic', 'Underline'][index]}
+        {['Bold', 'Italic', 'Underline', 'Strikethrough'][index]}
       </button>)}
       <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => session.current?.clearFormatting()}>Clear formatting</button>
     </div>

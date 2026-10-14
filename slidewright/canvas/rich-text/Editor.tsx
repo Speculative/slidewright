@@ -33,7 +33,7 @@ export interface TextSessionHandle {
   finish(intent: 'commit' | 'cancel'): void;
   range(): TextRange | null;
   format(field: TextStyleField, value: string | number | boolean | null): void;
-  toggle(field: 'weight' | 'italic' | 'underline'): void;
+  toggle(field: 'weight' | 'italic' | 'underline' | 'strikethrough'): void;
   clearFormatting(): void;
   list(style: ListStyle, start: number): boolean;
   listDepth(direction: -1 | 1): boolean;
@@ -190,7 +190,7 @@ export function RichTextEditor({ snapshot, registry, onReady, onFinish, onFormat
         paragraph(field, value) { if (!closed) setParagraphStyle(field, value)(view.state, tr => view.dispatch(tr)); },
         toggle(field) {
           if (closed) return;
-          keys[field === 'weight' ? 'Mod-b' : field === 'italic' ? 'Mod-i' : 'Mod-u']!(view.state, tr => view.dispatch(closeHistory(tr)), view);
+          keys[field === 'weight' ? 'Mod-b' : field === 'italic' ? 'Mod-i' : field === 'underline' ? 'Mod-u' : 'Mod-Shift-x']!(view.state, tr => view.dispatch(closeHistory(tr)), view);
           view.focus();
         },
         clearFormatting() { if (closed) return; clearTextStyles(view.state, tr => view.dispatch(tr)); view.focus(); },

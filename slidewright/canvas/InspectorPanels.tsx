@@ -439,6 +439,11 @@ export function PropertiesPanel({
       </PanelFrame>
     );
   }
+  const selectedSlot = slotInfo ?? emptySlotInfo;
+  if (selectedSlot?.parentShape.meta.editor && !selectedSlot.parentShape.meta.editor.inspector.includes(selectedSlot.slotName)) {
+    return <ComponentPropertiesView shape={selectedSlot.parentShape} source={source} onCommit={onCommit}
+      scrubProps={scrubProps} paletteProps={paletteProps} onSelectComponent={onSelectComponent} onRemoveListItem={onRemoveListItem} />;
+  }
   if (slotInfo) {
     return (
       <SlotPropertiesView
@@ -672,7 +677,7 @@ function buildPropertyRowDescriptors(
       });
     }
   }
-  return rows;
+  return meta.editor ? rows.filter(row => meta.editor!.inspector.includes(row.kind === 'filled' ? row.fill.name : row.name)) : rows;
 }
 
 function rowBelongsTo(

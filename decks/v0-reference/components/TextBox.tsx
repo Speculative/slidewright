@@ -35,6 +35,7 @@ import { TextDocumentEditorContext } from '../../../slidewright/canvas/text-docu
 
 export const slidewright: ComponentMeta = {
   produces: 'block',
+  editor: { inspector: ['x', 'y', 'width', 'height'] },
   slots: {
     content: { type: 'text-document', required: false },
   },

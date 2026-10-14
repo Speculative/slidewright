@@ -138,7 +138,7 @@ export function mergeListItems(direction: -1 | 1): Command {
 
 export function richTextKeys(schema: Schema): Record<string, Command> {
   const item = schema.nodes.list_item!;
-  const toggle = (name: 'weight' | 'italic' | 'underline', value: string | boolean): Command => (state, dispatch) => {
+  const toggle = (name: 'weight' | 'italic' | 'underline' | 'strikethrough', value: string | boolean): Command => (state, dispatch) => {
     const type = schema.marks[name]!;
     const { from, to, empty, $from } = state.selection;
     let active = type.isInSet(state.storedMarks ?? $from.marks())?.attrs.value === value;
@@ -171,5 +171,6 @@ export function richTextKeys(schema: Schema): Record<string, Command> {
     'Mod-b': toggle('weight', '700'),
     'Mod-i': toggle('italic', true),
     'Mod-u': toggle('underline', true),
+    'Mod-Shift-x': toggle('strikethrough', true),
   };
 }

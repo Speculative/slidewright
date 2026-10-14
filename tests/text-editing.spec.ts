@@ -67,30 +67,36 @@ test('a bullet is directly editable on canvas and round-trips to source', async 
   await expect.poll(() => getEditorSource(page)).toContain('"Edited bullet"');
 });
 
-test('mixed Span runs are selectable and editable in the inspector', async ({ page }) => {
+test('Span fields stay out of the inspector and ranges use dedicated controls', async ({ page }) => {
   await page.locator('.sw-hierarchy-node[data-sw-component="Span"]', { hasText: 'Span' }).first().click();
   await expect(page.locator('.sw-inspector-panel-header', { hasText: /^Span/ })).toBeVisible();
-  const size = page.locator('.sw-property-row', { hasText: /^size/ }).locator('input');
-  await size.fill('52');
-  await size.press('Enter');
+  await expect(page.locator('.sw-property-row')).toHaveCount(0);
+  await page.locator('.sw-canvas-stage').getByText('style', { exact: true }).dblclick();
+  await expect(page.getByRole('textbox', { name: 'Edit text' })).toBeVisible();
+  await selectRichText(page, 'style', 0, 'style', 5);
+  await page.getByLabel('Style value', { exact: true }).fill('52');
+  await page.getByRole('button', { name: 'Apply style', exact: true }).click();
+  await page.getByRole('button', { name: 'Strikethrough', exact: true }).click();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
   await expect.poll(() => getEditorSource(page)).toContain('size: 52');
-  await expect(page.locator('.sw-canvas-stage [data-sw-component="Span"]', { hasText: 'style' })).toHaveCSS('font-size', '52px');
+  await expect(page.locator('.sw-canvas-stage [data-sw-component="Span"]', { hasText: 'style' })).toHaveCSS('text-decoration-line', 'line-through');
 });
 
-test('missing text parameters can be materialized from the inspector', async ({ page }) => {
+test('missing box policies materialize through dedicated controls', async ({ page }) => {
   await page.locator('.sw-canvas-stage [data-sw-component="TextBox"] > div').first().click();
-  const shrink = page.locator('.sw-property-row', { hasText: /^shrinkToFit/ }).locator('input');
-  await expect(shrink).toHaveValue('false');
-  await shrink.fill('true');
-  await shrink.press('Enter');
+  await page.getByLabel('TextBox setting', { exact: true }).selectOption('shrinkToFit');
+  await page.getByLabel('TextBox setting value', { exact: true }).fill('true');
+  await page.getByRole('button', { name: 'Apply box setting', exact: true }).click();
   await expect.poll(() => getEditorSource(page)).toContain('shrinkToFit: true');
 });
 
-test('TextBox has one structured content document and no legacy list fields', async ({ page }) => {
+test('TextBox inspector exposes only geometry for filled and missing fields', async ({ page }) => {
   await page.locator('.sw-canvas-stage [data-sw-component="TextBox"] > div').first().click();
-  const content = page.locator('.sw-property-row', { hasText: /^content/ });
-  await expect(content.locator('.sw-property-list-items > li')).toHaveCount(2);
-  for (const name of ['bullets', 'listStyle', 'listStart']) {
+  await expect(page.locator('.sw-property-row')).toHaveCount(4);
+  for (const name of ['x', 'y', 'width', 'height']) {
+    await expect(page.locator('.sw-property-row', { hasText: new RegExp(`^${name}`) })).toHaveCount(1);
+  }
+  for (const name of ['content', 'font', 'color', 'wrap', 'shrinkToFit']) {
     await expect(page.locator('.sw-property-row', { hasText: new RegExp(`^${name}`) })).toHaveCount(0);
   }
 });

@@ -250,20 +250,19 @@ test('property edits enter the undo stack', async ({ page }) => {
 });
 
 test('omit toggle marks a renderable slot as intentionally empty and disables its input', async ({ page }) => {
-  // TextBox has `content` as a `text-document` slot (renderable → omit-
-  // eligible) and x/y/width/height as params (not eligible).
-  await page.goto('/canvas.html?fixture=single-textbox');
+  // ContentSlide retains generic text-slot authoring in the inspector.
+  await page.goto('/canvas.html?fixture=content-slide');
   await expect(
-    page.locator('.sw-canvas-stage [data-sw-component="TextBox"]'),
+    page.locator('.sw-canvas-stage [data-sw-component="ContentSlide"]'),
   ).toBeVisible();
-  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
-  const contentRow = page.locator('.sw-property-row', { hasText: /^content/ }).first();
+  await page.locator('.sw-hierarchy-slide-row').click();
+  const contentRow = page.locator('.sw-property-row', { hasText: /^eyebrow/ }).first();
   const toggle = contentRow.locator('.sw-property-omit-toggle');
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
   await toggle.click();
   // Source picks up the keyword.
   const src = await getEditorSource(page);
-  expect(src).toMatch(/content:\s*omit/);
+  expect(src).toMatch(/eyebrow:\s*omit/);
   // Row's input is now disabled and shows the keyword.
   const input = contentRow.locator('input.sw-property-value');
   await expect(input).toBeDisabled();
@@ -272,31 +271,31 @@ test('omit toggle marks a renderable slot as intentionally empty and disables it
 });
 
 test('omit toggle re-enables editing when flipped off', async ({ page }) => {
-  await page.goto('/canvas.html?fixture=single-textbox');
+  await page.goto('/canvas.html?fixture=content-slide');
   await expect(
-    page.locator('.sw-canvas-stage [data-sw-component="TextBox"]'),
+    page.locator('.sw-canvas-stage [data-sw-component="ContentSlide"]'),
   ).toBeVisible();
-  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
-  const contentRow = page.locator('.sw-property-row', { hasText: /^content/ }).first();
+  await page.locator('.sw-hierarchy-slide-row').click();
+  const contentRow = page.locator('.sw-property-row', { hasText: /^eyebrow/ }).first();
   const toggle = contentRow.locator('.sw-property-omit-toggle');
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   await toggle.click();
-  // Source replaces the omit keyword with an empty document.
+  // Source replaces the omit keyword with an empty string.
   const src = await getEditorSource(page);
-  expect(src).toMatch(/content:\s*\[\]/);
-  await expect(contentRow.locator('.sw-property-list-cell')).toBeVisible();
+  expect(src).toMatch(/eyebrow:\s*""/);
+  await expect(contentRow.locator('input.sw-property-value')).toBeEnabled();
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
 });
 
 test('omit toggle entries enter the undo stack', async ({ page }) => {
-  await page.goto('/canvas.html?fixture=single-textbox');
+  await page.goto('/canvas.html?fixture=content-slide');
   await expect(
-    page.locator('.sw-canvas-stage [data-sw-component="TextBox"]'),
+    page.locator('.sw-canvas-stage [data-sw-component="ContentSlide"]'),
   ).toBeVisible();
   const before = await getEditorSource(page);
-  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
-  const contentRow = page.locator('.sw-property-row', { hasText: /^content/ }).first();
+  await page.locator('.sw-hierarchy-slide-row').click();
+  const contentRow = page.locator('.sw-property-row', { hasText: /^eyebrow/ }).first();
   await contentRow.locator('.sw-property-omit-toggle').click();
   // Move focus to canvas so Cmd-Z routes to the canvas undo handler.
   await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
@@ -526,14 +525,14 @@ test('omit toggle is hidden on param and non-renderable-slot rows', async ({ pag
   await expect(page.locator('.sw-property-row')).toHaveCount(5);
   await expect(page.locator('.sw-property-omit-toggle')).toHaveCount(0);
 
-  // single-textbox: x/y/width/height are params; only content is a
+  // TextBox exposes only its geometry params; content is authored in the
   // renderable slot. So exactly one toggle should be present.
   await page.goto('/canvas.html?fixture=single-textbox');
   await expect(
     page.locator('.sw-canvas-stage [data-sw-component="TextBox"]'),
   ).toBeVisible();
   await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
-  await expect(page.locator('.sw-property-omit-toggle')).toHaveCount(1);
+  await expect(page.locator('.sw-property-omit-toggle')).toHaveCount(0);
   const xRow = page.locator('.sw-property-row', { hasText: /^x/ }).first();
   await expect(xRow.locator('.sw-property-omit-toggle')).toHaveCount(0);
 });

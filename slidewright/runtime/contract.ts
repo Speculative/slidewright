@@ -72,6 +72,8 @@ export interface ComponentMeta {
   // Inline editing ownership is independent of rendering and inspector
   // presentation. Omitted contracts are atomic in the outer text editor.
   inlineEditing?: InlineEditing;
+  // Inspector membership is presentation metadata, independent of schema.
+  editor?: { inspector: readonly string[] };
 }
 
 export type InlineEditing =
@@ -274,6 +276,7 @@ const paragraphParams: Record<string, ParamSchema> = {
 
 export const BUILTIN_META: Record<string, ComponentMeta> = {
   Span: {
+    editor: { inspector: [] },
     produces: 'text',
     slots: {
       content: { type: 'text', required: true },
