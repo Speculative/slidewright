@@ -16,10 +16,13 @@ import '../slidewright/canvas/canvas.css';
 
 import { App } from '../slidewright/canvas/App.js';
 import { EditorPane } from '../slidewright/canvas/EditorPane.js';
+import { PresenterView, usePresenterWindow } from './PresenterView.js';
 import { StandaloneControls } from './StandaloneControls.js';
 import { StandaloneHost } from './standalone-host.js';
 
 function Standalone(): ReactElement {
+  const [activeSlide, setActiveSlide] = useState(0);
+  const presenter = usePresenterWindow();
   const [presenting, setPresenting] = useState(false);
   const host = useMemo(() => new StandaloneHost(), []);
 
@@ -48,13 +51,15 @@ function Standalone(): ReactElement {
         event.preventDefault(); event.stopPropagation();
       }
     }}>
-    <StandaloneControls host={host} presenting={presenting} onPresent={() => setPresenting(value => !value)} />
+    <StandaloneControls host={host} presenterError={presenter.error} onPresenter={() => { presenter.open(); setPresenting(true); }} presenting={presenting} onPresent={() => setPresenting(value => !value)} />
     <App
       host={host}
+      onActiveSlideChange={setActiveSlide}
       bottomExtra={(projection) => (
         <EditorPane host={host} projection={projection} />
       )}
     />
+    {presenter.popup && <PresenterView host={host} index={activeSlide} popup={presenter.popup} />}
     </div>
   );
 }

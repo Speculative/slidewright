@@ -32,3 +32,9 @@ Present hides editor chrome and keeps keyboard slide navigation and media/demo
 controls. Edit slides returns to authoring. `npm run build` includes the canvas
 and all talk media; serve `dist/` with `npm run preview`. The production check is
 `npm run test:production`.
+
+Presenter view opens a separate speaker console with current/next slide
+outlines, live speaker notes, slide navigation and an elapsed timer. It also
+puts the audience window into Present mode. Previews show the slide's initial
+build; animation build synchronization and click-to-progress behavior are
+tracked separately. Close and reopen the presenter window as needed.

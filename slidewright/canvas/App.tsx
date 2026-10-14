@@ -808,8 +808,10 @@ function getCurrentScale(): number {
 export function App({
   host,
   bottomExtra,
+  onActiveSlideChange,
 }: {
   host: Host;
+  onActiveSlideChange?(index: number): void;
   // Optional slot rendered as the rightmost column of the bottom
   // strip, alongside the inspector. The standalone passes its
   // EditorPane here; the VS Code webview leaves it empty (VS Code's
@@ -821,6 +823,7 @@ export function App({
 }): ReactElement {
   const [state, setState] = useState<RenderState | null>(null);
   const [activeIdx, setActiveIdx] = useState(0);
+  useEffect(() => { onActiveSlideChange?.(activeIdx); }, [activeIdx, onActiveSlideChange]);
   // Slide-strip multi-selection. Invariant: always contains
   // `activeIdx`. The anchor pins the start of a shift-range so
   // successive shift-clicks extend from the same origin. Plain

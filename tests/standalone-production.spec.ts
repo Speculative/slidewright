@@ -19,4 +19,9 @@ test('production canvas loads all packaged PLATEAU media and saves a reloadable 
   await page.getByRole('button', { name: 'Save draft', exact: true }).click();
   await page.reload();
   await expect(page.getByRole('option', { name: /^Slide \d+$/ })).toHaveCount(20);
+  const popupPromise = page.waitForEvent('popup');
+  await page.getByRole('button', { name: 'Presenter view', exact: true }).click();
+  const presenter = await popupPromise;
+  await expect(presenter.getByLabel('Speaker notes')).toBeInViewport();
+  for (const preview of await presenter.locator('.sw-presenter-previews > div').all()) expect((await preview.boundingBox())!.width).toBeLessThan(650);
 });

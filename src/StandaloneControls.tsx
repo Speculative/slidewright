@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { parse } from '../slidewright/runtime/parser.js';
 import type { StandaloneHost, DeckChoice } from './standalone-host.js';
 
-export function StandaloneControls({ host, presenting, onPresent }: { host: StandaloneHost; presenting: boolean; onPresent(): void }) {
+export function StandaloneControls({ host, presenting, onPresent, onPresenter, presenterError }: { host: StandaloneHost; presenting: boolean; onPresent(): void; onPresenter(): void; presenterError: string }) {
   const [, refresh] = useState(0);
   const [message, setMessage] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
@@ -25,6 +25,7 @@ export function StandaloneControls({ host, presenting, onPresent }: { host: Stan
   }
   return <div className="sw-standalone-controls" role="group" aria-label="Deck files">
     <button type="button" onClick={onPresent}>{presenting ? 'Edit slides' : 'Present'}</button>
+    <button type="button" onClick={onPresenter}>Presenter view</button>
     <label>Deck <select aria-label="Deck" value={host.deckChoice} onChange={event => { host.switchDeck(event.target.value as DeckChoice); setMessage(''); }}>
       <option value="reference">Slidewright reference</option><option value="plateau">PLATEAU 2026</option>
       {host.hasCustomDeck && <option value="custom">Opened deck</option>}
@@ -33,6 +34,6 @@ export function StandaloneControls({ host, presenting, onPresent }: { host: Stan
     <button type="button" onClick={download}>Download source</button>
     <button type="button" onClick={() => fileInput.current?.click()}>Open source</button>
     <input ref={fileInput} type="file" accept=".sw,text/plain" aria-label="Open deck file" hidden onChange={event => { const file = event.currentTarget.files?.[0]; if (file) void open(file); event.currentTarget.value = ''; }} />
-    <span role="status">{message || (host.persistenceAvailable ? 'Committed edits save in this browser' : 'Browser storage unavailable; download a copy.')}</span>
+    <span role="status">{presenterError || message || (host.persistenceAvailable ? 'Committed edits save in this browser' : 'Browser storage unavailable; download a copy.')}</span>
   </div>;
 }
