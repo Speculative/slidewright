@@ -196,3 +196,70 @@ test('links remain editable without navigation and formatting shortcuts preserve
   expect(source).toContain('color: accent');
   await expect(page.locator('.sw-canvas-stage a', { hasText: 'link' })).toHaveCSS('font-weight', '700');
 });
+
+test('formatting toolbar retains a cross-run range and commits one source edit', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=slide-grade-text');
+  const before = await getEditorSource(page);
+  await page.locator('.sw-canvas-stage').getByText('style', { exact: true }).dblclick();
+  const editor = page.getByRole('textbox', { name: 'Edit text' });
+  await expect(editor).toBeVisible();
+  await selectRichText(page, 'Mixed ', 0, 'style', 5);
+  await page.getByRole('button', { name: 'Italic', exact: true }).click();
+  await page.getByLabel('Text style', { exact: true }).selectOption('size');
+  await page.getByLabel('Style value', { exact: true }).fill('42');
+  await page.getByRole('button', { name: 'Apply style', exact: true }).click();
+  await expect(editor).toBeVisible();
+  expect(await getEditorSource(page)).toBe(before);
+  await expect(editor.getByText('Mixed ', { exact: true })).toHaveCSS('font-size', '42px');
+  await page.getByLabel('Text style', { exact: true }).selectOption('font');
+  await page.getByLabel('Style value', { exact: true }).fill('Georgia');
+  await page.getByRole('button', { name: 'Apply style', exact: true }).click();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  const source = await getEditorSource(page);
+  expect(source).toContain('size: 42');
+  await expect(page.locator('.sw-canvas-stage').getByText('Mixed ', { exact: true })).toHaveCSS('font-family', 'Georgia');
+  expect(source).toContain('italic: true');
+  expect(source).toContain('"First bullet"');
+  expect(source).toContain('href: "https://example.com/rich-text"');
+  await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press('ControlOrMeta+Z');
+  await expect.poll(() => getEditorSource(page)).toBe(before);
+});
+
+test('caret formatting changes future typing and toolbar focus can commit on exit', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-textbox');
+  const before = await getEditorSource(page);
+  await page.locator('.sw-canvas-stage').getByText('Hello', { exact: true }).dblclick();
+  const editor = page.getByRole('textbox', { name: 'Edit text' });
+  await expect(editor).toBeVisible();
+  await selectRichText(page, 'Hello', 5);
+  await page.getByRole('button', { name: 'Bold', exact: true }).click();
+  await page.keyboard.type('!');
+  await page.getByLabel('Text style', { exact: true }).selectOption('color');
+  await page.getByLabel('Style value', { exact: true }).fill('red');
+  await page.getByRole('button', { name: 'Apply style', exact: true }).click();
+  expect(await getEditorSource(page)).toBe(before);
+  await page.locator('.sw-editor-view .cm-content').focus();
+  await expect(editor).toHaveCount(0);
+  expect(await getEditorSource(page)).toContain('weight: "700"');
+  expect(await getEditorSource(page)).toContain('"!"');
+});
+
+test('clear formatting removes only the selected styles and supports draft undo', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=slide-grade-text');
+  const before = await getEditorSource(page);
+  await page.locator('.sw-canvas-stage').getByText('style', { exact: true }).dblclick();
+  const editor = page.getByRole('textbox', { name: 'Edit text' });
+  await expect(editor).toBeVisible();
+  await selectRichText(page, 'style', 0, 'style', 5);
+  await expect(editor.getByText('style', { exact: true })).toHaveCSS('font-weight', '700');
+  await page.getByRole('button', { name: 'Clear formatting', exact: true }).click();
+  await expect(editor.getByText('style', { exact: true })).toHaveCSS('font-weight', '500');
+  await page.keyboard.press('ControlOrMeta+Z');
+  await expect(editor.getByText('style', { exact: true })).toHaveCSS('font-weight', '700');
+  await page.getByRole('button', { name: 'Clear formatting', exact: true }).click();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(page.locator('.sw-canvas-stage').getByText('style', { exact: true })).toHaveCSS('font-weight', '500');
+  expect(await getEditorSource(page)).toContain('href: "https://example.com/rich-text"');
+  expect(await getEditorSource(page)).not.toBe(before);
+});

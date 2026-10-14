@@ -11,7 +11,7 @@ import { buildRegistry } from '../../runtime/contract.js';
 import { createElement } from 'react';
 import { slotFill, stringLit } from '../../runtime/ast-builders.js';
 import { leafIdentityPlugin, pointAt, positionAt, textRange } from '../rich-text/selection.js';
-import { mergeListItems } from '../rich-text/commands.js';
+import { mergeListItems, setTextStyle, clearTextStyles } from '../rich-text/commands.js';
 
 const registry = buildRegistry({
   Pill: { slidewright: { produces: 'text', slots: { content: { type: 'text' } }, inlineEditing: { mode: 'transparent', contentSlot: 'content' } }, default: ({ slots }) => createElement('span', null, slots.content) },
@@ -182,3 +182,16 @@ let unknownState = EditorState.create({ doc: unknown.projection.doc });
 unknownState = unknownState.apply(unknownState.tr.insertText('!', 2));
 assert.ok(text(unknown.projection.lower(unknownState.doc)).includes('expression: "retain me"'));
 console.log('OK   rich-text transactions, source preservation, formatting, lists, inline contracts, references, shorthand, and draft history');
+
+const toolbar = compile('[Paragraph { content: ["abc" Span { content: ["def"] color: accent }] } Paragraph { content: ["untouched"] }]');
+let toolbarState = EditorState.create({ doc: toolbar.projection.doc, plugins: [history()] });
+toolbarState = toolbarState.apply(toolbarState.tr.setSelection(TextSelection.create(toolbarState.doc, 2, 6)));
+toolbarState = apply(toolbarState, setTextStyle('size', 42));
+assert.ok(text(toolbar.projection.lower(toolbarState.doc)).includes('size: 42'));
+assert.equal(blocks(toolbar.projection.lower(toolbarState.doc))[1], blocks(toolbar.value)[1]);
+const styledToolbarDoc = toolbarState.doc;
+toolbarState = apply(toolbarState, clearTextStyles);
+assert.ok(!text(toolbar.projection.lower(toolbarState.doc)).includes('size: 42'));
+assert.ok(text(toolbar.projection.lower(toolbarState.doc)).includes('color: accent'));
+toolbarState = apply(toolbarState, undo);
+assert.ok(toolbarState.doc.eq(styledToolbarDoc), 'clear formatting is one history operation');

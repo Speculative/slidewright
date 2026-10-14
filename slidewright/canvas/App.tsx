@@ -36,6 +36,7 @@ import type { Diagnostic } from '../runtime/diagnostics.js';
 import type { Scope } from '../runtime/scope.js';
 import { slotFill } from '../runtime/ast-builders.js';
 import { RichTextEditor, type TextEditorSnapshot, type TextSessionHandle } from './rich-text/Editor.js';
+import { FormattingToolbar } from './rich-text/FormattingToolbar.js';
 import { TextDocumentSessionContext } from './text-document-context.js';
 import { components, staticTokens } from '../../decks/v0-reference/registry.js';
 import { DeckMetaContext } from '../../src/Slide.jsx';
@@ -2459,6 +2460,7 @@ export function App({
               onDragStart={handleToolDragStart}
             />
             {richEditing && <div className="sw-text-session-actions" onKeyDown={event => event.stopPropagation()}>
+              <FormattingToolbar session={richSessionRef} />
               <span>Editing text</span>
               <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => richSessionRef.current?.finish('commit')}>Done</button>
               <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => richSessionRef.current?.finish('cancel')}>Cancel</button>

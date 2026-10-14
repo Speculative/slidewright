@@ -4,6 +4,34 @@ import { TextSelection, type Command } from 'prosemirror-state';
 import { baseKeymap, chainCommands, deleteSelection, joinBackward, joinForward, selectNodeBackward, selectNodeForward, splitBlock } from 'prosemirror-commands';
 import { closeHistory, undo, redo } from 'prosemirror-history';
 import { splitListItem, sinkListItem, liftListItem } from 'prosemirror-schema-list';
+import { STYLE_FIELDS } from './projection.js';
+
+export function setTextStyle(field: typeof STYLE_FIELDS[number], value: string | number | boolean | null): Command {
+  return (state, dispatch) => {
+    const type = state.schema.marks[field]!;
+    const { from, to, empty } = state.selection;
+    if (dispatch) {
+      const tr = closeHistory(state.tr);
+      if (empty) value === null ? tr.removeStoredMark(type) : tr.addStoredMark(type.create({ value }));
+      else value === null ? tr.removeMark(from, to, type) : tr.addMark(from, to, type.create({ value }));
+      dispatch(tr);
+    }
+    return true;
+  };
+}
+
+export const clearTextStyles: Command = (state, dispatch) => {
+  if (dispatch) {
+    const { from, to, empty } = state.selection;
+    const tr = closeHistory(state.tr);
+    for (const field of STYLE_FIELDS) {
+      const type = state.schema.marks[field]!;
+      if (empty) tr.removeStoredMark(type); else tr.removeMark(from, to, type);
+    }
+    dispatch(tr);
+  }
+  return true;
+};
 
 export function structuralCommand(command: Command): Command {
   return (state, dispatch, view) => command(state, dispatch ? tr => dispatch(closeHistory(tr)) : undefined, view);

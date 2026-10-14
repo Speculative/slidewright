@@ -10,8 +10,8 @@ import type { Component, Value } from '../../runtime/ast.js';
 import type { ComponentRegistry, OwnedInlineEditorMount } from '../../runtime/contract.js';
 import type { Scope } from '../../runtime/scope.js';
 import { renderEditorInline } from '../../runtime/loader.js';
-import { TextProjection } from './projection.js';
-import { richTextKeys } from './commands.js';
+import { STYLE_FIELDS, TextProjection } from './projection.js';
+import { richTextKeys, setTextStyle, clearTextStyles } from './commands.js';
 import { leafIdentityPlugin, textRange } from './selection.js';
 import type { TextRange } from './bindings.js';
 import 'prosemirror-view/style/prosemirror.css';
@@ -26,9 +26,14 @@ export interface TextEditorSnapshot {
   clientX: number;
   clientY: number;
 }
+export type TextStyleField = typeof STYLE_FIELDS[number];
+
 export interface TextSessionHandle {
   finish(intent: 'commit' | 'cancel'): void;
   range(): TextRange | null;
+  format(field: TextStyleField, value: string | number | boolean | null): void;
+  toggle(field: 'weight' | 'italic' | 'underline'): void;
+  clearFormatting(): void;
 }
 
 function semanticDocument(doc: PMNode): string {
@@ -149,7 +154,7 @@ export function RichTextEditor({ snapshot, registry, onReady, onFinish }: {
         handleDOMEvents: {
           blur(_view, event) {
             const next = (event as FocusEvent).relatedTarget;
-            if (!(next instanceof Node) || !mount.contains(next)) finish('commit');
+            if (!(next instanceof Node) || (!mount.contains(next) && !(next instanceof Element && next.closest('[data-sw-text-formatting]')))) finish('commit');
             return false;
           },
           compositionstart() { composing = true; return false; },
@@ -167,7 +172,20 @@ export function RichTextEditor({ snapshot, registry, onReady, onFinish }: {
       const caret = view.posAtCoords({ left: snapshot.clientX, top: snapshot.clientY });
       if (caret) view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(caret.pos))));
       view.focus();
-      callbacks.current.onReady({ finish, range: () => textRange(view.state.doc, view.state.selection.anchor, view.state.selection.head) });
+      const format = (field: TextStyleField, value: string | number | boolean | null) => {
+        if (closed) return;
+        setTextStyle(field, value)(view.state, tr => view.dispatch(tr));
+      };
+      callbacks.current.onReady({ finish,
+        range: () => textRange(view.state.doc, view.state.selection.anchor, view.state.selection.head),
+        format,
+        toggle(field) {
+          if (closed) return;
+          keys[field === 'weight' ? 'Mod-b' : field === 'italic' ? 'Mod-i' : 'Mod-u']!(view.state, tr => view.dispatch(closeHistory(tr)), view);
+          view.focus();
+        },
+        clearFormatting() { if (closed) return; clearTextStyles(view.state, tr => view.dispatch(tr)); view.focus(); },
+      });
       return () => {
         closed = true;
         if (compositionTimer) clearTimeout(compositionTimer);

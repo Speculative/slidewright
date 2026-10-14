@@ -792,7 +792,7 @@ function renderSpanAsNode(comp: Component, ctx: LoadCtx): ReactNode {
   const inner = content ? resolveTextValue(content.value, ctx) : null;
   const style: Record<string, string> = {};
   if (color) style.color = color;
-  if (font) style.fontFamily = `var(--font-${font})`;
+  if (font) style.fontFamily = ['body', 'display', 'mono'].includes(font) ? `var(--font-${font})` : font;
   if (size !== undefined) style.fontSize = `${size}px`;
   if (weight) style.fontWeight = weight;
   if (letterSpacing !== undefined) style.letterSpacing = `${letterSpacing}px`;

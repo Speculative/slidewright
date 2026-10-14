@@ -1175,3 +1175,8 @@ input.sw-property-value:disabled {
   background: #fafafa;
   color: #999;
 }
+
+.sw-text-session-actions { flex-wrap: wrap; max-width: min(540px, calc(100% - 120px)); }
+.sw-text-formatting { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: 100%; }
+.sw-text-formatting-buttons { display: flex; gap: 6px; width: 100%; }
+.sw-text-formatting input { width: 150px; }
