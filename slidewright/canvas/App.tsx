@@ -2411,16 +2411,18 @@ export function App({
     singleTarget?.kind === 'component'
       ? findShapeForRange(state.shapes, singleTarget.span)
       : null;
+  const boxShape = selectedShape?.comp.name === 'TextBox' ? selectedShape : singleTarget && (singleTarget.kind === 'slot' || singleTarget.kind === 'empty-slot')
+    ? findShapeForRange(state.shapes, singleTarget.parentSpan) : null;
   const applyBoxSetting = (field: TextBoxDefault, setting: string | number | boolean) => {
     if (richEditing) {
       boxDraftRef.current = { ...boxDraftRef.current, [field]: setting };
       setBoxDraft(boxDraftRef.current);
       return;
     }
-    if (selectedShape?.comp.name !== 'TextBox') return;
+    if (boxShape?.comp.name !== 'TextBox') return;
     let path: ReturnType<typeof pathToComponent> = null;
     const result = commitSourceEdit(sourceRef.current, '<text-box-setting>', ast => {
-      const comp = findComponentAtSpan(ast, selectedShape.comp.span.start.offset, selectedShape.comp.span.end.offset);
+      const comp = findComponentAtSpan(ast, boxShape.comp.span.start.offset, boxShape.comp.span.end.offset);
       if (!comp) return null;
       path = pathToComponent(ast, comp);
       const next = typeof setting === 'boolean' ? booleanLit(setting) : typeof setting === 'number' ? numberLit(setting) : field === 'color' && setting in state.colorTokens ? nameRef(setting) : stringLit(setting);
@@ -2494,9 +2496,9 @@ export function App({
               onSelect={setActiveTool}
               onDragStart={handleToolDragStart}
             />
-            {(richEditing || selectedShape?.comp.name === 'TextBox') && <div className="sw-text-session-actions" onKeyDown={event => event.stopPropagation()}
+            {(richEditing || boxShape?.comp.name === 'TextBox') && <div className="sw-text-session-actions" onKeyDown={event => event.stopPropagation()}
               onBlur={event => { const next = event.relatedTarget; if (!(next instanceof Element) || !next.closest('.sw-text-session-actions, .sw-rich-text-editor')) richSessionRef.current?.finish('commit'); }}>
-              <BoxSettings onApply={applyBoxSetting} current={{ ...selectedShape?.params, ...boxDraft }} />
+              <BoxSettings onApply={applyBoxSetting} current={{ ...boxShape?.params, ...boxDraft }} />
               {richEditing && <>
               <FormattingToolbar session={richSessionRef} state={textFormatting} />
               <span>Editing text</span>

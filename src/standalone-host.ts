@@ -17,6 +17,7 @@
 // HARDCODED FOR v0-REFERENCE: same as the webview path — the deck
 // imports are baked in. Generalizing to "any deck" is v0.2 territory.
 
+import plateauSource from '../decks/plateau-2026/deck.sw?raw';
 import deckSourceInitial from '../decks/v0-reference/deck.sw?raw';
 import headshotImg from '../decks/v0-reference/headshot.jpg';
 import type {
@@ -25,6 +26,9 @@ import type {
   SourceRange,
 } from '../slidewright/canvas/host.js';
 
+const plateauAssetModules = import.meta.glob('../decks/plateau-2026/assets/*', { query: '?url', import: 'default', eager: true }) as Record<string, string>;
+const plateauAssetNames: Record<string, string> = { 'headshot.jpg': 'plateauHeadshot', 'penn-hci.svg': 'plateauPennHci', 'js_console.png': 'plateauConsole', 'pandas.png': 'plateauPandas', 'stack_trace.mp4': 'plateauStackTrace', 'streams.mp4': 'plateauStreams', 'stepping.mp4': 'plateauStepping', 'computed.mp4': 'plateauComputed', 'agg_filter.mp4': 'plateauFiltering' };
+const plateauAssets = Object.fromEntries(Object.entries(plateauAssetModules).map(([path, url]) => [plateauAssetNames[path.split('/').at(-1)!]!, url]));
 const FILE_NAME = 'decks/v0-reference/deck.sw';
 
 // Test-fixture loading. Glob-imports every .sw file under
@@ -62,6 +66,7 @@ function pickInitialSource(): { source: string; fileName: string } {
       fileName: `tests/fixtures/${fixtureName}.sw`,
     };
   }
+  if (new URLSearchParams(window.location.search).get('deck') === 'plateau') return { source: plateauSource, fileName: 'decks/plateau-2026/deck.sw' };
   return { source: deckSourceInitial, fileName: FILE_NAME };
 }
 
@@ -76,7 +81,7 @@ export class StandaloneHost implements Host {
     this.state = {
       source: initial.source,
       fileName: initial.fileName,
-      assets: { headshotImg },
+      assets: { headshotImg, ...plateauAssets },
     };
     // Vite HMR: hot-update the canvas when deck.sw changes on disk
     // without forcing a full page refresh. Without this hook the

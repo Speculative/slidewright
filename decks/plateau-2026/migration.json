@@ -1,0 +1,106 @@
+{
+  "originalSource": "inspiration/talk/src/routes/+page.svelte",
+  "sourceSha256": "6167db2579a4701dde407b5c1d17db24647aec52be7bee1cf9cd6388de8ae105",
+  "slides": [
+    {
+      "number": 1,
+      "label": "Data-oriented Debugging with autopsy",
+      "notesSha256": "472c869ce273af0fbae7ebf4cf8a4983de8b6f331fa0507ffd57ffb9411857a3"
+    },
+    {
+      "number": 2,
+      "label": "Why I Care About Debugging",
+      "notesSha256": "ca207ae5bdf12dd6941188228a8270ce1995ce43dcf6dca5c8b1755e76bac329"
+    },
+    {
+      "number": 3,
+      "label": "How do you debug this?",
+      "notesSha256": "c4aa7e3b635f5b6b5482f7ddce3db57dcf19882ec71850fbe4ed27686830f7c4"
+    },
+    {
+      "number": 4,
+      "label": "Too Much / Too Little Information",
+      "notesSha256": "a20d8cf7c542e72ede7607b941e3cd8d0ff1010d782bf61d1adda202182c5033"
+    },
+    {
+      "number": 5,
+      "label": "Two information needs in tension",
+      "notesSha256": "5affc3e2bb9b17b93e0bc2dcb71c71e1b165d996ecf88e3c927b602b17b39302"
+    },
+    {
+      "number": 6,
+      "label": "Why are they in tension?",
+      "notesSha256": "0c4a363c4e5e5d9e395d9c7aae3fa850ecc8d669f2a253125fa028d620eac140"
+    },
+    {
+      "number": 7,
+      "label": "Collection",
+      "notesSha256": "ec3d8032e7235bd53ce38312df3e155831fadae9cf2b25b3efa7ef2947ba5f7a"
+    },
+    {
+      "number": 8,
+      "label": "autopsy",
+      "notesSha256": "f6194d73e22da53a9109af82a83f410adc5ca1bb641395d7f9e55a2fa93ba76e"
+    },
+    {
+      "number": 9,
+      "label": "Call stack in History view",
+      "notesSha256": "ada6c0450c99123b17d28f92ba46764f74756b1c1dffc8b15fc67b6d3126e870"
+    },
+    {
+      "number": 10,
+      "label": "Print Output \u2192 DataFrame?",
+      "notesSha256": "eb8f44d9bc8c9ee0b9202074204edbb67beb96228288621a0c15b4991fe4649a"
+    },
+    {
+      "number": 11,
+      "label": "Affordances \u2014 Streams",
+      "notesSha256": "f1eb49ce6d7e93aca7933bbbdf7571490bbe14a646f9847c2128fd7f023a5b1c"
+    },
+    {
+      "number": 12,
+      "label": "Streams demo",
+      "notesSha256": "51b088724b6e446207d654106a3ac390eb65d07884b94159f1c0231924782678"
+    },
+    {
+      "number": 13,
+      "label": "Affordances \u2014 Step Debugging",
+      "notesSha256": "5459c7dc51d1a416da0da0c9a7ba0063e6c136eb0b6a58c041df1cbf7e3a46c6"
+    },
+    {
+      "number": 14,
+      "label": "Step Debugging demo",
+      "notesSha256": "f5fc22222cbb4204538a656532512c14378553f9692affd468db3f4b651a5d1f"
+    },
+    {
+      "number": 15,
+      "label": "Affordances \u2014 Computed Columns",
+      "notesSha256": "c97a1d2040c438b8cbedc46f5620792a6d047d1de4bff69e71dd4a02aecc589d"
+    },
+    {
+      "number": 16,
+      "label": "Computed Columns demo",
+      "notesSha256": "cd6ad695506b5f52f81e4379c95c1ac14ee113ac8989256bc58c1c86fbc025ff"
+    },
+    {
+      "number": 17,
+      "label": "Affordances \u2014 Grouping & Filtering",
+      "notesSha256": "2cfcb9fc48405c6fa8a4574d1965768aae2fc12f051f4fd5b766a0f772b6df63"
+    },
+    {
+      "number": 18,
+      "label": "Grouping & Filtering demo",
+      "notesSha256": "a0362afc18662814981147061400e26c0847594e9be59e9f63cc280c3d022170"
+    },
+    {
+      "number": 19,
+      "label": "Future Work",
+      "notesSha256": "7ed3708bd5d7c08ad0e6922693f21a4a627e6c2a0fecdb4ccecab63f4e639d25"
+    },
+    {
+      "number": 20,
+      "label": "Closing / Discussion",
+      "notesSha256": "750bc81c3c73ff8772937109fa4be7bf9dcfe1dd31ea4e159e977705eba7f394"
+    }
+  ]
+}
