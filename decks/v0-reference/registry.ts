@@ -21,6 +21,8 @@ import * as Freeform from './components/Freeform.js';
 import * as Box from './components/Box.js';
 import * as TextBox from './components/TextBox.js';
 import * as Arrow from './components/Arrow.js';
+import * as Image from './components/Image.js';
+import * as Video from './components/Video.js';
 
 export const components = buildRegistry({
   TitleSlide,
@@ -32,6 +34,8 @@ export const components = buildRegistry({
   Box,
   TextBox,
   Arrow,
+  Image,
+  Video,
 });
 
 // Color/font token names that the .sw uses as bare lower-cased

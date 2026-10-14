@@ -135,9 +135,9 @@ interface Props {
   // through to selection-only on dblclick — insertion is the next
   // milestone.
   onEmptyTextSlotEdit?: (target: EmptyTextSlotEditTarget) => void;
-  // Fired when pointer goes down on a positioned shape (currently
-  // anything matching [data-sw-component="Box"], future shape
-  // primitives will share this dispatch). The handler is responsible
+  // Fired when pointer goes down on a registered canvas component.
+  // The host's adapter dispatch determines whether it can translate.
+  // The handler is responsible
   // for the rest of the gesture lifecycle — pointermove / pointerup
   // listeners are typically attached to document.
   onDragStart?: (target: DragStart) => void;
@@ -187,15 +187,6 @@ interface Props {
   // intentionally permissive.
   activeTool?: string;
 }
-
-// Components whose drag-to-move gesture is supported. Box and
-// TextBox use `x`/`y` slot fills with width/height; Arrow uses
-// `x1/y1/x2/y2` and gets translated by App's drag effect by
-// applying the same delta to both endpoints. Endpoint handles
-// (resize one endpoint at a time) live on the selection overlay
-// and dispatch their own gesture, separately from this body-drag.
-const DRAGGABLE_SELECTOR =
-  '[data-sw-component="Box"], [data-sw-component="TextBox"], [data-sw-component="Arrow"]';
 
 // Walk up from `target` collecting the alternating component /
 // slot chain — outermost-first. Components are included if their
@@ -594,9 +585,9 @@ export function ScaledCanvas({
         event.preventDefault();
         return;
       }
-      // Existing: identify the innermost selectable component
-      // for body-drag (only fires if resolved component matches
-      // an existing draggable selector match — unchanged).
+      // Registered shape adapters own translation. Dispatch by
+      // source span so custom shapes and media get the same gestures
+      // as the original primitives; the host skips layout adapters.
       const selectable = findSelectable(target, selectableSpans);
       // Layout-intercept (v0.4 reorder). Walk up to find the
       // innermost component AND its parent component. If the
@@ -632,10 +623,9 @@ export function ScaledCanvas({
           }
         }
       }
-      const draggable = target.closest(DRAGGABLE_SELECTOR);
+      const draggable = selectable;
       if (
         draggable instanceof HTMLElement &&
-        draggable === selectable &&
         onDragStart
       ) {
         const dStart = parseInt(
