@@ -1,10 +1,11 @@
 import { useState, type RefObject } from 'react';
+import type { TextFormattingState, FormattingValue } from './feedback.js';
 import type { ParagraphField, ListStyle } from './commands.js';
 import type { TextSessionHandle, TextStyleField } from './Editor.js';
 
 // Controls keep the editor's draft selection while inputs own DOM focus.
 // Applying a value changes authored marks, never the surrounding source.
-export function FormattingToolbar({ session }: { session: RefObject<TextSessionHandle | null> }) {
+export function FormattingToolbar({ session, state }: { session: RefObject<TextSessionHandle | null>; state: TextFormattingState | null }) {
   const [field, setField] = useState<TextStyleField>('size');
   const [value, setValue] = useState('');
   const [listStyle, setListStyle] = useState<ListStyle>('disc');
@@ -12,6 +13,11 @@ export function FormattingToolbar({ session }: { session: RefObject<TextSessionH
   const [listMessage, setListMessage] = useState('');
   const [paragraphField, setParagraphField] = useState<ParagraphField>('align');
   const [paragraphValue, setParagraphValue] = useState('');
+  const describe = (value: FormattingValue | undefined) => value?.mixed ? 'Mixed' : !value || value.value === null ? 'Inherited' : String(value.value);
+  function pressed(field: 'weight' | 'italic' | 'underline'): boolean | 'mixed' {
+    const current = state?.inline[field];
+    return current?.mixed ? 'mixed' : field === 'weight' ? String(current?.value) === '700' : current?.value === true;
+  }
   function applyParagraph() {
     const next = !paragraphValue.trim() ? null : paragraphField === 'align' ? paragraphValue : Number(paragraphValue);
     if (typeof next === 'number' && (!Number.isFinite(next) || paragraphField === 'lineHeight' && next <= 0)) return;
@@ -29,9 +35,10 @@ export function FormattingToolbar({ session }: { session: RefObject<TextSessionH
       const next = event.relatedTarget;
       if (!(next instanceof Element) || !next.closest('.sw-text-session-actions, .sw-rich-text-editor')) session.current?.finish('commit');
     }}>
+    <span aria-label="Formatting target">{state?.caret ? 'Typing at caret' : 'Selected range'}</span>
     <div className="sw-text-formatting-buttons">
       {(['weight', 'italic', 'underline'] as const).map((name, index) => <button key={name} type="button"
-        onPointerDown={event => event.preventDefault()} onClick={() => session.current?.toggle(name)}>
+        aria-pressed={pressed(name)} onPointerDown={event => event.preventDefault()} onClick={() => session.current?.toggle(name)}>
         {['Bold', 'Italic', 'Underline'][index]}
       </button>)}
       <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => session.current?.clearFormatting()}>Clear formatting</button>
@@ -41,6 +48,7 @@ export function FormattingToolbar({ session }: { session: RefObject<TextSessionH
       <option value="weight">Font weight</option><option value="color">Color</option>
       <option value="letterSpacing">Letter spacing</option><option value="href">Link URL</option>
     </select></label>
+    <output aria-label="Current text style">{describe(state?.inline[field])}</output>
     <input aria-label="Style value" value={value} placeholder="Empty removes style" onChange={event => setValue(event.target.value)}
       onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); apply(); } }} />
     <button type="button" onPointerDown={event => event.preventDefault()} onClick={apply}>Apply style</button>
@@ -49,9 +57,11 @@ export function FormattingToolbar({ session }: { session: RefObject<TextSessionH
       <option value="spaceBefore">Space before</option><option value="spaceAfter">Space after</option>
       <option value="indent">Left indent</option><option value="firstLineIndent">First line indent</option>
     </select></label>
+    <output aria-label="Current paragraph style">{describe(state?.paragraph[paragraphField])}</output>
     <input aria-label="Paragraph value" value={paragraphValue} placeholder={paragraphField === 'align' ? 'left / center / right / justify' : 'Pixels; negative hangs first line'} onChange={event => setParagraphValue(event.target.value)}
       onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); applyParagraph(); } }} />
     <button type="button" onPointerDown={event => event.preventDefault()} onClick={applyParagraph}>Apply paragraph</button>
+    <output aria-label="Current list">{state?.list ? `${state.list.style}, start ${state.list.start}` : 'No list'}</output>
     <label>List <select aria-label="List style" value={listStyle} onChange={event => setListStyle(event.target.value as ListStyle)}>
       <option value="disc">Bullets</option><option value="circle">Circles</option><option value="square">Squares</option>
       <option value="decimal">Numbers</option><option value="lower-alpha">a, b, c</option><option value="upper-alpha">A, B, C</option>

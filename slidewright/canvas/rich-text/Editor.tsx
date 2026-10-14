@@ -12,6 +12,7 @@ import type { Scope } from '../../runtime/scope.js';
 import { renderEditorInline } from '../../runtime/loader.js';
 import { STYLE_FIELDS, TextProjection } from './projection.js';
 import { richTextKeys, setTextStyle, clearTextStyles, setParagraphStyle, type ParagraphField, setListStyle, changeListDepth, type ListStyle } from './commands.js';
+import { formattingState, type TextFormattingState } from './feedback.js';
 import { leafIdentityPlugin, textRange } from './selection.js';
 import type { TextRange } from './bindings.js';
 import 'prosemirror-view/style/prosemirror.css';
@@ -47,15 +48,16 @@ function semanticDocument(doc: PMNode): string {
   });
 }
 
-export function RichTextEditor({ snapshot, registry, onReady, onFinish }: {
+export function RichTextEditor({ snapshot, registry, onReady, onFinish, onFormatting }: {
   snapshot: TextEditorSnapshot;
   registry: ComponentRegistry;
+  onFormatting?(state: TextFormattingState): void;
   onReady(handle: TextSessionHandle | null): void;
   onFinish(intent: 'commit' | 'cancel', value: Value | undefined, changed: boolean): void;
 }) {
   const container = useRef<HTMLDivElement>(null);
-  const callbacks = useRef({ onReady, onFinish });
-  callbacks.current = { onReady, onFinish };
+  const callbacks = useRef({ onReady, onFinish, onFormatting });
+  callbacks.current = { onReady, onFinish, onFormatting };
   useLayoutEffect(() => {
     const mount = container.current;
     if (!mount) return;
@@ -153,7 +155,7 @@ export function RichTextEditor({ snapshot, registry, onReady, onFinish }: {
       view = new EditorView(mount, {
         state: EditorState.create({ doc: projection.doc, plugins: [history(), leafIdentityPlugin(), keymap(keys)] }), nodeViews,
         attributes: { role: 'textbox', 'aria-label': 'Edit text', 'aria-multiline': 'true' },
-        dispatchTransaction(tr) { if (!closed) view.updateState(view.state.applyTransaction(tr).state); },
+        dispatchTransaction(tr) { if (!closed) { view.updateState(view.state.applyTransaction(tr).state); callbacks.current.onFormatting?.(formattingState(view.state)); } },
         handleDOMEvents: {
           blur(_view, event) {
             const next = (event as FocusEvent).relatedTarget;
@@ -175,6 +177,7 @@ export function RichTextEditor({ snapshot, registry, onReady, onFinish }: {
       const caret = view.posAtCoords({ left: snapshot.clientX, top: snapshot.clientY });
       if (caret) view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(caret.pos))));
       view.focus();
+      callbacks.current.onFormatting?.(formattingState(view.state));
       const format = (field: TextStyleField, value: string | number | boolean | null) => {
         if (closed) return;
         setTextStyle(field, value)(view.state, tr => view.dispatch(tr));

@@ -36,6 +36,7 @@ import type { Diagnostic } from '../runtime/diagnostics.js';
 import type { Scope } from '../runtime/scope.js';
 import { slotFill } from '../runtime/ast-builders.js';
 import { RichTextEditor, type TextEditorSnapshot, type TextSessionHandle } from './rich-text/Editor.js';
+import type { TextFormattingState } from './rich-text/feedback.js';
 import { FormattingToolbar } from './rich-text/FormattingToolbar.js';
 import { TextDocumentSessionContext } from './text-document-context.js';
 import { components, staticTokens } from '../../decks/v0-reference/registry.js';
@@ -855,6 +856,7 @@ export function App({
   );
   const [editing, setEditing] = useState<TextEditTarget | null>(null);
   const [richEditing, setRichEditing] = useState<TextEditorSnapshot | null>(null);
+  const [textFormatting, setTextFormatting] = useState<TextFormattingState | null>(null);
   const richSessionRef = useRef<TextSessionHandle | null>(null);
   // Set when the user dblclicks an empty text-slot placeholder.
   // The handler commits an empty `slotName: ""` fill, then queues
@@ -2460,7 +2462,7 @@ export function App({
               onDragStart={handleToolDragStart}
             />
             {richEditing && <div className="sw-text-session-actions" onKeyDown={event => event.stopPropagation()}>
-              <FormattingToolbar session={richSessionRef} />
+              <FormattingToolbar session={richSessionRef} state={textFormatting} />
               <span>Editing text</span>
               <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => richSessionRef.current?.finish('commit')}>Done</button>
               <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => richSessionRef.current?.finish('cancel')}>Cancel</button>
@@ -2468,7 +2470,8 @@ export function App({
             <TextDocumentSessionContext.Provider value={richEditing ? {
               span: { start: richEditing.component.span.start.offset, end: richEditing.component.span.end.offset },
               editor: <RichTextEditor snapshot={richEditing} registry={components}
-                onReady={handle => { richSessionRef.current = handle; }}
+                onFormatting={setTextFormatting}
+                onReady={handle => { richSessionRef.current = handle; if (!handle) setTextFormatting(null); }}
                 onFinish={(intent, value, changed) => finishRichEditing(richEditing, intent, value, changed)} />,
             } : null}>
             <GestureProvider deltas={gestureDeltas}>

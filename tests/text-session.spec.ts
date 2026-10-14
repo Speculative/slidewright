@@ -370,3 +370,25 @@ test('list toolbar creates, numbers, nests, and outdents authored paragraphs', a
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   expect(await getEditorSource(page)).toContain('Paragraph {');
 });
+
+test('formatting feedback follows ranges, tokens, caret styles, and draft undo', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=slide-grade-text');
+  await page.locator('.sw-canvas-stage').getByText('style', { exact: true }).dblclick();
+  await expect(page.getByRole('textbox', { name: 'Edit text' })).toBeVisible();
+  await selectRichText(page, 'Mixed ', 0, 'style', 5);
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toHaveAttribute('aria-pressed', 'mixed');
+  await page.getByLabel('Text style', { exact: true }).selectOption('weight');
+  await expect(page.getByLabel('Current text style', { exact: true })).toHaveText('Mixed');
+  await selectRichText(page, 'style', 0, 'style', 5);
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByLabel('Current text style', { exact: true })).toHaveText('700');
+  await page.getByRole('button', { name: 'Italic', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Italic', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('ControlOrMeta+Z');
+  await expect(page.getByRole('button', { name: 'Italic', exact: true })).toHaveAttribute('aria-pressed', 'false');
+  await selectRichText(page, 'style', 2);
+  await page.getByLabel('Text style', { exact: true }).selectOption('color');
+  await expect(page.getByLabel('Current text style', { exact: true })).toHaveText('accent');
+  await expect(page.getByLabel('Formatting target', { exact: true })).toHaveText('Typing at caret');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+});

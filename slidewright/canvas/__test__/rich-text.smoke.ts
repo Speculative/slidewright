@@ -1,3 +1,4 @@
+import { formattingState } from '../rich-text/feedback.js';
 import assert from 'node:assert/strict';
 import { EditorState, TextSelection, type Command } from 'prosemirror-state';
 import { splitListItem, sinkListItem, liftListItem } from 'prosemirror-schema-list';
@@ -242,3 +243,15 @@ const liftedOwnerSource = text(liftOwner.projection.lower(liftOwnerState.doc));
 assert.ok(liftedOwnerSource.includes('// keep item owner'));
 assert.ok(liftedOwnerSource.includes('indent: 24'));
 assert.ok(liftedOwnerSource.includes('Paragraph {'));
+
+const feedbackProjection = compile('[Paragraph { content: ["plain" Span { content: ["bold"] weight: "700" color: accent }] align: "right" }]');
+let feedbackState = EditorState.create({ doc: feedbackProjection.projection.doc });
+feedbackState = feedbackState.apply(feedbackState.tr.setSelection(TextSelection.create(feedbackState.doc, 2, 9)));
+assert.equal(formattingState(feedbackState).inline.weight.mixed, true);
+assert.equal(formattingState(feedbackState).paragraph.align.value, 'right');
+feedbackState = atText(feedbackState, 'bold', 2);
+assert.equal(formattingState(feedbackState).inline.color.value, 'accent');
+assert.equal(formattingState(feedbackState).inline.weight.value, '700');
+feedbackState = apply(feedbackState, setTextStyle('italic', true));
+assert.equal(formattingState(feedbackState).inline.italic.value, true);
+assert.equal(formattingState(feedbackState).caret, true);

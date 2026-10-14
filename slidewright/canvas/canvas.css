@@ -1180,3 +1180,7 @@ input.sw-property-value:disabled {
 .sw-text-formatting { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: 100%; }
 .sw-text-formatting-buttons { display: flex; gap: 6px; width: 100%; }
 .sw-text-formatting input { width: 150px; }
+
+.sw-text-formatting button[aria-pressed="true"] { background: #dbeafe; border-color: #6b8fd4; }
+.sw-text-formatting button[aria-pressed="mixed"] { background: #fff2ce; border-color: #be9529; }
+.sw-text-formatting output { color: #555; font-size: 11px; }
