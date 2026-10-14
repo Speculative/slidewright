@@ -1,5 +1,5 @@
 import { useState, type RefObject } from 'react';
-import type { ParagraphField } from './commands.js';
+import type { ParagraphField, ListStyle } from './commands.js';
 import type { TextSessionHandle, TextStyleField } from './Editor.js';
 
 // Controls keep the editor's draft selection while inputs own DOM focus.
@@ -7,6 +7,9 @@ import type { TextSessionHandle, TextStyleField } from './Editor.js';
 export function FormattingToolbar({ session }: { session: RefObject<TextSessionHandle | null> }) {
   const [field, setField] = useState<TextStyleField>('size');
   const [value, setValue] = useState('');
+  const [listStyle, setListStyle] = useState<ListStyle>('disc');
+  const [listStart, setListStart] = useState('1');
+  const [listMessage, setListMessage] = useState('');
   const [paragraphField, setParagraphField] = useState<ParagraphField>('align');
   const [paragraphValue, setParagraphValue] = useState('');
   function applyParagraph() {
@@ -49,5 +52,17 @@ export function FormattingToolbar({ session }: { session: RefObject<TextSessionH
     <input aria-label="Paragraph value" value={paragraphValue} placeholder={paragraphField === 'align' ? 'left / center / right / justify' : 'Pixels; negative hangs first line'} onChange={event => setParagraphValue(event.target.value)}
       onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); applyParagraph(); } }} />
     <button type="button" onPointerDown={event => event.preventDefault()} onClick={applyParagraph}>Apply paragraph</button>
+    <label>List <select aria-label="List style" value={listStyle} onChange={event => setListStyle(event.target.value as ListStyle)}>
+      <option value="disc">Bullets</option><option value="circle">Circles</option><option value="square">Squares</option>
+      <option value="decimal">Numbers</option><option value="lower-alpha">a, b, c</option><option value="upper-alpha">A, B, C</option>
+      <option value="lower-roman">i, ii, iii</option><option value="upper-roman">I, II, III</option>
+    </select></label>
+    <label>Start <input aria-label="List start" type="number" min="1" step="1" value={listStart} onChange={event => setListStart(event.target.value)} /></label>
+    <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => setListMessage(session.current?.list(listStyle, Number(listStart)) ? '' : 'Select paragraphs or items in one list.')}>Apply list</button>
+    {([-1, 1] as const).map(direction => <button key={direction} type="button" onPointerDown={event => event.preventDefault()}
+      onClick={() => setListMessage(session.current?.listDepth(direction) ? '' : 'Select list items that can move one level.')}>
+      {direction < 0 ? 'Outdent item' : 'Indent item'}
+    </button>)}
+    {listMessage && <span role="status">{listMessage}</span>}
   </div>;
 }

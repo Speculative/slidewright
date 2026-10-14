@@ -7,6 +7,50 @@ import { splitListItem, sinkListItem, liftListItem } from 'prosemirror-schema-li
 import { STYLE_FIELDS } from './projection.js';
 import type { PARAGRAPH_FIELDS } from '../../runtime/contract.js';
 
+export type ListStyle = 'disc' | 'circle' | 'square' | 'decimal' | 'lower-alpha' | 'upper-alpha' | 'lower-roman' | 'upper-roman';
+export function setListStyle(style: ListStyle, start = 1): Command {
+  return (state, dispatch, view) => {
+    if (!Number.isSafeInteger(start) || start < 1) return false;
+    const ordered = !['disc', 'circle', 'square'].includes(style);
+    const type = state.schema.nodes[ordered ? 'ordered_list' : 'bullet_list']!;
+    const { $from, to } = state.selection;
+    for (let depth = $from.depth; depth > 0; depth--) {
+      const node = $from.node(depth);
+      if (!['bullet_list', 'ordered_list'].includes(node.type.name)) continue;
+      // A list control changes the containing List owner, not its children.
+      if (to > $from.end(depth)) return false;
+      if (dispatch) dispatch(closeHistory(state.tr.setNodeMarkup($from.before(depth), type, { ...node.attrs, style, start })));
+      return true;
+    }
+    const range = $from.blockRange(state.selection.$to);
+    if (!range || range.depth !== 0) return false;
+    const paragraphs: PMNode[] = [];
+    for (let index = range.startIndex; index < range.endIndex; index++) {
+      const node = range.parent.child(index);
+      if (node.type.name !== 'paragraph') return false;
+      paragraphs.push(node);
+    }
+    if (dispatch) {
+      const list = type.create({ style, start }, paragraphs.map(paragraph => state.schema.nodes.list_item!.create(null, paragraph)));
+      const tr = closeHistory(state.tr.replaceWith(range.start, range.end, list));
+      const map = (position: number) => {
+        let offset = range.start;
+        for (let index = 0; index < paragraphs.length; index++) {
+          if (position < offset + paragraphs[index]!.nodeSize) return position + 2 + index * 2;
+          offset += paragraphs[index]!.nodeSize;
+        }
+        return tr.mapping.map(position);
+      };
+      dispatch(tr.setSelection(TextSelection.create(tr.doc, map(state.selection.anchor), map(state.selection.head))).scrollIntoView());
+    }
+    return true;
+  };
+}
+
+export function changeListDepth(direction: -1 | 1): Command {
+  return (state, dispatch, view) => structuralCommand((direction < 0 ? liftListItem : sinkListItem)(state.schema.nodes.list_item!))(state, dispatch, view);
+}
+
 export type ParagraphField = typeof PARAGRAPH_FIELDS[number];
 export function setParagraphStyle(field: ParagraphField, value: string | number | null): Command {
   return (state, dispatch) => {

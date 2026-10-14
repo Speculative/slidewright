@@ -11,7 +11,7 @@ import type { ComponentRegistry, OwnedInlineEditorMount } from '../../runtime/co
 import type { Scope } from '../../runtime/scope.js';
 import { renderEditorInline } from '../../runtime/loader.js';
 import { STYLE_FIELDS, TextProjection } from './projection.js';
-import { richTextKeys, setTextStyle, clearTextStyles, setParagraphStyle, type ParagraphField } from './commands.js';
+import { richTextKeys, setTextStyle, clearTextStyles, setParagraphStyle, type ParagraphField, setListStyle, changeListDepth, type ListStyle } from './commands.js';
 import { leafIdentityPlugin, textRange } from './selection.js';
 import type { TextRange } from './bindings.js';
 import 'prosemirror-view/style/prosemirror.css';
@@ -34,6 +34,8 @@ export interface TextSessionHandle {
   format(field: TextStyleField, value: string | number | boolean | null): void;
   toggle(field: 'weight' | 'italic' | 'underline'): void;
   clearFormatting(): void;
+  list(style: ListStyle, start: number): boolean;
+  listDepth(direction: -1 | 1): boolean;
   paragraph(field: ParagraphField, value: string | number | null): void;
 }
 
@@ -180,6 +182,8 @@ export function RichTextEditor({ snapshot, registry, onReady, onFinish }: {
       callbacks.current.onReady({ finish,
         range: () => textRange(view.state.doc, view.state.selection.anchor, view.state.selection.head),
         format,
+        list(style, start) { return !closed && setListStyle(style, start)(view.state, tr => view.dispatch(tr), view); },
+        listDepth(direction) { if (closed) return false; const changed = changeListDepth(direction)(view.state, tr => view.dispatch(tr), view); view.focus(); return changed; },
         paragraph(field, value) { if (!closed) setParagraphStyle(field, value)(view.state, tr => view.dispatch(tr)); },
         toggle(field) {
           if (closed) return;

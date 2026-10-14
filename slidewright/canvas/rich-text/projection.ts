@@ -230,7 +230,7 @@ export class TextProjection {
   }
   private paragraph(bound: Bound | null, children: PMNode[]): PMNode {
     const comp = bound?.value.kind === 'component' ? bound.value : undefined;
-    const attrs: Record<string, unknown> = { origin: comp?.name === 'ListItem' ? null : bound?.id ?? null };
+    const attrs: Record<string, unknown> = { origin: bound?.id ?? null };
     for (const name of PARAGRAPH_FIELDS) {
       const value = comp ? fillValue(comp, name) : undefined;
       if (value) attrs[name] = scalar(value, 0);
@@ -391,6 +391,7 @@ export class TextProjection {
       }
       if (node.type.name === 'paragraph') {
         let value = fresh(bound, 'Paragraph');
+        if (value.name === 'ListItem') value = { ...value, name: 'Paragraph', fills: value.fills.filter(fill => fill.name !== 'children') };
         value = setFill(value, 'content', contentValue(fillValue(value, 'content'), inline(nodesOf(node.content))));
         for (const name of PARAGRAPH_FIELDS) {
           const current = node.attrs[name];
@@ -414,12 +415,13 @@ export class TextProjection {
       throw new Error(`Cannot lower block ${node.type.name}`);
     };
     const item = (node: PMNode): Component => {
-      const bound = original(node.attrs.origin);
+      const bound = original(node.attrs.origin) ?? original(node.firstChild?.attrs.origin);
       if (bound?.value.kind === 'component' && bound.projected && !(bound.projected instanceof Fragment) && bound.projected.eq(node) && !used.has(bound.id)) {
         used.add(bound.id);
         return bound.value;
       }
       let value = fresh(bound, 'ListItem');
+      if (value.name === 'Paragraph') value = { ...value, name: 'ListItem' };
       value = setFill(value, 'content', contentValue(fillValue(value, 'content'), inline(nodesOf(node.firstChild!.content))));
       for (const name of PARAGRAPH_FIELDS) {
         const current = node.firstChild!.attrs[name];

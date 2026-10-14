@@ -11,7 +11,7 @@ import { buildRegistry } from '../../runtime/contract.js';
 import { createElement } from 'react';
 import { slotFill, stringLit } from '../../runtime/ast-builders.js';
 import { leafIdentityPlugin, pointAt, positionAt, textRange } from '../rich-text/selection.js';
-import { mergeListItems, setTextStyle, clearTextStyles, setParagraphStyle } from '../rich-text/commands.js';
+import { mergeListItems, setTextStyle, clearTextStyles, setParagraphStyle, setListStyle, changeListDepth } from '../rich-text/commands.js';
 
 const registry = buildRegistry({
   Pill: { slidewright: { produces: 'text', slots: { content: { type: 'text' } }, inlineEditing: { mode: 'transparent', contentSlot: 'content' } }, default: ({ slots }) => createElement('span', null, slots.content) },
@@ -211,3 +211,34 @@ assert.equal(fill(formattedItem, 'children'), fill((fill(blocks(paragraphFormatt
 assert.equal(new TextProjection({ content: paragraphLowered, registry }).doc.child(1).firstChild!.firstChild!.attrs.firstLineIndent, -15);
 paragraphStyleState = apply(paragraphStyleState, liftListItem(paragraphStyleState.schema.nodes.list_item!));
 assert.equal(blocks(paragraphFormatting.projection.lower(paragraphStyleState.doc))[1]!.name, 'Paragraph');
+
+const listsToolbar = compile('[// retain owner\nParagraph { content: ["one"] spaceAfter: 12 } Paragraph { content: ["two"] } Paragraph { content: ["untouched"] }]');
+let listToolbarState = EditorState.create({ doc: listsToolbar.projection.doc, plugins: [history()] });
+listToolbarState = listToolbarState.apply(listToolbarState.tr.setSelection(TextSelection.create(listToolbarState.doc, 1, 9)));
+listToolbarState = apply(listToolbarState, setListStyle('decimal', 4));
+assert.equal(listToolbarState.doc.firstChild!.childCount, 2);
+let listResult = listsToolbar.projection.lower(listToolbarState.doc);
+assert.ok(text(listResult).includes('// retain owner'));
+assert.ok(text(listResult).includes('spaceAfter: 12'));
+assert.equal(blocks(listResult)[1], blocks(listsToolbar.value)[2]);
+listToolbarState = atText(listToolbarState, 'two', 1);
+listToolbarState = apply(listToolbarState, changeListDepth(1));
+listToolbarState = apply(listToolbarState, setListStyle('square'));
+assert.equal(listToolbarState.doc.firstChild!.type.name, 'ordered_list');
+assert.equal(listToolbarState.doc.firstChild!.firstChild!.child(1).type.name, 'bullet_list');
+assert.equal(listToolbarState.doc.firstChild!.attrs.start, 4);
+listToolbarState = apply(listToolbarState, changeListDepth(-1));
+listToolbarState = apply(listToolbarState, setListStyle('upper-roman', 9));
+listResult = listsToolbar.projection.lower(listToolbarState.doc);
+assert.ok(text(listResult).includes('style: "upper-roman"'));
+assert.ok(text(listResult).includes('start: 9'));
+assert.equal(setListStyle('decimal', 1.5)(listToolbarState), false);
+
+const liftOwner = compile('[List { items: [// keep item owner\nListItem { content: ["lift"] indent: 24 }] }]');
+let liftOwnerState = EditorState.create({ doc: liftOwner.projection.doc });
+liftOwnerState = atText(liftOwnerState, 'lift', 2);
+liftOwnerState = apply(liftOwnerState, changeListDepth(-1));
+const liftedOwnerSource = text(liftOwner.projection.lower(liftOwnerState.doc));
+assert.ok(liftedOwnerSource.includes('// keep item owner'));
+assert.ok(liftedOwnerSource.includes('indent: 24'));
+assert.ok(liftedOwnerSource.includes('Paragraph {'));
