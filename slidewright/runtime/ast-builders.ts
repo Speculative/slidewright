@@ -71,6 +71,13 @@ export function listLit(items: Value[]): ListLit {
   return { kind: 'list', items, span: ZERO_SPAN };
 }
 
+// Canonical one-paragraph document for insertion and materialization.
+export function paragraphDocument(text: string): ListLit {
+  return listLit([makeComponent('Paragraph', [
+    slotFill('content', listLit([stringLit(text)])),
+  ])]);
+}
+
 export function nameRef(name: string): NameRef {
   return { kind: 'name_ref', name, span: ZERO_SPAN };
 }

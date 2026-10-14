@@ -768,7 +768,7 @@ function MissingPropertyRow({
 function valueMatchesSlotType(value: Value, type: SlotType): boolean {
   if (type === 'number') return value.kind === 'number';
   if (type === 'boolean') return value.kind === 'boolean';
-  if (type === 'text') {
+  if (type === 'text' || type === 'text-document') {
     return (
       value.kind === 'string' ||
       value.kind === 'list' ||
@@ -933,6 +933,8 @@ function omitSlotType(meta: ComponentMeta, fillName: string): SlotType | null {
 function unOmitDefault(type: SlotType): string {
   if (type.startsWith('array<')) return '[]';
   switch (type) {
+    case 'text-document':
+      return '[]';
     case 'text':
     case 'string':
     case 'color-token':
@@ -1092,7 +1094,7 @@ function EmptySlotPropertiesView({
 }): ReactElement {
   const { slotName, slotType, parentShape } = info;
   const header = `Slot: ${slotName} (empty)`;
-  const isText = slotType === 'text';
+  const isText = slotType === 'text' || slotType === 'text-document';
   const [draft, setDraft] = useState('');
   const draftRef = useRef('');
   const setDraftSync = (v: string): void => {

@@ -250,7 +250,7 @@ test('property edits enter the undo stack', async ({ page }) => {
 });
 
 test('omit toggle marks a renderable slot as intentionally empty and disables its input', async ({ page }) => {
-  // TextBox has `content` as a `text` slot (renderable → omit-
+  // TextBox has `content` as a `text-document` slot (renderable → omit-
   // eligible) and x/y/width/height as params (not eligible).
   await page.goto('/canvas.html?fixture=single-textbox');
   await expect(
@@ -282,11 +282,10 @@ test('omit toggle re-enables editing when flipped off', async ({ page }) => {
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   await toggle.click();
-  // Source replaces the omit keyword with an editable empty-string.
+  // Source replaces the omit keyword with an empty document.
   const src = await getEditorSource(page);
-  expect(src).toMatch(/content:\s*""/);
-  const input = contentRow.locator('input.sw-property-value');
-  await expect(input).toBeEnabled();
+  expect(src).toMatch(/content:\s*\[\]/);
+  await expect(contentRow.locator('.sw-property-list-cell')).toBeVisible();
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
 });
 

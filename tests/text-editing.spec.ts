@@ -84,13 +84,13 @@ test('missing text parameters can be materialized from the inspector', async ({ 
   await expect.poll(() => getEditorSource(page)).toContain('shrinkToFit: true');
 });
 
-test('primitive bullet list items are editable in the inspector', async ({ page }) => {
+test('TextBox has one structured content document and no legacy list fields', async ({ page }) => {
   await page.locator('.sw-canvas-stage [data-sw-component="TextBox"] > div').first().click();
-  const bullets = page.locator('.sw-property-row', { hasText: /^bullets/ });
-  const first = bullets.locator('.sw-property-list-item-input').first();
-  await first.fill('"Inspector bullet"');
-  await first.press('Enter');
-  await expect.poll(() => getEditorSource(page)).toContain('"Inspector bullet"');
+  const content = page.locator('.sw-property-row', { hasText: /^content/ });
+  await expect(content.locator('.sw-property-list-items > li')).toHaveCount(2);
+  for (const name of ['bullets', 'listStyle', 'listStart']) {
+    await expect(page.locator('.sw-property-row', { hasText: new RegExp(`^${name}`) })).toHaveCount(0);
+  }
 });
 
 test('shrink-to-fit reduces rendered size without changing the requested source size', async ({ page }) => {
@@ -106,8 +106,41 @@ test('shrink-to-fit reduces rendered size without changing the requested source 
   await expect.poll(() => getEditorSource(page)).toContain('fontSize: 42');
 });
 
-test('an omitted optional bullets slot does not render placeholder bullets', async ({ page }) => {
+test('a paragraph-only document does not render a list or legacy placeholders', async ({ page }) => {
   await page.goto('/canvas.html?fixture=single-textbox');
   await expect(page.locator('.sw-canvas-stage [data-sw-textbox-content="true"] ul')).toHaveCount(0);
   await expect(page.locator('.sw-canvas-stage')).not.toContainText('bullets…');
+});
+
+test('paragraphs preserve spacing, alignment, and independent source edits', async ({ page }) => {
+  await setHostSource(page, `Deck { slides: [Slide { content: Freeform { children: [
+    TextBox { x: 240 y: 180 width: 900 height: 600 fontSize: 32 content: [
+      Paragraph { spaceBefore: 12 spaceAfter: 24 align: "right" lineHeight: 1.6 content: ["First paragraph"] }
+      Paragraph { content: ["Second paragraph"] }
+    ] }
+  ] } }] }`);
+  const paragraphs = page.locator('.sw-canvas-stage p[data-sw-component="Paragraph"]');
+  await expect(paragraphs).toHaveCount(2);
+  await expect(paragraphs.first()).toHaveCSS('margin-top', '12px');
+  await expect(paragraphs.first()).toHaveCSS('margin-bottom', '24px');
+  await expect(paragraphs.first()).toHaveCSS('text-align', 'right');
+  await expect(paragraphs.first()).toHaveCSS('line-height', '51.2px');
+  await paragraphs.last().getByText('Second paragraph', { exact: true }).dblclick();
+  await page.keyboard.press('ControlOrMeta+A');
+  await page.keyboard.type('Edited second paragraph');
+  await page.keyboard.press('Enter');
+  const source = await getEditorSource(page);
+  expect(source).toContain('"First paragraph"');
+  expect(source).toContain('"Edited second paragraph"');
+  expect(source).toContain('spaceAfter: 24');
+  await expect(paragraphs.first()).toHaveCSS('line-height', '51.2px');
+});
+
+test('missing text document materializes a canonical paragraph when edited', async ({ page }) => {
+  await setHostSource(page, 'Deck { slides: [Slide { content: Freeform { children: [TextBox { x: 240 y: 180 width: 900 height: 300 }] } }] }');
+  await page.locator('.sw-canvas-stage').getByText('content…', { exact: true }).dblclick();
+  await page.keyboard.type('New paragraph');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => getEditorSource(page)).toMatch(/content:\s*\[\s*Paragraph\s*\{\s*content:\s*\[\s*"New paragraph"/);
+  await expect(page.locator('.sw-canvas-stage p[data-sw-component="Paragraph"]')).toHaveText('New paragraph');
 });

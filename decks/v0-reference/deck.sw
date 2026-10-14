@@ -1,21 +1,18 @@
 // v0 reference deck — the smallest end-to-end demo of Slidewright v0.0.
 // Mirrors design/sketches/title-slide.md and three-obstacles.md at
 // minimum-viable depth.
-
 Deck {
   name: "Slidewright"
   subtitle: "v0.0 reference"
   width: 1920
   height: 1080
-
   // Source-declared color tokens. Override any registry default and
   // add deck-specific named colors. Visible to every slide's
   // `color`/`fill`/`stroke` name_refs (`fill: brand`, etc.).
   tokens: Tokens {
     brand: oklch(0.55 0.18 285)
-    soft:  oklch(0.92 0.02 285)
+    soft: oklch(0.92 0.02 285)
   }
-
   slides: [
     Slide {
       label: "Title"
@@ -24,18 +21,21 @@ Deck {
         - Speaker notes round-trip through triple-quoted strings.
       """
       content: TitleSlide {
-        venue:       "SLIDEWRIGHT · v0.0"
+        venue: "SLIDEWRIGHT · v0.0"
         title: [
           "Vibe Debugging with "
-          Span { color: accent, font: mono, content: "autopsy-report" }
+          Span {
+            color: accent
+            font: mono
+            content: "autopsy-report"
+          }
         ]
-        subtitle:    "or: towards comprehending agent-written code"
-        presenter:   "Jeffrey Tao"
+        subtitle: "or: towards comprehending agent-written code"
+        presenter: "Jeffrey Tao"
         affiliation: "Penn HCI Lab"
-        headshot:    headshotImg
+        headshot: headshotImg
       }
     }
-
     Slide {
       label: "Freeform demo"
       notes: """
@@ -44,13 +44,30 @@ Deck {
       """
       content: Freeform {
         children: [
-          Box { x: 200, y: 220, width: 460, height: 320, fill: brand }
-          Box { x: 760, y: 380, width: 380, height: 240, fill: cyan }
-          Box { x: 1240, y: 580, width: 280, height: 280, fill: oklch(0.62 0.22 25) }
+          Box {
+            x: 200
+            y: 220
+            width: 460
+            height: 320
+            fill: brand
+          }
+          Box {
+            x: 760
+            y: 380
+            width: 380
+            height: 240
+            fill: cyan
+          }
+          Box {
+            x: 1240
+            y: 580
+            width: 280
+            height: 280
+            fill: oklch(0.62 0.22 25)
+          }
         ]
       }
     }
-
     Slide {
       label: "Rich text"
       notes: """
@@ -72,8 +89,16 @@ Deck {
             letterSpacing: -1
             align: "center"
             content: [
-              "Slide-grade "
-              Span { content: "rich text" color: brand italic: true }
+              Paragraph {
+                content: [
+                  "Slide-grade "
+                  Span {
+                    content: "rich text"
+                    color: brand
+                    italic: true
+                  }
+                ]
+              }
             ]
           }
           TextBox {
@@ -85,28 +110,53 @@ Deck {
             lineHeight: 1.4
             wrap: true
             content: [
-              "Mixed runs preserve "
-              Span { content: "weight" weight: "800" }
-              ", "
-              Span { content: "size" size: 42 }
-              ", "
-              Span { content: "mono" font: mono }
-              ", "
-              Span { content: "color" color: accent }
-              ", "
-              Span { content: "italic" italic: true }
-              ", "
-              Span { content: "underline" underline: true }
-              ", "
-              Span { content: "strikethrough" strikethrough: true }
-              ", and "
-              Span {
-                content: "links"
-                href: "https://example.com/slidewright"
-                color: blue
-                underline: true
+              Paragraph {
+                content: [
+                  "Mixed runs preserve "
+                  Span {
+                    content: "weight"
+                    weight: "800"
+                  }
+                  ", "
+                  Span {
+                    content: "size"
+                    size: 42
+                  }
+                  ", "
+                  Span {
+                    content: "mono"
+                    font: mono
+                  }
+                  ", "
+                  Span {
+                    content: "color"
+                    color: accent
+                  }
+                  ", "
+                  Span {
+                    content: "italic"
+                    italic: true
+                  }
+                  ", "
+                  Span {
+                    content: "underline"
+                    underline: true
+                  }
+                  ", "
+                  Span {
+                    content: "strikethrough"
+                    strikethrough: true
+                  }
+                  ", and "
+                  Span {
+                    content: "links"
+                    href: "https://example.com/slidewright"
+                    color: blue
+                    underline: true
+                  }
+                  "."
+                ]
               }
-              "."
             ]
           }
           TextBox {
@@ -116,13 +166,33 @@ Deck {
             height: 330
             fontSize: 32
             lineHeight: 1.45
-            listStyle: "decimal"
-            listStart: 3
-            content: omit
-            bullets: [
-              "Flat lists choose their marker style."
-              ["Items still accept ", Span { content: "mixed runs" weight: "700" }, "."]
-              "The authored starting number round-trips."
+            content: [
+              List {
+                style: "decimal"
+                start: 3
+                items: [
+                  ListItem {
+                    content: [
+                      "Flat lists choose their marker style."
+                    ]
+                  }
+                  ListItem {
+                    content: [
+                      "Items still accept "
+                      Span {
+                        content: "mixed runs"
+                        weight: "700"
+                      }
+                      "."
+                    ]
+                  }
+                  ListItem {
+                    content: [
+                      "The authored starting number round-trips."
+                    ]
+                  }
+                ]
+              }
             ]
           }
           TextBox {
@@ -132,24 +202,49 @@ Deck {
             height: 510
             fontSize: 32
             lineHeight: 1.35
-            content: List {
-              style: "upper-alpha"
-              start: 2
-              items: [
-                ListItem { content: "Structured lists can be ordered." }
-                ListItem {
-                  content: ["A list item can own a ", Span { content: "nested list" weight: "700" }, "."]
-                  children: List {
-                    style: "square"
-                    items: [
-                      ListItem { content: "Nesting is explicit in source." }
-                      ListItem { content: "Child text remains canvas-editable." }
+            content: [
+              List {
+                style: "upper-alpha"
+                start: 2
+                items: [
+                  ListItem {
+                    content: [
+                      "Structured lists can be ordered."
                     ]
                   }
-                }
-                ListItem { content: "Markers and start values remain semantic." }
-              ]
-            }
+                  ListItem {
+                    content: [
+                      "A list item can own a "
+                      Span {
+                        content: "nested list"
+                        weight: "700"
+                      }
+                      "."
+                    ]
+                    children: List {
+                      style: "square"
+                      items: [
+                        ListItem {
+                          content: [
+                            "Nesting is explicit in source."
+                          ]
+                        }
+                        ListItem {
+                          content: [
+                            "Child text remains canvas-editable."
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                  ListItem {
+                    content: [
+                      "Markers and start values remain semantic."
+                    ]
+                  }
+                ]
+              }
+            ]
           }
           TextBox {
             x: 1010
@@ -163,12 +258,17 @@ Deck {
             wrap: false
             shrinkToFit: true
             color: muted
-            content: "Shrink-to-fit keeps the authored font size in source."
+            content: [
+              Paragraph {
+                content: [
+                  "Shrink-to-fit keeps the authored font size in source."
+                ]
+              }
+            ]
           }
         ]
       }
     }
-
     Slide {
       label: "Three obstacles"
       notes: """
@@ -177,35 +277,33 @@ Deck {
       """
       content: ContentSlide {
         eyebrow: "Three obstacles"
-        title:   "Behavior is hidden by default."
-        intro:   "Programs do a lot, and most of it is invisible by default. "
-                 "To observe behavior, you have to solve three problems."
+        title: "Behavior is hidden by default."
+        intro: "Programs do a lot, and most of it is invisible by default. To observe behavior, you have to solve three problems."
         body: VStack {
           spacing: 32
           children: [
             CardRow {
-              color:   purple
+              color: purple
               eyebrow: "Representation"
               heading: "Code isn't behavior."
-              body:    "Code shows what could happen, not what did. Behavior has to be captured and shaped into something you can read."
+              body: "Code shows what could happen, not what did. Behavior has to be captured and shaped into something you can read."
             }
             CardRow {
-              color:   cyan
+              color: cyan
               eyebrow: "Attention"
               heading: "It's mostly noise."
-              body:    "Useful observations are buried within everything else. Which parts actually matter?"
+              body: "Useful observations are buried within everything else. Which parts actually matter?"
             }
             CardRow {
-              color:   magenta
+              color: magenta
               eyebrow: "Volume"
               heading: "There's too much stuff."
-              body:    "Even when you know where to look, the data is a firehose."
+              body: "Even when you know where to look, the data is a firehose."
             }
           ]
         }
       }
     }
-
     Slide {
       label: "Empty slots"
       notes: """
@@ -226,7 +324,6 @@ Deck {
         title: "Empty-slot demo"
       }
     }
-
     Slide {
       label: "Empty slots in a stack"
       notes: """
@@ -239,19 +336,18 @@ Deck {
         spacing: 32
         children: [
           CardRow {
-            color:   purple
+            color: purple
             eyebrow: "Filled"
             heading: "All slots have values."
-            body:    "For comparison."
+            body: "For comparison."
           }
           CardRow {
-            color:   cyan
+            color: cyan
             eyebrow: "Partly empty"
           }
         ]
       }
     }
-
     Slide {
       label: "Stacks demo"
       notes: """
@@ -271,16 +367,16 @@ Deck {
         spacing: 24
         children: [
           CardRow {
-            color:   purple
+            color: purple
             eyebrow: "VStack"
             heading: "Children flow vertically."
-            body:    "Click an empty area inside the VStack to select it; edit `spacing` in the inspector."
+            body: "Click an empty area inside the VStack to select it; edit `spacing` in the inspector."
           }
           CardRow {
-            color:   cyan
+            color: cyan
             eyebrow: "Spacing"
             heading: "Drives the flex gap."
-            body:    "The number param surfaced in the inspector commits straight back to source on Enter."
+            body: "The number param surfaced in the inspector commits straight back to source on Enter."
           }
         ]
       }

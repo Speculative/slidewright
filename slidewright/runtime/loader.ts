@@ -9,7 +9,7 @@
 //   - render: walk AST, dispatch each slide-producing component to its
 //     React function with resolved {slots, params}
 //
-// Built-in components (`Deck`, `Slide`, `Span`, `List`, `ListItem`) are
+// Built-in components (`Deck`, `Slide`, `Span`, `Paragraph`, `List`, `ListItem`) are
 // special-cased; all other invocations go through the registry.
 
 import { Fragment, createElement, type ReactElement, type ReactNode } from 'react';
@@ -317,7 +317,7 @@ interface LoadCtx {
 // gesture awareness — the canvas overrides via input.wrapShape.
 function defaultWrapShape(input: WrapShapeInput): ReactElement {
   return createElement(
-    'div',
+    input.loaded.meta.produces === 'text' ? 'span' : 'div',
     {
       key: `wrap-${input.comp.span.start.offset}`,
       'data-sw-component': input.comp.name,
@@ -641,7 +641,7 @@ function renderComponent(comp: Component, ctx: LoadCtx): ReactNode {
     // are conceptually params, edited via inspector).
     if (isRenderableSlotType(schema.type)) {
       slots[slotName] = createElement(
-        'span',
+        schema.type === 'text-document' || schema.type === 'array<text-document>' ? 'div' : 'span',
         {
           'data-sw-slot-name': slotName,
           'data-sw-slot-span-start': fill.span.start.offset,
@@ -871,7 +871,7 @@ function renderListItemAsNode(comp: Component, ctx: LoadCtx): ReactNode {
   const content = fills.get('content');
   const children = fills.get('children');
   let nested: ReactNode = null;
-  if (children) {
+  if (children && children.value.kind !== 'omit') {
     if (children.value.kind === 'component' && children.value.name === 'List') {
       nested = renderListAsNode(children.value, ctx);
     } else {
@@ -896,6 +896,49 @@ function renderListItemAsNode(comp: Component, ctx: LoadCtx): ReactNode {
   );
 }
 
+function renderParagraphAsNode(comp: Component, ctx: LoadCtx): ReactNode {
+  validateAgainstMeta(comp, BUILTIN_META.Paragraph!, ctx);
+  const fills = byName(comp.fills);
+  const content = fills.get('content');
+  const before = readNumber(fills.get('spaceBefore'), ctx) ?? 0;
+  const after = readNumber(fills.get('spaceAfter'), ctx) ?? 0;
+  const align = readString(fills.get('align'), ctx);
+  const lineHeight = readNumber(fills.get('lineHeight'), ctx);
+  return createElement('p', {
+    key: cellKey(comp),
+    'data-sw-component': 'Paragraph',
+    'data-sw-span-start': comp.span.start.offset,
+    'data-sw-span-end': comp.span.end.offset,
+    style: {
+      margin: 0,
+      marginTop: `${before}px`,
+      marginBottom: `${after}px`,
+      minHeight: '1em',
+      ...(align ? { textAlign: align } : {}),
+      ...(lineHeight !== undefined ? { lineHeight } : {}),
+    },
+  }, content ? resolveTextValue(content.value, ctx) : null);
+}
+
+function resolveTextDocument(value: Value, ctx: LoadCtx): ReactNode {
+  if (value.kind === 'string' || value.kind === 'name_ref') {
+    // Single-string migration shorthand remains source-backed, without
+    // pretending the synthetic paragraph has an authored source span.
+    return createElement('p', { key: cellKey(value), style: { margin: 0, minHeight: '1em' } }, resolveTextValue(value, ctx));
+  }
+  if (value.kind !== 'list') {
+    emit(ctx, 'slot-type-mismatch', value.span, 'expected a text document: an ordered list of Paragraph/List blocks');
+    return null;
+  }
+  const blocks = value.items.map((block) => {
+    if (block.kind === 'component' && block.name === 'Paragraph') return renderParagraphAsNode(block, ctx);
+    if (block.kind === 'component' && block.name === 'List') return renderListAsNode(block, ctx);
+    emit(ctx, 'slot-type-mismatch', block.span, 'text document blocks must be Paragraph or List components');
+    return null;
+  });
+  return createElement(Fragment, { key: cellKey(value) }, ...blocks);
+}
+
 // Empty-slot placeholder. Phase A: always-on for any renderable
 // empty slot. Visual signals "here's where content goes" without
 // claiming significant layout — text slots render inline ghost
@@ -913,7 +956,7 @@ function createEmptySlotPlaceholder(
   const inner = slotType.startsWith('array<')
     ? (slotType.slice(6, -1) as SlotType)
     : slotType;
-  const isText = inner === 'text';
+  const isText = inner === 'text' || inner === 'text-document';
   // The slot wrapper is `display: contents` so the parent's
   // typography / flex still applies to the placeholder visual
   // inside. The visual element below the wrapper carries the
@@ -983,7 +1026,7 @@ export function isRenderableSlotType(type: SlotType): boolean {
   const inner = type.startsWith('array<')
     ? (type.slice(6, -1) as SlotType)
     : type;
-  return inner === 'text' || inner === 'block' || inner === 'slide';
+  return inner === 'text' || inner === 'text-document' || inner === 'block' || inner === 'slide';
 }
 
 // ── Value resolution by slot type ──────────────────────────────────────
@@ -1005,6 +1048,12 @@ function resolveSlotValue(type: SlotType, value: Value, ctx: LoadCtx): unknown {
   switch (type) {
     case 'text':
       return resolveTextValue(value, ctx);
+    case 'text-document':
+      return resolveTextDocument(value, ctx);
+    case 'list-item':
+      if (value.kind === 'component' && value.name === 'ListItem') return renderListItemAsNode(value, ctx);
+      emit(ctx, 'slot-type-mismatch', value.span, 'expected a ListItem component');
+      return null;
     case 'block':
       return renderBlockValue(value, ctx);
     case 'image':
@@ -1034,8 +1083,8 @@ function resolveSlotValue(type: SlotType, value: Value, ctx: LoadCtx): unknown {
 }
 
 function resolveTextValue(value: Value, ctx: LoadCtx): ReactNode {
-  // text accepts a string, a structured List, or a list of inline
-  // string/Span/List runs. ListItem is intentionally only accepted by List.
+  // Inline content cannot contain document blocks. Registry components
+  // participate by declaring produces: 'text'; their source stays intact.
   if (value.kind === 'string') {
     const lit = ctx.cellStore.registerLiteral(nextCellId(ctx, 'text'), value.value);
     const resolved = ctx.cellStore.resolve<string>(lit, EMPTY_CONTEXT);
@@ -1049,28 +1098,17 @@ function resolveTextValue(value: Value, ctx: LoadCtx): ReactNode {
       if (v.kind === 'component' && v.name === 'Span') {
         return renderSpanAsNode(v, ctx);
       }
-      if (v.kind === 'component' && v.name === 'List') {
-        return renderListAsNode(v, ctx);
+      if (v.kind === 'component' && ctx.components[v.name]?.meta.produces === 'text') {
+        return renderComponent(v, ctx);
       }
       if (v.kind === 'name_ref') {
-        const resolved = lookup(ctx.scope, v.name);
-        if (resolved === undefined) {
-          emit(
-            ctx,
-            'unknown-reference',
-            v.span,
-            `unknown name \`${v.name}\``,
-            'add it to the deck scope or import it in the deck index',
-          );
-          return '';
-        }
-        return String(resolved);
+        return resolveTextValue(v, ctx);
       }
       emit(
         ctx,
         'slot-type-mismatch',
         v.span,
-        'text run items must be strings, `Span { ... }`, or `List { ... }`',
+        'inline content must be strings, Spans, compatible references, or registered text components',
       );
       return '';
     });
@@ -1082,8 +1120,11 @@ function resolveTextValue(value: Value, ctx: LoadCtx): ReactNode {
     // other integer-keyed elements elsewhere in the tree.
     return createElement(Fragment, { key: cellKey(value) }, ...parts);
   }
-  if (value.kind === 'component' && value.name === 'List') {
-    return renderListAsNode(value, ctx);
+  if (value.kind === 'component' && value.name === 'Span') {
+    return renderSpanAsNode(value, ctx);
+  }
+  if (value.kind === 'component' && ctx.components[value.name]?.meta.produces === 'text') {
+    return renderComponent(value, ctx);
   }
   if (value.kind === 'name_ref') {
     const resolved = lookup(ctx.scope, value.name);
@@ -1091,7 +1132,16 @@ function resolveTextValue(value: Value, ctx: LoadCtx): ReactNode {
       emit(ctx, 'unknown-reference', value.span, `unknown name \`${value.name}\``);
       return null;
     }
-    return String(resolved);
+    if (typeof resolved !== 'string') {
+      emit(ctx, 'slot-type-mismatch', value.span, `reference \`${value.name}\` does not resolve to inline text`);
+      return null;
+    }
+    return createElement('span', {
+      key: cellKey(value),
+      'data-sw-inline-reference': value.name,
+      'data-sw-span-start': value.span.start.offset,
+      'data-sw-span-end': value.span.end.offset,
+    }, resolved);
   }
   emit(ctx, 'slot-type-mismatch', value.span, `expected text, got ${value.kind}`);
   return null;

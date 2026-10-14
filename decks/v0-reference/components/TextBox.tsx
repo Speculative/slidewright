@@ -2,9 +2,9 @@
 //
 // Absolutely-positioned text container inside a Freeform parent.
 // Position (x, y) and size (width, height) are slide-design-space
-// pixels — same coordinate system as Box. Content is a text slot
-// (single string or styled run), edited via the v0.2.a in-place
-// text-edit gesture (double-click).
+// pixels — same coordinate system as Box. Content is an ordered
+// text document of Paragraph and List blocks, with source-backed
+// inline strings and styled runs.
 //
 // Canvas behavior identical to Box (translate + 8-handle resize)
 // — both share the rect-adapter helper. New text boxes default to
@@ -12,9 +12,6 @@
 // for the user to double-click.
 
 import {
-  Children,
-  cloneElement,
-  isValidElement,
   useLayoutEffect,
   useRef,
   useState,
@@ -30,14 +27,14 @@ import {
   numberLit,
   slotFill,
   stringLit,
+  paragraphDocument,
 } from '../../../slidewright/runtime/ast-builders.js';
 import { makeRectAdapter } from '../../../slidewright/canvas/rect-adapter.js';
 
 export const slidewright: ComponentMeta = {
   produces: 'block',
   slots: {
-    content: { type: 'text', required: false },
-    bullets: { type: 'array<text>', required: false },
+    content: { type: 'text-document', required: false },
   },
   params: {
     x: { type: 'number', default: 0 },
@@ -52,8 +49,6 @@ export const slidewright: ComponentMeta = {
     align: { type: 'string', default: 'left' },
     wrap: { type: 'boolean', default: true },
     shrinkToFit: { type: 'boolean', default: false },
-    listStyle: { type: 'string', default: 'disc' },
-    listStart: { type: 'number', default: 1 },
     color: { type: 'color-token', default: 'fg' },
   },
   protocols: {},
@@ -80,13 +75,13 @@ export const slidewright: ComponentMeta = {
         slotFill('lineHeight', numberLit(1.25)),
         slotFill('letterSpacing', numberLit(0)),
         slotFill('align', stringLit('left')),
-        slotFill('content', stringLit('Text')),
+        slotFill('content', paragraphDocument('Text')),
       ]);
     },
   },
 };
 
-export default function TextBox({ slots, params, slotsState }: ComponentRenderProps) {
+export default function TextBox({ slots, params }: ComponentRenderProps) {
   const x = (params.x as number | undefined) ?? 0;
   const y = (params.y as number | undefined) ?? 0;
   const width = (params.width as number | undefined) ?? 320;
@@ -99,18 +94,13 @@ export default function TextBox({ slots, params, slotsState }: ComponentRenderPr
   const align = (params.align as string | undefined) ?? 'left';
   const wrap = (params.wrap as boolean | undefined) ?? true;
   const shrinkToFit = (params.shrinkToFit as boolean | undefined) ?? false;
-  const listStyle = (params.listStyle as string | undefined) ?? 'disc';
-  const listStart = (params.listStart as number | undefined) ?? 1;
   const color = (params.color as string | undefined) ?? 'var(--fg)';
   const content = slots.content as ReactNode | undefined;
-  const bullets = slotsState.bullets === 'filled'
-    ? slots.bullets as ReactNode
-    : undefined;
   const innerRef = useRef<HTMLDivElement | null>(null);
   const [fontSize, setFontSize] = useState(requestedFontSize);
 
   // Fit is deliberately derived from the rendered DOM: it handles mixed
-  // runs, browser font metrics, wrapping, and bullets uniformly. The AST
+  // runs, browser font metrics, wrapping, and lists uniformly. The AST
   // keeps the requested size; fitting is a non-destructive presentation
   // policy, so turning it off restores that exact source value.
   useLayoutEffect(() => {
@@ -179,46 +169,9 @@ export default function TextBox({ slots, params, slotsState }: ComponentRenderPr
         }}
       >
         {content}
-        {bullets
-          ? renderLegacyList(bullets, listStyle, listStart)
-          : null}
       </div>
     </div>
   );
-}
-
-const ORDERED_LIST_STYLES = new Set([
-  'decimal',
-  'decimal-leading-zero',
-  'lower-alpha',
-  'upper-alpha',
-  'lower-roman',
-  'upper-roman',
-]);
-
-function renderLegacyList(
-  slotNode: ReactNode,
-  listStyle: string,
-  listStart: number,
-): ReactNode {
-  // Renderable array slots arrive inside the loader's source-bearing
-  // wrapper. Clone that wrapper so its selection attrs survive, while
-  // turning each resolved text item into a semantic list item.
-  const ordered = ORDERED_LIST_STYLES.has(listStyle);
-  const items = isValidElement<{ children?: ReactNode }>(slotNode)
-    ? cloneElement(
-        slotNode,
-        undefined,
-        Children.map(slotNode.props.children, (item, index) => (
-          <li key={index}>{item}</li>
-        )),
-      )
-    : <li>{slotNode}</li>;
-  const props = {
-    style: { margin: 0, paddingInlineStart: '1.35em', listStyleType: listStyle },
-    ...(ordered ? { start: listStart } : {}),
-  };
-  return ordered ? <ol {...props}>{items}</ol> : <ul {...props}>{items}</ul>;
 }
 
 export const canvas = makeRectAdapter({ width: 320, height: 120 });

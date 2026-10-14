@@ -16,7 +16,9 @@ import type { Component as AstComponent } from './ast.js';
 // extensible in later versions, gated on escape-hatch evidence.
 
 export type SlotTypeName =
-  | 'text'           // string or (string | Span)+ runs
+  | 'text'           // inline strings, Spans, and registered inline elements
+  | 'text-document'  // ordered Paragraph/List blocks; string migration shorthand
+  | 'list-item'      // ListItem, accepted only within List.items
   | 'block'          // a tree of layout primitives or composite components
   | 'image'          // image reference (URL or asset path)
   | 'slide'          // top-level slide content
@@ -257,11 +259,9 @@ export const BUILTIN_META: Record<string, ComponentMeta> = {
     },
   },
   List: {
-    produces: 'text',
+    produces: 'text-document',
     slots: {
-      // Text is the closest v0 vocabulary type. Runtime resolution narrows
-      // each entry to the built-in `ListItem` structure.
-      items: { type: 'array<text>', required: true },
+      items: { type: 'array<list-item>', required: true },
     },
     params: {
       style: { type: 'string', default: 'disc' },
@@ -269,10 +269,20 @@ export const BUILTIN_META: Record<string, ComponentMeta> = {
     },
   },
   ListItem: {
-    produces: 'text',
+    produces: 'list-item',
     slots: {
       content: { type: 'text', required: true },
-      children: { type: 'text', required: false },
+      children: { type: 'text-document', required: false },
+    },
+  },
+  Paragraph: {
+    produces: 'text-document',
+    slots: { content: { type: 'text', required: true } },
+    params: {
+      spaceBefore: { type: 'number', default: 0 },
+      spaceAfter: { type: 'number', default: 0 },
+      align: { type: 'string' },
+      lineHeight: { type: 'number' },
     },
   },
   Deck: {

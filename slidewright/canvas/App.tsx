@@ -31,6 +31,7 @@ import {
   type SlideAstData,
 } from '../runtime/loader.js';
 import { parse } from '../runtime/parser.js';
+import { paragraphDocument } from '../runtime/ast-builders.js';
 import type { Diagnostic } from '../runtime/diagnostics.js';
 import { components, staticTokens } from '../../decks/v0-reference/registry.js';
 import { DeckMetaContext } from '../../src/Slide.jsx';
@@ -1030,6 +1031,9 @@ export function App({
       // Mutate in place on the same AST, then emit + reparse to
       // recover the post-format span.
       if (!addStringSlotFill(oldParent, slotName, value)) return null;
+      if (components[oldParent.name]?.meta.slots[slotName]?.type === 'text-document') {
+        oldParent.fills.find((fill) => fill.name === slotName)!.value = paragraphDocument(value);
+      }
       const newSource = emit(preParse.ast);
       const postParse = parse(newSource, '<materialize-slot-post>');
       if (postParse.diagnostics.some((d) => d.severity === 'error')) {

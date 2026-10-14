@@ -277,8 +277,8 @@ test('double-click on a text span makes it editable; Enter commits', async ({
   await page.keyboard.type('World');
   await page.keyboard.press('Enter');
   const source = await getSource(page);
-  expect(source).toMatch(/content:\s*"World"/);
-  expect(source).not.toMatch(/content:\s*"Hello"/);
+  expect(source).toMatch(/content:\s*\[\s*"World"/);
+  expect(source).not.toMatch(/content:\s*\[\s*"Hello"/);
 });
 
 // ─── Selection clearing ──────────────────────────────────────────

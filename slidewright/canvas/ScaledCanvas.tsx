@@ -450,7 +450,7 @@ export function ScaledCanvas({
     const emptySlot = target.closest('[data-sw-slot-empty="true"]');
     if (
       emptySlot instanceof HTMLElement &&
-      emptySlot.getAttribute('data-sw-slot-type') === 'text' &&
+      ['text', 'text-document'].includes(emptySlot.getAttribute('data-sw-slot-type') ?? '') &&
       onEmptyTextSlotEdit
     ) {
       const pStart = parseInt(

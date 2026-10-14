@@ -37,7 +37,7 @@ function ShapeProjection(input: WrapShapeInput): ReactElement {
       ? adapter.applyGesture(params, delta)
       : params;
   return createElement(
-    'div',
+    loaded.meta.produces === 'text' ? 'span' : 'div',
     {
       key: `wrap-${comp.span.start.offset}`,
       'data-sw-component': comp.name,
