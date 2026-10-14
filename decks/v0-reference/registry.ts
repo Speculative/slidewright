@@ -23,6 +23,8 @@ import * as TextBox from './components/TextBox.js';
 import * as Arrow from './components/Arrow.js';
 import * as Image from './components/Image.js';
 import * as Video from './components/Video.js';
+import * as InlineBadge from './components/InlineBadge.js';
+import * as InlineFormula from './components/InlineFormula.js';
 
 export const components = buildRegistry({
   TitleSlide,
@@ -36,6 +38,8 @@ export const components = buildRegistry({
   Arrow,
   Image,
   Video,
+  InlineBadge,
+  InlineFormula,
 });
 
 // Color/font token names that the .sw uses as bare lower-cased

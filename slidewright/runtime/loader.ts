@@ -311,6 +311,27 @@ interface LoadCtx {
   // renderDeckSlides as it iterates; used to tag each shape with
   // its parent slide for canvas-side commit logic.
   currentSlideIdx: number;
+  inlineSlotOverride?: { component: Component; name: string; content: ReactNode };
+}
+
+// Render source-backed custom inline views inside an editor island using
+// the same registry resolution as the deck. Transparent node views supply
+// one DOM hole through their declared text slot; the engine owns its kids.
+export function renderEditorInline(input: {
+  component: Component;
+  components: ComponentRegistry;
+  scope: Scope;
+  colorTokens?: Record<string, string>;
+  contentSlot?: string;
+  content?: ReactNode;
+}): ReactNode {
+  const ctx: LoadCtx = {
+    file: '<inline-editor>', components: input.components, scope: input.scope,
+    colorTokens: input.colorTokens ?? {}, diagnostics: [], cellStore: new CellStore(), cellSeq: 0,
+    wrapShape: defaultWrapShape, shapes: new Map(), slidesData: [], currentSlideIdx: -1,
+    ...(input.contentSlot ? { inlineSlotOverride: { component: input.component, name: input.contentSlot, content: input.content } } : {}),
+  };
+  return renderComponent(input.component, ctx);
 }
 
 // Default wrap: a span-only marker div for selection sync. No
@@ -679,6 +700,11 @@ function renderComponent(comp: Component, ctx: LoadCtx): ReactNode {
         params[paramName] = schema.default;
       }
     }
+  }
+
+  if (ctx.inlineSlotOverride?.component === comp) {
+    slots[ctx.inlineSlotOverride.name] = ctx.inlineSlotOverride.content;
+    slotsState[ctx.inlineSlotOverride.name] = 'filled';
   }
 
   // Implicit children: if the body has implicitChildren and the meta

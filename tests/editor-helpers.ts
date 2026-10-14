@@ -36,3 +36,23 @@ export async function getEditorSelection(page: Page): Promise<{
 export async function focusEditor(page: Page): Promise<void> {
   await page.locator('.sw-editor-view .cm-content').focus();
 }
+
+export async function selectRichText(page: Page, startText: string, start: number, endText = startText, end = start) {
+  await page.evaluate(({ startText, start, endText, end }) => {
+    const root = document.querySelector('.sw-rich-text-editor .ProseMirror');
+    if (!root) throw new Error('Editor not mounted');
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let from: Node | null = null, to: Node | null = null;
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (!from && node.textContent === startText) from = node;
+      if (!to && node.textContent === endText) to = node;
+    }
+    if (!from || !to) throw new Error(`Missing text: ${startText} / ${endText}`);
+    (root as HTMLElement).focus();
+    const range = document.createRange();
+    range.setStart(from, start); range.setEnd(to, end);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges(); selection.addRange(range);
+    document.dispatchEvent(new Event('selectionchange'));
+  }, { startText, start, endText, end });
+}

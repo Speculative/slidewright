@@ -260,6 +260,9 @@ function renderHtml(
   const scriptUri = webview.asWebviewUri(
     vscode.Uri.joinPath(extensionUri, 'dist', 'webview.js'),
   );
+  const bundleCssUri = webview.asWebviewUri(
+    vscode.Uri.joinPath(extensionUri, 'dist', 'webview.css'),
+  );
   // The deck's slide chrome and typography come from the existing
   // scaffold's stylesheet at src/styles.css. The canvas-around-the-
   // slide UI (status bar, diagnostics, presentation positioning) lives
@@ -290,6 +293,7 @@ function renderHtml(
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Arvo:wght@400;700&family=Lato:wght@400;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
 ${stylesUri ? `<link rel="stylesheet" href="${stylesUri}" />` : ''}
+<link rel="stylesheet" href="${bundleCssUri}" />
 ${canvasCssUri ? `<link rel="stylesheet" href="${canvasCssUri}" />` : ''}
 </head>
 <body>

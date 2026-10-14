@@ -262,7 +262,7 @@ test('moving the editor cursor into a slide makes that slide active', async ({
 
 // ─── Text-edit gesture (round-trip) ──────────────────────────────
 
-test('double-click on a text span makes it editable; Enter commits', async ({
+test('double-click on TextBox enters continuous editing; Mod-Enter commits', async ({
   page,
 }) => {
   await page.goto('/canvas.html?fixture=single-textbox');
@@ -272,10 +272,10 @@ test('double-click on a text span makes it editable; Enter commits', async ({
     .locator('.sw-canvas-stage [data-sw-text-span-start]')
     .first();
   await textSpan.dblclick();
-  // Replace the contents (Cmd+A then type) and commit with Enter.
+  // Replace the document and commit the session with Mod-Enter.
   await page.keyboard.press('ControlOrMeta+A');
   await page.keyboard.type('World');
-  await page.keyboard.press('Enter');
+  await page.keyboard.press('ControlOrMeta+Enter');
   const source = await getSource(page);
   expect(source).toMatch(/content:\s*\[\s*"World"/);
   expect(source).not.toMatch(/content:\s*\[\s*"Hello"/);

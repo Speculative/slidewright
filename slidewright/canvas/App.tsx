@@ -33,6 +33,10 @@ import {
 import { parse } from '../runtime/parser.js';
 import { paragraphDocument } from '../runtime/ast-builders.js';
 import type { Diagnostic } from '../runtime/diagnostics.js';
+import type { Scope } from '../runtime/scope.js';
+import { slotFill } from '../runtime/ast-builders.js';
+import { RichTextEditor, type TextEditorSnapshot, type TextSessionHandle } from './rich-text/Editor.js';
+import { TextDocumentSessionContext } from './text-document-context.js';
 import { components, staticTokens } from '../../decks/v0-reference/registry.js';
 import { DeckMetaContext } from '../../src/Slide.jsx';
 
@@ -50,6 +54,7 @@ import {
   type DragStart,
   type EmptyTextSlotEditTarget,
   type TextEditTarget,
+  type TextDocumentEditTarget,
 } from './ScaledCanvas.js';
 import {
   addStringSlotFill,
@@ -106,6 +111,7 @@ interface DeckMeta {
 }
 
 interface RenderState {
+  scope: Scope;
   slides: ReactElement[];
   diagnostics: Diagnostic[];
   fileName: string;
@@ -847,6 +853,8 @@ export function App({
     ),
   );
   const [editing, setEditing] = useState<TextEditTarget | null>(null);
+  const [richEditing, setRichEditing] = useState<TextEditorSnapshot | null>(null);
+  const richSessionRef = useRef<TextSessionHandle | null>(null);
   // Set when the user dblclicks an empty text-slot placeholder.
   // The handler commits an empty `slotName: ""` fill, then queues
   // this baton so a follow-up effect (after the commit re-renders
@@ -946,6 +954,47 @@ export function App({
     },
     [host],
   );
+
+  const startRichEditing = useCallback((target: TextDocumentEditTarget) => {
+    const current = stateRef.current;
+    if (!current) return;
+    const parsed = parse(sourceRef.current, '<text-session>');
+    if (parsed.diagnostics.some(d => d.severity === 'error')) return;
+    const component = findComponentAtSpan(parsed.ast, target.span.start, target.span.end);
+    if (!component || components[component.name]?.meta.slots.content?.type !== 'text-document') return;
+    setEditing(null);
+    setGestureMeta(null);
+    setSelected([componentTarget(target.span)]);
+    setRichEditing({ component, content: component.fills.find(f => f.name === 'content')?.value,
+      source: sourceRef.current, slideIdx: activeIdxRef.current, scope: current.scope, colorTokens: current.colorTokens,
+      clientX: target.clientX, clientY: target.clientY });
+  }, []);
+
+  const finishRichEditing = useCallback((snapshot: TextEditorSnapshot, intent: 'commit' | 'cancel', value: import('../runtime/ast.js').Value | undefined, changed: boolean) => {
+    richSessionRef.current = null;
+    setRichEditing(null);
+    if (intent !== 'commit' || !changed || !value || sourceRef.current !== snapshot.source) return;
+    let path: ReturnType<typeof pathToComponent> = null;
+    const result = commitSourceEdit(snapshot.source, '<text-session>', ast => {
+      const comp = findComponentAtSpan(ast, snapshot.component.span.start.offset, snapshot.component.span.end.offset);
+      if (!comp) return null;
+      path = pathToComponent(ast, comp);
+      const fill = comp.fills.find(f => f.name === 'content');
+      if (fill) fill.value = value;
+      else comp.fills.push(slotFill('content', value));
+      return {};
+    });
+    if (!result) return;
+    const restored = path ? componentByPath(parse(result.newSource, '<text-selection>').ast, path) : null;
+    commitToHost(result.newSource, restored ? [{ start: restored.span.start.offset, end: restored.span.end.offset }] : undefined);
+  }, [commitToHost]);
+
+  useEffect(() => {
+    if (richEditing && richEditing.slideIdx !== activeIdx) {
+      richSessionRef.current?.finish('cancel');
+      setRichEditing(null);
+    }
+  }, [activeIdx, richEditing]);
 
   // Scrub session: a single drag on the inspector's numeric key
   // emits a stream of source previews on pointermove and one
@@ -1114,6 +1163,13 @@ export function App({
 
   useEffect(() => {
     return host.subscribe(({ source, fileName, assets }) => {
+      // Source authority is synchronous: a pending blur/IME callback must
+      // never commit a draft over an external replacement.
+      if (!internalSourceChangeRef.current) {
+        richSessionRef.current?.finish('cancel');
+        setRichEditing(null);
+      }
+      sourceRef.current = source;
       const scope = {
         bindings: { ...staticTokens, ...assets },
       };
@@ -1136,6 +1192,7 @@ export function App({
       const prevState = stateRef.current;
       setState((prev) => {
         const next: RenderState = {
+          scope,
           slides: result.slides,
           diagnostics: result.diagnostics,
           fileName,
@@ -1460,7 +1517,7 @@ export function App({
       const t = e.target as HTMLElement | null;
       if (
         t &&
-        (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))
+        (t.isContentEditable || t.closest('.sw-rich-text-editor, .sw-text-session-actions') || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))
       ) {
         return;
       }
@@ -1493,10 +1550,6 @@ export function App({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [total]);
-
-  useEffect(() => {
-    sourceRef.current = state?.source ?? '';
-  }, [state]);
 
   // Pending text-edit baton drainer. Fires after every state
   // update; if the previous tick queued an empty-text-slot
@@ -2058,7 +2111,7 @@ export function App({
       const t = e.target as HTMLElement | null;
       if (
         t &&
-        (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))
+        (t.isContentEditable || t.closest('.sw-rich-text-editor, .sw-text-session-actions') || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))
       ) {
         // Editable text element has focus — defer to its native
         // handling for everything (typing, native undo).
@@ -2405,12 +2458,24 @@ export function App({
               onSelect={setActiveTool}
               onDragStart={handleToolDragStart}
             />
+            {richEditing && <div className="sw-text-session-actions" onKeyDown={event => event.stopPropagation()}>
+              <span>Editing text</span>
+              <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => richSessionRef.current?.finish('commit')}>Done</button>
+              <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => richSessionRef.current?.finish('cancel')}>Cancel</button>
+            </div>}
+            <TextDocumentSessionContext.Provider value={richEditing ? {
+              span: { start: richEditing.component.span.start.offset, end: richEditing.component.span.end.offset },
+              editor: <RichTextEditor snapshot={richEditing} registry={components}
+                onReady={handle => { richSessionRef.current = handle; }}
+                onFinish={(intent, value, changed) => finishRichEditing(richEditing, intent, value, changed)} />,
+            } : null}>
             <GestureProvider deltas={gestureDeltas}>
               <ScaledCanvas
                 selectableSpans={selectableSpans}
                 currentSelection={selected}
                 onSelectRange={(range: SourceRange) => host.sendSelection(range)}
                 onTextEdit={(target) => setEditing(target)}
+                onTextDocumentEdit={startRichEditing}
                 onEmptyTextSlotEdit={startEmptyTextSlotEdit}
                 onDragStart={(target) =>
                   startBodyDrag(target, selected, state.shapes, setGestureMeta, setGestureLive)
@@ -2471,7 +2536,7 @@ export function App({
                 detached DOM and never re-attach on nav-back. */}
               <SelectionLayer
                 key={`selection-${activeIdx}`}
-                selected={selected}
+                selected={richEditing ? [] : selected}
                 shapes={state.shapes}
                 gestureDeltas={gestureDeltas}
                 renderHandles={activeTool === SELECT_TOOL && !gestureMeta}
@@ -2487,6 +2552,7 @@ export function App({
               <CreatePreviewOverlay createPreview={createPreview} />
               <ToolDragOverlay toolDrag={toolDrag} />
             </GestureProvider>
+            </TextDocumentSessionContext.Provider>
           </div>
         ) : null}
       </div>

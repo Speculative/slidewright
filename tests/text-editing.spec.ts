@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { getEditorSource, setHostSource } from './editor-helpers';
+import { getEditorSource, setHostSource, selectRichText } from './editor-helpers';
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/canvas.html?fixture=slide-grade-text');
@@ -50,18 +50,20 @@ test('structured lists support ordered markers, starts, and nesting', async ({ p
 test('text inside a nested list remains directly editable on canvas', async ({ page }) => {
   const child = page.locator('.sw-canvas-stage').getByText('Editable child', { exact: true });
   await child.dblclick();
-  await page.keyboard.press('ControlOrMeta+A');
+  await expect(page.getByRole('textbox', { name: 'Edit text' })).toBeVisible();
+  await selectRichText(page, 'Editable child', 0, 'Editable child', 14);
   await page.keyboard.type('Edited nested child');
-  await page.keyboard.press('Enter');
+  await page.keyboard.press('ControlOrMeta+Enter');
   await expect.poll(() => getEditorSource(page)).toContain('"Edited nested child"');
 });
 
 test('a bullet is directly editable on canvas and round-trips to source', async ({ page }) => {
   const bullet = page.locator('.sw-canvas-stage').getByText('First bullet', { exact: true });
   await bullet.dblclick();
-  await page.keyboard.press('ControlOrMeta+A');
+  await expect(page.getByRole('textbox', { name: 'Edit text' })).toBeVisible();
+  await selectRichText(page, 'First bullet', 0, 'First bullet', 12);
   await page.keyboard.type('Edited bullet');
-  await page.keyboard.press('Enter');
+  await page.keyboard.press('ControlOrMeta+Enter');
   await expect.poll(() => getEditorSource(page)).toContain('"Edited bullet"');
 });
 
@@ -126,9 +128,10 @@ test('paragraphs preserve spacing, alignment, and independent source edits', asy
   await expect(paragraphs.first()).toHaveCSS('text-align', 'right');
   await expect(paragraphs.first()).toHaveCSS('line-height', '51.2px');
   await paragraphs.last().getByText('Second paragraph', { exact: true }).dblclick();
-  await page.keyboard.press('ControlOrMeta+A');
+  await expect(page.getByRole('textbox', { name: 'Edit text' })).toBeVisible();
+  await selectRichText(page, 'Second paragraph', 0, 'Second paragraph', 16);
   await page.keyboard.type('Edited second paragraph');
-  await page.keyboard.press('Enter');
+  await page.keyboard.press('ControlOrMeta+Enter');
   const source = await getEditorSource(page);
   expect(source).toContain('"First paragraph"');
   expect(source).toContain('"Edited second paragraph"');
@@ -140,7 +143,7 @@ test('missing text document materializes a canonical paragraph when edited', asy
   await setHostSource(page, 'Deck { slides: [Slide { content: Freeform { children: [TextBox { x: 240 y: 180 width: 900 height: 300 }] } }] }');
   await page.locator('.sw-canvas-stage').getByText('content…', { exact: true }).dblclick();
   await page.keyboard.type('New paragraph');
-  await page.keyboard.press('Enter');
+  await page.keyboard.press('ControlOrMeta+Enter');
   await expect.poll(() => getEditorSource(page)).toMatch(/content:\s*\[\s*Paragraph\s*\{\s*content:\s*\[\s*"New paragraph"/);
   await expect(page.locator('.sw-canvas-stage p[data-sw-component="Paragraph"]')).toHaveText('New paragraph');
 });

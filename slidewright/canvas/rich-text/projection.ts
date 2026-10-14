@@ -160,7 +160,7 @@ export class TextProjection {
     // Provenance is separate from formatting. Distinct origins prevent
     // merging adjacent authored strings, without blocking continuous carets.
     marks.source = {
-      attrs: { id: { default: null }, ancestry: { default: [] } }, excludes: '',
+      attrs: { id: { default: null }, authoredId: { default: null }, ancestry: { default: [] } }, excludes: 'source',
       toDOM: mark => ['span', { 'data-sw-text-origin': mark.attrs.id ?? '' }, 0],
       // Never import session IDs from HTML pasted from another document.
     };
@@ -280,6 +280,7 @@ export class TextProjection {
     };
     const styleMap = (node: PMNode): Styles => Object.fromEntries(node.marks.filter(m => STYLE_FIELDS.includes(m.type.name as StyleField)).map(m => [m.type.name, { value: m.attrs.value, authored: m.attrs.authored }])) as Styles;
     const provenance = (node: PMNode) => node.marks.find(m => m.type.name === 'source');
+    const authoredId = (node: PMNode) => { const source = provenance(node); return source?.attrs.authoredId ?? source?.attrs.id; };
     const fieldValue = (style: StyleValue): Value => style.authored ?? (typeof style.value === 'number' ? numberLit(style.value) : typeof style.value === 'boolean' ? booleanLit(style.value) : stringLit(style.value));
     const nodesOf = (fragment: Fragment): PMNode[] => { const result: PMNode[] = []; fragment.forEach(node => result.push(node)); return result; };
     const contentValue = (before: Value | undefined, values: Value[]): Value => {
@@ -301,7 +302,7 @@ export class TextProjection {
       return inlineValue(before, values);
     };
     const leaf = (node: PMNode): Value => {
-      const bound = original(provenance(node)?.attrs.id ?? node.attrs.origin);
+      const bound = original(authoredId(node) ?? node.attrs.origin);
       if (node.isText || node.type.name === 'hard_break') {
         const text = node.isText ? node.text! : '\n';
         return bound?.value.kind === 'string' ? bound.value.value === text ? bound.value : { ...bound.value, value: text } : stringLit(text);
@@ -322,7 +323,7 @@ export class TextProjection {
       for (let index = 0; index < nodes.length;) {
         const node = nodes[index]!;
         const source = provenance(node);
-        const bound = original(source?.attrs.id);
+        const bound = original(authoredId(node));
         const styles = styleMap(node);
         const ancestry: string[] = source?.attrs.ancestry ?? [];
         const unchangedStyle = signature(styles) === signature(bound?.styles ?? {});
@@ -332,7 +333,7 @@ export class TextProjection {
           while (end < nodes.length) {
             const candidate = nodes[end]!;
             const candidateSource = provenance(candidate);
-            if (candidateSource?.attrs.ancestry[depth] !== ownerId || signature(styleMap(candidate)) !== signature(original(candidateSource?.attrs.id)?.styles ?? {})) break;
+            if (candidateSource?.attrs.ancestry[depth] !== ownerId || signature(styleMap(candidate)) !== signature(original(authoredId(candidate))?.styles ?? {})) break;
             end++;
           }
           const group = nodes.slice(index, end);
@@ -356,7 +357,7 @@ export class TextProjection {
           while (end < nodes.length) {
             const next = nodes[end]!;
             const nextSource = provenance(next);
-            if ((!next.isText && next.type.name !== 'hard_break') || nextSource?.attrs.id !== source?.attrs.id || JSON.stringify(nextSource?.attrs.ancestry ?? []) !== JSON.stringify(ancestry) || signature(styleMap(next)) !== signature(styles)) break;
+            if ((!next.isText && next.type.name !== 'hard_break') || authoredId(next) !== authoredId(node) || JSON.stringify(nextSource?.attrs.ancestry ?? []) !== JSON.stringify(ancestry) || signature(styleMap(next)) !== signature(styles)) break;
             value = { ...value, value: value.value + (next.isText ? next.text! : '\n') };
             end++;
           }

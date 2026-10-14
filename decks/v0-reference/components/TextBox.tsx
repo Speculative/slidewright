@@ -13,6 +13,7 @@
 
 import {
   useLayoutEffect,
+  useContext,
   useRef,
   useState,
   type ReactNode,
@@ -30,6 +31,7 @@ import {
   paragraphDocument,
 } from '../../../slidewright/runtime/ast-builders.js';
 import { makeRectAdapter } from '../../../slidewright/canvas/rect-adapter.js';
+import { TextDocumentEditorContext } from '../../../slidewright/canvas/text-document-context.js';
 
 export const slidewright: ComponentMeta = {
   produces: 'block',
@@ -82,6 +84,7 @@ export const slidewright: ComponentMeta = {
 };
 
 export default function TextBox({ slots, params }: ComponentRenderProps) {
+  const editor = useContext(TextDocumentEditorContext);
   const x = (params.x as number | undefined) ?? 0;
   const y = (params.y as number | undefined) ?? 0;
   const width = (params.width as number | undefined) ?? 320;
@@ -168,7 +171,7 @@ export default function TextBox({ slots, params }: ComponentRenderProps) {
           overflowWrap: wrap ? 'break-word' : 'normal',
         }}
       >
-        {content}
+        {editor ?? content}
       </div>
     </div>
   );

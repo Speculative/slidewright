@@ -10,6 +10,8 @@ import type { Component, Value } from '../../runtime/ast.js';
 import { buildRegistry } from '../../runtime/contract.js';
 import { createElement } from 'react';
 import { slotFill, stringLit } from '../../runtime/ast-builders.js';
+import { leafIdentityPlugin, pointAt, positionAt, textRange } from '../rich-text/selection.js';
+import { mergeListItems } from '../rich-text/commands.js';
 
 const registry = buildRegistry({
   Pill: { slidewright: { produces: 'text', slots: { content: { type: 'text' } }, inlineEditing: { mode: 'transparent', contentSlot: 'content' } }, default: ({ slots }) => createElement('span', null, slots.content) },
@@ -123,6 +125,23 @@ listState = apply(listState, liftListItem(lists.projection.schema.nodes.list_ite
 const listSource = text(lists.projection.lower(listState.doc));
 assert.ok(listSource.includes('style: "upper-alpha"') && listSource.includes('start: 3'));
 assert.ok(!listSource.includes('children: List {'));
+listState = atText(listState, 'ond');
+listState = apply(listState, mergeListItems(-1));
+assert.ok(text(lists.projection.lower(listState.doc)).includes('"second"'));
+
+const identities = compile('[Paragraph { content: ["abc😀def"] }]');
+let identityState = EditorState.create({ doc: identities.projection.doc, plugins: [leafIdentityPlugin()] });
+const beforePoint = pointAt(identityState.doc, 4)!;
+assert.equal(beforePoint.offset, 3);
+assert.equal(positionAt(identityState.doc, beforePoint), 4);
+identityState = atText(identityState, 'abc😀def', 3);
+identityState = apply(identityState, splitBlock);
+const rightPoint = pointAt(identityState.doc, identityState.selection.from)!;
+assert.notEqual(rightPoint.nodeId, beforePoint.nodeId, 'split right leaf gets a synthetic session identity');
+assert.ok(textRange(identityState.doc, identityState.selection.anchor, identityState.selection.head));
+assert.equal(positionAt(identityState.doc, rightPoint), identityState.selection.from);
+identityState = apply(identityState, joinBackward);
+assert.equal(identities.projection.lower(identityState.doc), identities.value, 'split/merge preserves original authored value after identity normalization');
 
 const custom = compile('[Paragraph { content: [Pill { content: ["pill"] } Formula { expression: "x + y" } Derived { content: "computed" } term] }]');
 let customState = EditorState.create({ doc: custom.projection.doc });

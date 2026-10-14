@@ -13,7 +13,7 @@
 // gesture delta). React handles re-rendering automatically. No
 // imperative DOM mutation during gestures.
 
-import { createElement, type ReactElement } from 'react';
+import { createElement, useContext, type ReactElement } from 'react';
 
 import type { WrapShape, WrapShapeInput } from '../runtime/loader.js';
 import type { ComponentRenderProps } from '../runtime/contract.js';
@@ -21,9 +21,12 @@ import type { ComponentRenderProps } from '../runtime/contract.js';
 import { useShapeDelta } from './gesture-context.js';
 import type { LayoutAdapter } from './layout-adapter.js';
 import type { ShapeAdapter } from './shape-adapter.js';
+import { TextDocumentEditorContext, TextDocumentSessionContext } from './text-document-context.js';
 
 function ShapeProjection(input: WrapShapeInput): ReactElement {
   const { comp, loaded, slots, params, slotsState, cellKey } = input;
+  const session = useContext(TextDocumentSessionContext);
+  const editor = session?.span.start === comp.span.start.offset && session.span.end === comp.span.end.offset ? session.editor : null;
   // Accept either a ShapeAdapter (applyGesture required) or a
   // LayoutAdapter (applyGesture optional — only set when the layout
   // has a gesture that mutates its own params, e.g., gap-drag).
@@ -45,12 +48,12 @@ function ShapeProjection(input: WrapShapeInput): ReactElement {
       'data-sw-span-end': comp.span.end.offset,
       style: { display: 'contents' },
     },
-    createElement(loaded.render, {
+    createElement(TextDocumentEditorContext.Provider, { value: editor }, createElement(loaded.render, {
       slots: slots as ComponentRenderProps['slots'],
       params: adjustedParams,
       slotsState,
       key: cellKey,
-    }),
+    })),
   );
 }
 

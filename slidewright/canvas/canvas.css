@@ -266,6 +266,24 @@ html, body, #root {
   flex-shrink: 0;
 }
 
+.sw-text-session-actions {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: white;
+  border: 1px solid #aaa;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.sw-rich-text-editor .ProseMirror p { margin: 0; }
+.sw-rich-text-editor .ProseMirror { white-space: inherit; overflow-wrap: inherit; }
+
 .sw-tool {
   font: inherit;
   font-size: 12px;

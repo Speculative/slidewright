@@ -49,6 +49,12 @@ export interface TextEditTarget {
   originalText: string;
 }
 
+export interface TextDocumentEditTarget {
+  span: SourceRange;
+  clientX: number;
+  clientY: number;
+}
+
 export interface DragStart {
   // The DOM node being dragged (the loader-wrapped data-sw-component
   // div for a positioned shape). Used by the drag handler to apply
@@ -129,6 +135,7 @@ interface Props {
   children: ReactNode;
   onSelectRange?: (range: SourceRange) => void;
   onTextEdit?: (target: TextEditTarget) => void;
+  onTextDocumentEdit?: (target: TextDocumentEditTarget) => void;
   // Fired when the user double-clicks an empty *text* slot
   // placeholder. Routes to a "materialize + enter edit" pipeline
   // App-side. Other slot types (block, slide) currently fall
@@ -388,6 +395,7 @@ export function ScaledCanvas({
   children,
   onSelectRange,
   onTextEdit,
+  onTextDocumentEdit,
   onEmptyTextSlotEdit,
   onDragStart,
   onCreateStart,
@@ -427,6 +435,18 @@ export function ScaledCanvas({
   const handleDoubleClick = (event: MouseEvent<HTMLDivElement>): void => {
     const target = event.target as Element | null;
     if (!target?.closest) return;
+    if (target.closest('.sw-rich-text-editor')) return;
+    const documentRoot = target.closest('[data-sw-textbox-content]');
+    const component = documentRoot?.closest('[data-sw-component]');
+    if (component instanceof HTMLElement && onTextDocumentEdit) {
+      const start = Number(component.getAttribute('data-sw-span-start'));
+      const end = Number(component.getAttribute('data-sw-span-end'));
+      if (Number.isFinite(start) && Number.isFinite(end)) {
+        onTextDocumentEdit({ span: { start, end }, clientX: event.clientX, clientY: event.clientY });
+        event.preventDefault();
+        return;
+      }
+    }
 
     // Override drilling on double-click: snap selection to the
     // innermost component under the cursor. Done here (not on
@@ -495,6 +515,7 @@ export function ScaledCanvas({
     if (event.button !== 0) return;
     const target = event.target as Element | null;
     if (!target?.closest) return;
+    if (target.closest('.sw-rich-text-editor')) return;
 
     // Shed focus from any editor-side text input as soon as the user
     // touches the canvas. Canvas content is mostly non-focusable
@@ -508,7 +529,11 @@ export function ScaledCanvas({
       active !== document.body &&
       (active.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName))
     ) {
+      const wasRichEditing = active.closest('.sw-rich-text-editor') !== null;
       active.blur();
+      // A rich-text blur can emit a new source tree. Do not start a
+      // gesture with the old event target's source spans in that turn.
+      if (wasRichEditing) return;
     }
 
     // Ctrl/Cmd+click: jump editor cursor to the clicked source span
@@ -696,6 +721,11 @@ export function ScaledCanvas({
       ref={wrapperRef}
       onDoubleClick={handleDoubleClick}
       onPointerDown={handlePointerDown}
+      onClick={event => {
+        // Canvas links are authoring content. Keep click/double-click
+        // available for selection/editing instead of navigating away.
+        if ((event.target as Element).closest('a[href]')) event.preventDefault();
+      }}
     >
       <div
         className="presentation-canvas"
