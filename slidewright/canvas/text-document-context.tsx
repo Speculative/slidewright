@@ -7,5 +7,6 @@ import type { SourceRange } from './host.js';
 export const TextDocumentSessionContext = createContext<{
   span: SourceRange;
   editor: ReactElement;
+  defaults?: Record<string, unknown>;
 } | null>(null);
 export const TextDocumentEditorContext = createContext<ReactElement | null>(null);

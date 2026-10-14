@@ -31,11 +31,12 @@ import {
   type SlideAstData,
 } from '../runtime/loader.js';
 import { parse } from '../runtime/parser.js';
-import { paragraphDocument } from '../runtime/ast-builders.js';
+import { numberLit, stringLit, booleanLit, nameRef, paragraphDocument } from '../runtime/ast-builders.js';
 import type { Diagnostic } from '../runtime/diagnostics.js';
 import type { Scope } from '../runtime/scope.js';
 import { slotFill } from '../runtime/ast-builders.js';
 import { RichTextEditor, type TextEditorSnapshot, type TextSessionHandle } from './rich-text/Editor.js';
+import { BoxSettings, type TextBoxDefault, type TextBoxDefaults } from './rich-text/BoxSettings.js';
 import type { TextFormattingState } from './rich-text/feedback.js';
 import { FormattingToolbar } from './rich-text/FormattingToolbar.js';
 import { TextDocumentSessionContext } from './text-document-context.js';
@@ -857,6 +858,8 @@ export function App({
   const [editing, setEditing] = useState<TextEditTarget | null>(null);
   const [richEditing, setRichEditing] = useState<TextEditorSnapshot | null>(null);
   const [textFormatting, setTextFormatting] = useState<TextFormattingState | null>(null);
+  const [boxDraft, setBoxDraft] = useState<TextBoxDefaults>({});
+  const boxDraftRef = useRef<TextBoxDefaults>({});
   const richSessionRef = useRef<TextSessionHandle | null>(null);
   // Set when the user dblclicks an empty text-slot placeholder.
   // The handler commits an empty `slotName: ""` fill, then queues
@@ -968,23 +971,32 @@ export function App({
     setEditing(null);
     setGestureMeta(null);
     setSelected([componentTarget(target.span)]);
+    boxDraftRef.current = {}; setBoxDraft({});
     setRichEditing({ component, content: component.fills.find(f => f.name === 'content')?.value,
       source: sourceRef.current, slideIdx: activeIdxRef.current, scope: current.scope, colorTokens: current.colorTokens,
       clientX: target.clientX, clientY: target.clientY });
   }, []);
 
   const finishRichEditing = useCallback((snapshot: TextEditorSnapshot, intent: 'commit' | 'cancel', value: import('../runtime/ast.js').Value | undefined, changed: boolean) => {
+    const defaults = boxDraftRef.current;
+    boxDraftRef.current = {}; setBoxDraft({});
     richSessionRef.current = null;
     setRichEditing(null);
-    if (intent !== 'commit' || !changed || !value || sourceRef.current !== snapshot.source) return;
+    if (intent !== 'commit' || (!changed && !Object.keys(defaults).length) || sourceRef.current !== snapshot.source) return;
     let path: ReturnType<typeof pathToComponent> = null;
     const result = commitSourceEdit(snapshot.source, '<text-session>', ast => {
       const comp = findComponentAtSpan(ast, snapshot.component.span.start.offset, snapshot.component.span.end.offset);
       if (!comp) return null;
       path = pathToComponent(ast, comp);
-      const fill = comp.fills.find(f => f.name === 'content');
-      if (fill) fill.value = value;
-      else comp.fills.push(slotFill('content', value));
+      if (value) {
+        const fill = comp.fills.find(f => f.name === 'content');
+        if (fill) fill.value = value; else comp.fills.push(slotFill('content', value));
+      }
+      for (const [field, setting] of Object.entries(defaults)) {
+        const next = typeof setting === 'boolean' ? booleanLit(setting) : typeof setting === 'number' ? numberLit(setting) : field === 'color' && setting in snapshot.colorTokens ? nameRef(setting) : stringLit(setting);
+        const fill = comp.fills.find(fill => fill.name === field);
+        if (fill) fill.value = next; else comp.fills.push(slotFill(field, next));
+      }
       return {};
     });
     if (!result) return;
@@ -2399,6 +2411,27 @@ export function App({
     singleTarget?.kind === 'component'
       ? findShapeForRange(state.shapes, singleTarget.span)
       : null;
+  const applyBoxSetting = (field: TextBoxDefault, setting: string | number | boolean) => {
+    if (richEditing) {
+      boxDraftRef.current = { ...boxDraftRef.current, [field]: setting };
+      setBoxDraft(boxDraftRef.current);
+      return;
+    }
+    if (selectedShape?.comp.name !== 'TextBox') return;
+    let path: ReturnType<typeof pathToComponent> = null;
+    const result = commitSourceEdit(sourceRef.current, '<text-box-setting>', ast => {
+      const comp = findComponentAtSpan(ast, selectedShape.comp.span.start.offset, selectedShape.comp.span.end.offset);
+      if (!comp) return null;
+      path = pathToComponent(ast, comp);
+      const next = typeof setting === 'boolean' ? booleanLit(setting) : typeof setting === 'number' ? numberLit(setting) : field === 'color' && setting in state.colorTokens ? nameRef(setting) : stringLit(setting);
+      const fill = comp.fills.find(fill => fill.name === field);
+      if (fill) fill.value = next; else comp.fills.push(slotFill(field, next));
+      return {};
+    });
+    if (!result) return;
+    const restored = path ? componentByPath(parse(result.newSource, '<box-selection>').ast, path) : null;
+    commitToHost(result.newSource, restored ? [{ start: restored.span.start.offset, end: restored.span.end.offset }] : undefined);
+  };
   const slotInfo: SlotInfo | null = (() => {
     if (!singleTarget || singleTarget.kind !== 'slot') return null;
     const parentShape = findShapeForRange(state.shapes, singleTarget.parentSpan);
@@ -2461,14 +2494,19 @@ export function App({
               onSelect={setActiveTool}
               onDragStart={handleToolDragStart}
             />
-            {richEditing && <div className="sw-text-session-actions" onKeyDown={event => event.stopPropagation()}>
+            {(richEditing || selectedShape?.comp.name === 'TextBox') && <div className="sw-text-session-actions" onKeyDown={event => event.stopPropagation()}
+              onBlur={event => { const next = event.relatedTarget; if (!(next instanceof Element) || !next.closest('.sw-text-session-actions, .sw-rich-text-editor')) richSessionRef.current?.finish('commit'); }}>
+              <BoxSettings onApply={applyBoxSetting} current={{ ...selectedShape?.params, ...boxDraft }} />
+              {richEditing && <>
               <FormattingToolbar session={richSessionRef} state={textFormatting} />
               <span>Editing text</span>
               <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => richSessionRef.current?.finish('commit')}>Done</button>
               <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => richSessionRef.current?.finish('cancel')}>Cancel</button>
+              </>}
             </div>}
             <TextDocumentSessionContext.Provider value={richEditing ? {
               span: { start: richEditing.component.span.start.offset, end: richEditing.component.span.end.offset },
+              defaults: { ...boxDraft, ...(typeof boxDraft.color === 'string' ? { color: richEditing.colorTokens[boxDraft.color] ?? boxDraft.color } : {}) },
               editor: <RichTextEditor snapshot={richEditing} registry={components}
                 onFormatting={setTextFormatting}
                 onReady={handle => { richSessionRef.current = handle; if (!handle) setTextFormatting(null); }}

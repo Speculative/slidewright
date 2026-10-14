@@ -50,7 +50,7 @@ function ShapeProjection(input: WrapShapeInput): ReactElement {
     },
     createElement(TextDocumentEditorContext.Provider, { value: editor }, createElement(loaded.render, {
       slots: slots as ComponentRenderProps['slots'],
-      params: adjustedParams,
+      params: editor ? { ...adjustedParams, ...session?.defaults } : adjustedParams,
       slotsState,
       key: cellKey,
     })),

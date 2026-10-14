@@ -282,6 +282,7 @@ test('paragraph toolbar applies hanging indentation to list content and preserve
   await expect(paragraph).toHaveCSS('text-align', 'right');
   expect(await getEditorSource(page)).toBe(before);
   await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect.poll(() => getEditorSource(page)).toContain('firstLineIndent: -18');
   const source = await getEditorSource(page);
   expect(source).toContain('firstLineIndent: -18');
   expect(source).toContain('indent: 36');
@@ -391,4 +392,48 @@ test('formatting feedback follows ranges, tokens, caret styles, and draft undo',
   await expect(page.getByLabel('Current text style', { exact: true })).toHaveText('accent');
   await expect(page.getByLabel('Formatting target', { exact: true })).toHaveText('Typing at caret');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+});
+
+test('whole-box settings join a text draft, preview, cancel, and commit with one undo', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-textbox');
+  const before = await getEditorSource(page);
+  await page.locator('.sw-canvas-stage').getByText('Hello', { exact: true }).dblclick();
+  const editor = page.getByRole('textbox', { name: 'Edit text' });
+  await expect(editor).toBeVisible();
+  await page.getByLabel('TextBox setting', { exact: true }).selectOption('fontSize');
+  await page.getByLabel('TextBox setting value', { exact: true }).fill('52');
+  await page.getByRole('button', { name: 'Apply box setting', exact: true }).click();
+  await expect(editor).toHaveCSS('font-size', '52px');
+  expect(await getEditorSource(page)).toBe(before);
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(await getEditorSource(page)).toBe(before);
+  await page.locator('.sw-canvas-stage').getByText('Hello', { exact: true }).dblclick();
+  await expect(editor).toBeVisible();
+  await selectRichText(page, 'Hello', 5);
+  await page.keyboard.type('!');
+  await page.getByLabel('TextBox setting value', { exact: true }).fill('48');
+  await page.getByRole('button', { name: 'Apply box setting', exact: true }).click();
+  await page.getByLabel('TextBox setting', { exact: true }).selectOption('wrap');
+  await page.getByLabel('TextBox setting value', { exact: true }).fill('false');
+  await page.getByRole('button', { name: 'Apply box setting', exact: true }).click();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  expect(await getEditorSource(page)).toContain('fontSize: 48');
+  expect(await getEditorSource(page)).toContain('wrap: false');
+  expect(await getEditorSource(page)).toContain('Hello!');
+  await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press('ControlOrMeta+Z');
+  await expect.poll(() => getEditorSource(page)).toBe(before);
+});
+
+test('selected TextBox defaults materialize through authoring controls without editing content', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-textbox');
+  await page.locator('.sw-canvas-stage').getByText('Hello', { exact: true }).click();
+  const before = await getEditorSource(page);
+  await page.getByLabel('TextBox setting', { exact: true }).selectOption('font');
+  await page.getByLabel('TextBox setting value', { exact: true }).fill('Georgia');
+  await page.getByRole('button', { name: 'Apply box setting', exact: true }).click();
+  await expect.poll(() => getEditorSource(page)).toContain('font: "Georgia"');
+  await expect(page.locator('.sw-canvas-stage').getByText('Hello', { exact: true })).toHaveCSS('font-family', 'Georgia');
+  expect(await getEditorSource(page)).toContain('"Hello"');
+  expect(await getEditorSource(page)).not.toBe(before);
 });
