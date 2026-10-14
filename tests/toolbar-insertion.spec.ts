@@ -120,6 +120,28 @@ test('toolbar surfaces all registered components grouped by category', async ({ 
   }
 });
 
+test('expanded toolbar scrolls within the stage and leaves the inspector usable', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto('/canvas.html?fixture=single-box');
+  const palette = page.locator('.sw-tool-palette');
+  await expect(palette).toHaveCSS('overflow-y', 'auto');
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
+  const key = page.locator('.sw-property-row', { hasText: /^x/ }).first().locator('.sw-property-key');
+  const bounds = await key.boundingBox();
+  if (!bounds) throw new Error('Missing inspector key');
+  const x = bounds.x + bounds.width / 2;
+  const y = bounds.y + bounds.height / 2;
+  expect(await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.classList.contains('sw-property-key'), { x, y })).toBe(true);
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await expect(page.locator('body.sw-scrubbing')).toHaveCount(1);
+  await page.mouse.move(x + 50, y, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(() => getSource(page)).toMatch(/x:\s*450/);
+  await palette.getByRole('button', { name: 'Video', exact: true }).click();
+  await expect(palette.getByRole('button', { name: 'Video', exact: true })).toHaveAttribute('aria-pressed', 'true');
+});
+
 test('filter input narrows the visible entries', async ({ page }) => {
   await page.goto('/canvas.html?fixture=empty-freeform');
   const filter = page.locator('.sw-tool-search');
