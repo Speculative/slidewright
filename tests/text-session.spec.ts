@@ -263,3 +263,72 @@ test('clear formatting removes only the selected styles and supports draft undo'
   expect(await getEditorSource(page)).toContain('href: "https://example.com/rich-text"');
   expect(await getEditorSource(page)).not.toBe(before);
 });
+
+test('paragraph toolbar applies hanging indentation to list content and preserves nested lists', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=slide-grade-text');
+  const before = await getEditorSource(page);
+  await page.locator('.sw-canvas-stage').getByText('Structured item', { exact: true }).dblclick();
+  const editor = page.getByRole('textbox', { name: 'Edit text' });
+  await expect(editor).toBeVisible();
+  await selectRichText(page, 'Structured item', 3);
+  for (const [field, value] of [['indent', '36'], ['firstLineIndent', '-18'], ['spaceAfter', '12'], ['align', 'right']]) {
+    await page.getByLabel('Paragraph style', { exact: true }).selectOption(field);
+    await page.getByLabel('Paragraph value', { exact: true }).fill(value);
+    await page.getByRole('button', { name: 'Apply paragraph', exact: true }).click();
+  }
+  const paragraph = editor.locator('p').filter({ hasText: 'Structured item' });
+  await expect(paragraph).toHaveCSS('margin-left', '36px');
+  await expect(paragraph).toHaveCSS('text-indent', '-18px');
+  await expect(paragraph).toHaveCSS('text-align', 'right');
+  expect(await getEditorSource(page)).toBe(before);
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  const source = await getEditorSource(page);
+  expect(source).toContain('firstLineIndent: -18');
+  expect(source).toContain('indent: 36');
+  const rendered = page.locator('.sw-canvas-stage p').filter({ hasText: 'Structured item' });
+  await expect(rendered).toHaveCSS('text-indent', '-18px');
+  await expect(rendered).toHaveCSS('margin-bottom', '12px');
+  await page.locator('.sw-canvas-stage').getByText('Structured item', { exact: true }).dblclick();
+  await expect(editor.locator('p').filter({ hasText: 'Structured item' })).toHaveCSS('margin-left', '36px');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+});
+
+test('paragraph formatting spans multiple owners without changing unselected paragraphs', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-textbox');
+  await page.locator('.sw-canvas-stage').getByText('Hello', { exact: true }).dblclick();
+  const editor = page.getByRole('textbox', { name: 'Edit text' });
+  await expect(editor).toBeVisible();
+  await selectRichText(page, 'Hello', 5);
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Second');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Third');
+  await selectRichText(page, 'Hello', 2, 'Second', 3);
+  await page.getByLabel('Paragraph style', { exact: true }).selectOption('spaceAfter');
+  await page.getByLabel('Paragraph value', { exact: true }).fill('20');
+  await page.getByRole('button', { name: 'Apply paragraph', exact: true }).click();
+  await expect(editor.locator('p').nth(0)).toHaveCSS('margin-bottom', '20px');
+  await expect(editor.locator('p').nth(1)).toHaveCSS('margin-bottom', '20px');
+  await expect(editor.locator('p').nth(2)).toHaveCSS('margin-bottom', '0px');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  expect((await getEditorSource(page)).match(/spaceAfter: 20/g)).toHaveLength(2);
+});
+
+test('soft line breaks stay inside a paragraph while Enter creates a new source owner', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-textbox');
+  await page.locator('.sw-canvas-stage').getByText('Hello', { exact: true }).dblclick();
+  const editor = page.getByRole('textbox', { name: 'Edit text' });
+  await expect(editor).toBeVisible();
+  await selectRichText(page, 'Hello', 5);
+  await page.keyboard.press('Shift+Enter');
+  await page.keyboard.type('Soft');
+  await expect(editor.locator('p')).toHaveCount(1);
+  await expect(editor.locator('br')).toHaveCount(1);
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Paragraph');
+  await expect(editor.locator('p')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  const source = await getEditorSource(page);
+  expect(source).toContain('Hello\\nSoft');
+  expect((source.match(/Paragraph \{/g) ?? []).length).toBe(2);
+});

@@ -11,7 +11,7 @@ import { buildRegistry } from '../../runtime/contract.js';
 import { createElement } from 'react';
 import { slotFill, stringLit } from '../../runtime/ast-builders.js';
 import { leafIdentityPlugin, pointAt, positionAt, textRange } from '../rich-text/selection.js';
-import { mergeListItems, setTextStyle, clearTextStyles } from '../rich-text/commands.js';
+import { mergeListItems, setTextStyle, clearTextStyles, setParagraphStyle } from '../rich-text/commands.js';
 
 const registry = buildRegistry({
   Pill: { slidewright: { produces: 'text', slots: { content: { type: 'text' } }, inlineEditing: { mode: 'transparent', contentSlot: 'content' } }, default: ({ slots }) => createElement('span', null, slots.content) },
@@ -195,3 +195,19 @@ assert.ok(!text(toolbar.projection.lower(toolbarState.doc)).includes('size: 42')
 assert.ok(text(toolbar.projection.lower(toolbarState.doc)).includes('color: accent'));
 toolbarState = apply(toolbarState, undo);
 assert.ok(toolbarState.doc.eq(styledToolbarDoc), 'clear formatting is one history operation');
+
+const paragraphFormatting = compile('[Paragraph { content: ["abc"] } List { items: [ListItem { content: ["def"] children: List { items: [ListItem { content: ["nested"] }] } }] } Paragraph { content: ["untouched"] }]');
+let paragraphStyleState = EditorState.create({ doc: paragraphFormatting.projection.doc, plugins: [history()] });
+paragraphStyleState = atText(paragraphStyleState, 'def', 1);
+paragraphStyleState = apply(paragraphStyleState, setParagraphStyle('indent', 30));
+paragraphStyleState = apply(paragraphStyleState, setParagraphStyle('firstLineIndent', -15));
+const paragraphLowered = paragraphFormatting.projection.lower(paragraphStyleState.doc);
+assert.equal(blocks(paragraphLowered)[0], blocks(paragraphFormatting.value)[0]);
+assert.equal(blocks(paragraphLowered)[2], blocks(paragraphFormatting.value)[2]);
+assert.ok(text(paragraphLowered).includes('firstLineIndent: -15'));
+const formattedItem = (fill(blocks(paragraphLowered)[1]!, 'items') as {items: Component[]}).items[0]!;
+assert.equal(fill(formattedItem, 'indent').kind, 'number');
+assert.equal(fill(formattedItem, 'children'), fill((fill(blocks(paragraphFormatting.value)[1]!, 'items') as {items: Component[]}).items[0]!, 'children'));
+assert.equal(new TextProjection({ content: paragraphLowered, registry }).doc.child(1).firstChild!.firstChild!.attrs.firstLineIndent, -15);
+paragraphStyleState = apply(paragraphStyleState, liftListItem(paragraphStyleState.schema.nodes.list_item!));
+assert.equal(blocks(paragraphFormatting.projection.lower(paragraphStyleState.doc))[1]!.name, 'Paragraph');

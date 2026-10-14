@@ -1,3 +1,4 @@
+import { PARAGRAPH_FIELDS } from '../../runtime/contract.js';
 // Private ProseMirror adapter. Public registry/source contracts contain
 // no ProseMirror types or positions. The authored AST is never mutated.
 import { Fragment, Schema, type Mark, type MarkSpec, type Node as PMNode, type NodeSpec } from 'prosemirror-model';
@@ -84,14 +85,16 @@ export class TextProjection {
       doc: { content: 'block+' },
       paragraph: {
         group: 'block', content: 'inline*',
-        attrs: { ...origin, spaceBefore: { default: 0 }, spaceAfter: { default: 0 }, align: { default: null }, lineHeight: { default: null } },
+        attrs: { ...origin, spaceBefore: { default: 0 }, spaceAfter: { default: 0 }, align: { default: null }, lineHeight: { default: null }, indent: { default: 0 }, firstLineIndent: { default: 0 } },
         parseDOM: [{ tag: 'p', getAttrs: dom => ({
           spaceBefore: parseFloat(dom.style.marginTop) || 0,
+          indent: parseFloat(dom.style.marginLeft) || 0,
+          firstLineIndent: parseFloat(dom.style.textIndent) || 0,
           spaceAfter: parseFloat(dom.style.marginBottom) || 0,
           align: dom.style.textAlign || null,
           lineHeight: parseFloat(dom.style.lineHeight) || null,
         }) }],
-        toDOM: node => ['p', { style: `margin:${node.attrs.spaceBefore}px 0 ${node.attrs.spaceAfter}px;${node.attrs.align ? `text-align:${node.attrs.align};` : ''}${node.attrs.lineHeight ? `line-height:${node.attrs.lineHeight};` : ''}` }, 0],
+        toDOM: node => ['p', { style: `margin:${node.attrs.spaceBefore}px 0 ${node.attrs.spaceAfter}px ${node.attrs.indent}px;text-indent:${node.attrs.firstLineIndent}px;${node.attrs.align ? `text-align:${node.attrs.align};` : ''}${node.attrs.lineHeight ? `line-height:${node.attrs.lineHeight};` : ''}` }, 0],
       },
       bullet_list: { group: 'block', content: 'list_item+', attrs: listAttrs, parseDOM: [{ tag: 'ul' }], toDOM: node => ['ul', { style: `margin:0;padding-inline-start:1.35em;list-style-type:${node.attrs.style}` }, 0] },
       ordered_list: { group: 'block', content: 'list_item+', attrs: { ...listAttrs, style: { default: 'decimal' } }, parseDOM: [{ tag: 'ol', getAttrs: dom => ({ start: Number(dom.getAttribute('start') ?? 1), style: dom.style.listStyleType || 'decimal' }) }], toDOM: node => ['ol', { start: node.attrs.start, style: `margin:0;padding-inline-start:1.35em;list-style-type:${node.attrs.style}` }, 0] },
@@ -227,8 +230,8 @@ export class TextProjection {
   }
   private paragraph(bound: Bound | null, children: PMNode[]): PMNode {
     const comp = bound?.value.kind === 'component' ? bound.value : undefined;
-    const attrs: Record<string, unknown> = { origin: bound?.id ?? null };
-    for (const name of ['spaceBefore', 'spaceAfter', 'align', 'lineHeight']) {
+    const attrs: Record<string, unknown> = { origin: comp?.name === 'ListItem' ? null : bound?.id ?? null };
+    for (const name of PARAGRAPH_FIELDS) {
       const value = comp ? fillValue(comp, name) : undefined;
       if (value) attrs[name] = scalar(value, 0);
     }
@@ -258,7 +261,7 @@ export class TextProjection {
     const content = fillValue(value, 'content');
     const children = fillValue(value, 'children');
     const node = this.schema.node('list_item', { origin: bound.id }, [
-      this.paragraph(null, content ? this.inline(content, [...path, { kind: 'fill', name: 'content' }], []) : []),
+      this.paragraph(bound, content ? this.inline(content, [...path, { kind: 'fill', name: 'content' }], []) : []),
       ...(children && children.kind !== 'omit' ? [this.block(children, [...path, { kind: 'fill', name: 'children' }])] : []),
     ]);
     bound.projected = node;
@@ -389,10 +392,10 @@ export class TextProjection {
       if (node.type.name === 'paragraph') {
         let value = fresh(bound, 'Paragraph');
         value = setFill(value, 'content', contentValue(fillValue(value, 'content'), inline(nodesOf(node.content))));
-        for (const name of ['spaceBefore', 'spaceAfter', 'align', 'lineHeight']) {
+        for (const name of PARAGRAPH_FIELDS) {
           const current = node.attrs[name];
           const prior = fillValue(value, name);
-          if (scalar(prior, name === 'spaceBefore' || name === 'spaceAfter' ? 0 : '') === (current ?? '')) continue;
+          if (scalar(prior, name === 'align' || name === 'lineHeight' ? '' : 0) === (current ?? '')) continue;
           value = setFill(value, name, current === null ? undefined : typeof current === 'number' ? numberLit(current) : stringLit(current));
         }
         return value;
@@ -418,6 +421,12 @@ export class TextProjection {
       }
       let value = fresh(bound, 'ListItem');
       value = setFill(value, 'content', contentValue(fillValue(value, 'content'), inline(nodesOf(node.firstChild!.content))));
+      for (const name of PARAGRAPH_FIELDS) {
+        const current = node.firstChild!.attrs[name];
+        const prior = fillValue(value, name);
+        if (scalar(prior, name === 'align' || name === 'lineHeight' ? '' : 0) === (current ?? '')) continue;
+        value = setFill(value, name, current === null ? undefined : typeof current === 'number' ? numberLit(current) : stringLit(current));
+      }
       const nested = node.childCount > 1 ? block(node.child(1)) : undefined;
       value = setFill(value, 'children', nested ?? (fillValue(value, 'children')?.kind === 'omit' ? fillValue(value, 'children') : undefined));
       return value;

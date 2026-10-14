@@ -917,32 +917,36 @@ function renderListItemAsNode(comp: Component, ctx: LoadCtx): ReactNode {
       'data-sw-span-start': comp.span.start.offset,
       'data-sw-span-end': comp.span.end.offset,
     },
-    content ? resolveTextValue(content.value, ctx) : null,
+    createElement('p', { style: paragraphStyle(comp, ctx) }, content ? resolveTextValue(content.value, ctx) : null),
     nested,
   );
+}
+
+function paragraphStyle(comp: Component, ctx: LoadCtx): Record<string, string | number> {
+  const fills = byName(comp.fills);
+  const before = readNumber(fills.get('spaceBefore'), ctx) ?? 0;
+  const after = readNumber(fills.get('spaceAfter'), ctx) ?? 0;
+  const align = readString(fills.get('align'), ctx);
+  const lineHeight = readNumber(fills.get('lineHeight'), ctx);
+  return {
+    margin: 0, marginTop: `${before}px`, marginBottom: `${after}px`, minHeight: '1em',
+    marginLeft: `${readNumber(fills.get('indent'), ctx) ?? 0}px`,
+    textIndent: `${readNumber(fills.get('firstLineIndent'), ctx) ?? 0}px`,
+    ...(align ? { textAlign: align } : {}),
+    ...(lineHeight !== undefined ? { lineHeight } : {}),
+  };
 }
 
 function renderParagraphAsNode(comp: Component, ctx: LoadCtx): ReactNode {
   validateAgainstMeta(comp, BUILTIN_META.Paragraph!, ctx);
   const fills = byName(comp.fills);
   const content = fills.get('content');
-  const before = readNumber(fills.get('spaceBefore'), ctx) ?? 0;
-  const after = readNumber(fills.get('spaceAfter'), ctx) ?? 0;
-  const align = readString(fills.get('align'), ctx);
-  const lineHeight = readNumber(fills.get('lineHeight'), ctx);
   return createElement('p', {
     key: cellKey(comp),
     'data-sw-component': 'Paragraph',
     'data-sw-span-start': comp.span.start.offset,
     'data-sw-span-end': comp.span.end.offset,
-    style: {
-      margin: 0,
-      marginTop: `${before}px`,
-      marginBottom: `${after}px`,
-      minHeight: '1em',
-      ...(align ? { textAlign: align } : {}),
-      ...(lineHeight !== undefined ? { lineHeight } : {}),
-    },
+    style: paragraphStyle(comp, ctx),
   }, content ? resolveTextValue(content.value, ctx) : null);
 }
 

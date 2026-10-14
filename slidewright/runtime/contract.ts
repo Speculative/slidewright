@@ -262,6 +262,16 @@ export function buildRegistry(
 // Built-in components have meta but their render path is special-cased
 // in the renderer (e.g., inline text structures don't go through regular
 // registry dispatch because text-value resolution treats them as data).
+export const PARAGRAPH_FIELDS = ['spaceBefore', 'spaceAfter', 'align', 'lineHeight', 'indent', 'firstLineIndent'] as const;
+const paragraphParams: Record<string, ParamSchema> = {
+  spaceBefore: { type: 'number', default: 0 },
+  spaceAfter: { type: 'number', default: 0 },
+  align: { type: 'string' },
+  lineHeight: { type: 'number' },
+  indent: { type: 'number', default: 0 },
+  firstLineIndent: { type: 'number', default: 0 },
+};
+
 export const BUILTIN_META: Record<string, ComponentMeta> = {
   Span: {
     produces: 'text',
@@ -296,16 +306,12 @@ export const BUILTIN_META: Record<string, ComponentMeta> = {
       content: { type: 'text', required: true },
       children: { type: 'text-document', required: false },
     },
+    params: paragraphParams,
   },
   Paragraph: {
     produces: 'text-document',
     slots: { content: { type: 'text', required: true } },
-    params: {
-      spaceBefore: { type: 'number', default: 0 },
-      spaceAfter: { type: 'number', default: 0 },
-      align: { type: 'string' },
-      lineHeight: { type: 'number' },
-    },
+    params: paragraphParams,
   },
   Deck: {
     produces: 'slide', // not exactly — but Deck is the source-file root,

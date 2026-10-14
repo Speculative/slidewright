@@ -5,6 +5,24 @@ import { baseKeymap, chainCommands, deleteSelection, joinBackward, joinForward, 
 import { closeHistory, undo, redo } from 'prosemirror-history';
 import { splitListItem, sinkListItem, liftListItem } from 'prosemirror-schema-list';
 import { STYLE_FIELDS } from './projection.js';
+import type { PARAGRAPH_FIELDS } from '../../runtime/contract.js';
+
+export type ParagraphField = typeof PARAGRAPH_FIELDS[number];
+export function setParagraphStyle(field: ParagraphField, value: string | number | null): Command {
+  return (state, dispatch) => {
+    const { from, to } = state.selection;
+    const tr = closeHistory(state.tr);
+    state.doc.nodesBetween(from, to, (node, pos) => {
+      if (node.type.name === 'paragraph') {
+        const next = value ?? (field === 'align' || field === 'lineHeight' ? null : 0);
+        tr.setNodeMarkup(pos, undefined, { ...node.attrs, [field]: next });
+        return false;
+      }
+    });
+    if (dispatch) dispatch(tr);
+    return true;
+  };
+}
 
 export function setTextStyle(field: typeof STYLE_FIELDS[number], value: string | number | boolean | null): Command {
   return (state, dispatch) => {
