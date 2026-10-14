@@ -7,7 +7,7 @@
 // strip layout (hierarchy + properties + bottomExtra), so the
 // standalone is a thin wrapper around App.
 
-import { StrictMode, useEffect, useMemo } from 'react';
+import { StrictMode, useEffect, useMemo, useState } from 'react';
 import type { ReactElement } from 'react';
 import { createRoot } from 'react-dom/client';
 
@@ -16,9 +16,11 @@ import '../slidewright/canvas/canvas.css';
 
 import { App } from '../slidewright/canvas/App.js';
 import { EditorPane } from '../slidewright/canvas/EditorPane.js';
+import { StandaloneControls } from './StandaloneControls.js';
 import { StandaloneHost } from './standalone-host.js';
 
 function Standalone(): ReactElement {
+  const [presenting, setPresenting] = useState(false);
   const host = useMemo(() => new StandaloneHost(), []);
 
   // Test hook. Exposes the canvas's host on window so e2e tests can
@@ -41,12 +43,19 @@ function Standalone(): ReactElement {
   }, [host]);
 
   return (
+    <div className={`sw-standalone${presenting ? ' sw-presenting' : ''}`} onKeyDownCapture={event => {
+      if (presenting && (['Delete', 'Backspace'].includes(event.key) || (event.ctrlKey || event.metaKey) && ['z', 'y'].includes(event.key.toLowerCase()))) {
+        event.preventDefault(); event.stopPropagation();
+      }
+    }}>
+    <StandaloneControls host={host} presenting={presenting} onPresent={() => setPresenting(value => !value)} />
     <App
       host={host}
       bottomExtra={(projection) => (
         <EditorPane host={host} projection={projection} />
       )}
     />
+    </div>
   );
 }
 

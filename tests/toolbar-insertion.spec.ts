@@ -210,11 +210,10 @@ test('drag VStack to before-first gap inserts at index 0', async ({ page }) => {
   // Aim a few pixels above the first card's top edge — that's the
   // before-first gap.
   await dragToolToPoint(page, 'VStack', firstBox.x + firstBox.width / 2, firstBox.y - 2);
-  const source = await getSource(page);
   // VStack should appear *before* the first CardRow. Match the
   // children list order — first item after the `[` should be the
   // new VStack.
-  expect(source).toMatch(/children:\s*\[\s*VStack\s*\{[^}]*\}\s*CardRow/s);
+  await expect.poll(() => getSource(page)).toMatch(/children:\s*\[\s*VStack\s*\{[^}]*\}\s*CardRow/s);
 });
 
 test('drag VStack between two children inserts at the middle index', async ({ page }) => {
@@ -342,9 +341,8 @@ test('drag inserts before the single child of a VStack', async ({ page }) => {
   // the bug present, axis is 'h' and this point is outside the
   // wrapper's vertical extent, so no drop registers.
   await dragToolToPoint(page, 'VStack', box.x + box.width / 2, box.y - 2);
-  const source = await getSource(page);
   // New VStack appears before the single CardRow.
-  expect(source).toMatch(/children:\s*\[\s*VStack\s*\{[^}]*\}\s*CardRow/s);
+  await expect.poll(() => getSource(page)).toMatch(/children:\s*\[\s*VStack\s*\{[^}]*\}\s*CardRow/s);
 });
 
 test('drag inserts after the single child of a VStack', async ({ page }) => {

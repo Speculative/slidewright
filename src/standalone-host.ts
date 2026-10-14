@@ -14,9 +14,6 @@
 // editor pane — sendSelection (canvas → pane) and setCursor
 // (pane → canvas) wire up bidirectional selection sync.
 //
-// HARDCODED FOR v0-REFERENCE: same as the webview path — the deck
-// imports are baked in. Generalizing to "any deck" is v0.2 territory.
-
 import plateauSource from '../decks/plateau-2026/deck.sw?raw';
 import deckSourceInitial from '../decks/v0-reference/deck.sw?raw';
 import headshotImg from '../decks/v0-reference/headshot.jpg';
@@ -53,21 +50,18 @@ for (const [path, source] of Object.entries(fixtureModules)) {
   if (match && match[1]) fixtures[match[1]] = source;
 }
 
-function pickInitialSource(): { source: string; fileName: string } {
-  if (typeof window === 'undefined') {
-    return { source: deckSourceInitial, fileName: FILE_NAME };
-  }
-  const fixtureName = new URLSearchParams(window.location.search).get(
-    'fixture',
-  );
-  if (fixtureName && fixtures[fixtureName]) {
-    return {
-      source: fixtures[fixtureName],
-      fileName: `tests/fixtures/${fixtureName}.sw`,
-    };
-  }
-  if (new URLSearchParams(window.location.search).get('deck') === 'plateau') return { source: plateauSource, fileName: 'decks/plateau-2026/deck.sw' };
-  return { source: deckSourceInitial, fileName: FILE_NAME };
+export type DeckChoice = 'reference' | 'plateau' | 'custom';
+const builtins = {
+  reference: { source: deckSourceInitial, fileName: FILE_NAME },
+  plateau: { source: plateauSource, fileName: 'decks/plateau-2026/deck.sw' },
+};
+interface Draft { source: string; fileName: string }
+function draftKey(deck: DeckChoice): string { return `slidewright:standalone:draft:v1:${deck}`; }
+function readDraft(deck: DeckChoice): Draft | null {
+  try {
+    const draft = JSON.parse(localStorage.getItem(draftKey(deck)) ?? 'null') as Draft | null;
+    return draft && typeof draft.source === 'string' && typeof draft.fileName === 'string' ? draft : null;
+  } catch { return null; }
 }
 
 export class StandaloneHost implements Host {
@@ -76,27 +70,58 @@ export class StandaloneHost implements Host {
   private cursorSubscribers = new Set<(offset: number) => void>();
   private selectionSubscribers = new Set<(range: SourceRange) => void>();
 
+  private choice: DeckChoice = 'reference';
+  private fixture = false;
+  persistenceAvailable = true;
+  private custom: Draft | null = null;
+  get deckChoice(): DeckChoice { return this.choice; }
+  get fileName(): string { return this.state.fileName; }
+  get source(): string { return this.state.source; }
+  get hasCustomDeck(): boolean { return !!this.custom || !!readDraft('custom'); }
+
   constructor() {
-    const initial = pickInitialSource();
-    this.state = {
-      source: initial.source,
-      fileName: initial.fileName,
-      assets: { headshotImg, ...plateauAssets },
-    };
-    // Vite HMR: hot-update the canvas when deck.sw changes on disk
-    // without forcing a full page refresh. Without this hook the
-    // standalone would only see source changes after a manual reload.
-    // Skipped in fixture mode — the fixture is the authoritative
-    // source for that page load.
-    if (import.meta.hot && this.state.fileName === FILE_NAME) {
-      import.meta.hot.accept('../decks/v0-reference/deck.sw?raw', (mod) => {
-        const next = (mod as unknown as { default?: unknown })?.default;
-        if (typeof next === 'string') {
-          this.setSource(next);
-        }
+    const query = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search);
+    const fixture = query.get('fixture');
+    this.fixture = !!fixture && !!fixtures[fixture];
+    this.choice = query.get('deck') === 'plateau' ? 'plateau' : query.get('deck') === 'custom' && readDraft('custom') ? 'custom' : 'reference';
+    const initial = this.fixture ? { source: fixtures[fixture!]!, fileName: `tests/fixtures/${fixture}.sw` } : readDraft(this.choice) ?? builtins[this.choice === 'custom' ? 'reference' : this.choice];
+    this.state = { ...initial, assets: { headshotImg, ...plateauAssets } };
+    if (import.meta.hot) {
+      import.meta.hot.accept('../decks/v0-reference/deck.sw?raw', mod => {
+        if (!this.fixture && this.choice === 'reference' && mod) this.setSource(mod.default);
+      });
+      import.meta.hot.accept('../decks/plateau-2026/deck.sw?raw', mod => {
+        if (!this.fixture && this.choice === 'plateau' && mod) this.setSource(mod.default);
       });
     }
   }
+
+  private persist(): void {
+    if (this.fixture) return;
+    try { localStorage.setItem(draftKey(this.choice), JSON.stringify({ source: this.state.source, fileName: this.state.fileName })); this.persistenceAvailable = true; }
+    catch { this.persistenceAvailable = false; }
+    if (this.choice === 'custom') this.custom = { source: this.state.source, fileName: this.state.fileName };
+  }
+  private publish(): void { for (const cb of this.stateSubscribers) cb(this.state); }
+  private updateURL(): void {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('fixture'); url.searchParams.set('deck', this.choice);
+    window.history.replaceState(null, '', url);
+  }
+  switchDeck(choice: DeckChoice): void {
+    const next = readDraft(choice) ?? (choice === 'custom' ? this.custom : builtins[choice]);
+    if (!next) return;
+    this.fixture = false; this.choice = choice;
+    this.state = { ...this.state, ...next };
+    this.updateURL(); this.publish();
+  }
+  openSource(source: string, fileName: string): void {
+    this.fixture = false; this.choice = 'custom';
+    this.state = { ...this.state, source, fileName };
+    this.persist(); this.updateURL(); this.publish();
+  }
+  saveDraft(): boolean { this.persist(); this.publish(); return this.persistenceAvailable; }
+
 
   // ── Canvas-facing ──────────────────────────────────────────────────
 
@@ -124,7 +149,7 @@ export class StandaloneHost implements Host {
   setSource(source: string): void {
     if (source === this.state.source) return;
     this.state = { ...this.state, source };
-    for (const cb of this.stateSubscribers) cb(this.state);
+    this.persist(); this.publish();
   }
 
   onSelection(callback: (range: SourceRange) => void): () => void {

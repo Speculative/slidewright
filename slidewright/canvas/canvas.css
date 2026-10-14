@@ -1184,3 +1184,15 @@ input.sw-property-value:disabled {
 .sw-text-formatting button[aria-pressed="true"] { background: #dbeafe; border-color: #6b8fd4; }
 .sw-text-formatting button[aria-pressed="mixed"] { background: #fff2ce; border-color: #be9529; }
 .sw-text-formatting output { color: #555; font-size: 11px; }
+
+.sw-standalone-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid #ddd; font: 12px system-ui, sans-serif; flex: 0 0 auto; }
+.sw-standalone-controls select, .sw-standalone-controls button { font: inherit; }
+.sw-standalone-controls [role="status"] { color: #555; }
+
+.sw-standalone { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.sw-presenting .sw-strip, .sw-presenting .sw-resize-handle, .sw-presenting .sw-canvas-bottom-strip,
+.sw-presenting .sw-canvas-status, .sw-presenting .sw-tool-palette, .sw-presenting .sw-text-session-actions,
+.sw-presenting .sw-selection-outline, .sw-presenting .sw-selection-group, .sw-presenting .sw-selection-slot-label,
+.sw-presenting .sw-resize-handle-shape, .sw-presenting .sw-arrow-handle { display: none; }
+.sw-presenting .sw-canvas-stage { pointer-events: none; }
+.sw-presenting .sw-canvas-stage button, .sw-presenting .sw-canvas-stage select, .sw-presenting .sw-canvas-stage video { pointer-events: auto; }

@@ -20,3 +20,15 @@ chrome. `registry.ts` shares the current host component catalog. Named asset
 references resolve to files in `assets/` through the standalone host, including
 hashed Vite URLs in built output. `migration.json` records the original source
 hash and normalized speaker-note hashes for preservation checks.
+
+Use the Deck picker to switch between PLATEAU and the reference deck. Committed
+edits are saved separately in browser storage; Save draft confirms storage.
+Download source exports the current full deck as a `.sw` file. Open source
+imports a saved deck with the bundled component/asset catalog. These browser
+edits do not overwrite the repository file; replace `deck.sw` with a downloaded
+copy when you want to keep the changes in version control.
+
+Present hides editor chrome and keeps keyboard slide navigation and media/demo
+controls. Edit slides returns to authoring. `npm run build` includes the canvas
+and all talk media; serve `dist/` with `npm run preview`. The production check is
+`npm run test:production`.
