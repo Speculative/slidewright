@@ -61,3 +61,24 @@ test('title word keeps authored box bounds on repeated clicks and still enters t
   await page.keyboard.press('Escape');
   expect(await getEditorSource(page)).toBe(before);
 });
+
+test('title text fits its authored frames and the blue background contains the word frame', async ({ page }) => {
+  await page.goto('/canvas.html?deck=plateau');
+  const stage = page.locator('.sw-canvas-stage');
+  const contents = stage.locator('[data-sw-textbox-content]');
+  await expect(contents).toHaveCount(4);
+  await page.evaluate(() => document.fonts.ready);
+  for (const content of [contents.nth(0), contents.nth(1)]) {
+    const fit = await content.evaluate(element => ({ height: element.clientHeight, scrollHeight: element.scrollHeight, width: element.clientWidth, scrollWidth: element.scrollWidth }));
+    expect(fit.scrollHeight).toBeLessThanOrEqual(fit.height);
+    expect(fit.scrollWidth).toBeLessThanOrEqual(fit.width);
+  }
+  const word = (await stage.locator('[data-sw-component="TextBox"] > div').nth(1).boundingBox())!;
+  const background = (await stage.locator('[data-sw-component="Box"] > div').boundingBox())!;
+  expect(background.x).toBeLessThan(word.x);
+  expect(background.y).toBeLessThan(word.y);
+  expect(background.x + background.width).toBeGreaterThan(word.x + word.width);
+  expect(background.y + background.height).toBeGreaterThan(word.y + word.height);
+  await page.locator('.sw-tool-palette').evaluate(node => { (node as HTMLElement).style.visibility = 'hidden'; });
+  await stage.screenshot({ path: test.info().outputPath('title-fitted.png') });
+});

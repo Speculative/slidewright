@@ -17,7 +17,7 @@ Deck {
               x: 110
               y: 270
               width: 1330
-              height: 260
+              height: 266
               font: "body"
               fontSize: 100
               fontWeight: "700"
@@ -35,15 +35,15 @@ Deck {
             Box {
               x: 125
               y: 550
-              width: 545
-              height: 125
+              width: 580
+              height: 149
               fill: "#0000FF"
             }
             TextBox {
               x: 140
               y: 555
               width: 550
-              height: 130
+              height: 139
               font: "mono"
               fontSize: 98
               fontWeight: "700"
