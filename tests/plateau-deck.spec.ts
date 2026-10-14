@@ -109,3 +109,16 @@ test('PLATEAU fonts load locally and panel borders match the original talk', asy
   await page.getByLabel('Deck', { exact: true }).selectOption('reference');
   expect(await page.locator('.sw-canvas-stage .presentation-canvas').evaluate(node => getComputedStyle(node).getPropertyValue('--font-mono'))).not.toContain('Plateau');
 });
+
+
+test('autopsy introduction background contains the editable word frame', async ({ page }) => {
+  await page.goto('/canvas.html?deck=plateau');
+  await page.getByRole('option', { name: 'Slide 8', exact: true }).click();
+  const stage = page.locator('.sw-canvas-stage');
+  const word = (await stage.locator('[data-sw-component="TextBox"] > div').first().boundingBox())!;
+  const background = (await stage.locator('[data-sw-component="Box"] > div').first().boundingBox())!;
+  expect(background.x).toBeLessThan(word.x);
+  expect(background.y).toBeLessThanOrEqual(word.y);
+  expect(background.x + background.width).toBeGreaterThan(word.x + word.width);
+  expect(background.y + background.height + 0.01).toBeGreaterThanOrEqual(word.y + word.height);
+});

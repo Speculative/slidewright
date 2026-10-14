@@ -617,8 +617,8 @@ Deck {
             Box {
               x: 125
               y: 95
-              width: 550
-              height: 120
+              width: 570
+              height: 140
               fill: "#0000FF"
               borderWidth: 0
             }
