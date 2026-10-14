@@ -7,7 +7,7 @@
 // strip layout (hierarchy + properties + bottomExtra), so the
 // standalone is a thin wrapper around App.
 
-import { StrictMode, useEffect, useMemo, useState } from 'react';
+import { StrictMode, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { createRoot } from 'react-dom/client';
 
@@ -25,6 +25,28 @@ function Standalone(): ReactElement {
   const [activeSlide, setActiveSlide] = useState(0);
   const presenter = usePresenterWindow();
   const [presenting, setPresenting] = useState(false);
+  const audience = useRef<HTMLDivElement>(null);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [fullscreenError, setFullscreenError] = useState('');
+  useEffect(() => {
+    const update = () => setFullscreen(document.fullscreenElement === audience.current);
+    document.addEventListener('fullscreenchange', update);
+    return () => document.removeEventListener('fullscreenchange', update);
+  }, []);
+  async function toggleFullscreen() {
+    setFullscreenError('');
+    const node = audience.current;
+    if (!node?.requestFullscreen) {
+      setFullscreenError('Fullscreen is unavailable in this browser.'); return;
+    }
+    try {
+      if (document.fullscreenElement === node) await document.exitFullscreen();
+      else await node.requestFullscreen();
+      node.focus({ preventScroll: true });
+    } catch {
+      setFullscreenError('Could not change fullscreen. Use your browser fullscreen command or Escape to leave it.');
+    }
+  }
   const host = useMemo(() => new StandaloneHost(), []);
 
   // Test hook. Exposes the canvas's host on window so e2e tests can
@@ -47,12 +69,13 @@ function Standalone(): ReactElement {
   }, [host]);
 
   return (
-    <div className={`sw-standalone${presenting ? ' sw-presenting' : ''}`} onKeyDownCapture={event => {
+    <div ref={audience} tabIndex={-1} className={`sw-standalone${presenting ? ' sw-presenting' : ''}`} onKeyDownCapture={event => {
       if (presenting && (['Delete', 'Backspace'].includes(event.key) || (event.ctrlKey || event.metaKey) && ['z', 'y'].includes(event.key.toLowerCase()))) {
         event.preventDefault(); event.stopPropagation();
       }
     }}>
-    <StandaloneControls host={host} presenterError={presenter.error} onPresenter={() => { presenter.open(); setPresenting(true); }} presenting={presenting} onPresent={() => setPresenting(value => !value)} />
+    <StandaloneControls host={host} presenterError={fullscreenError || presenter.error} onFullscreen={() => void toggleFullscreen()} onPresenter={() => { setFullscreenError(''); presenter.open(); setPresenting(true); }} presenting={presenting} onPresent={() => { setFullscreenError(''); setPresenting(value => !value); }} />
+    {fullscreen && <button type="button" className="sw-audience-exit-fullscreen" onClick={() => void toggleFullscreen()}>Exit fullscreen</button>}
     <App
       host={host}
       onActiveSlideChange={setActiveSlide}

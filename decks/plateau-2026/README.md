@@ -32,7 +32,10 @@ edits do not overwrite the repository file; replace `deck.sw` with a downloaded
 copy when you want to keep the changes in version control.
 
 Present hides editor chrome and keeps keyboard slide navigation and media/demo
-controls. Edit slides returns to authoring. `npm run build` includes the canvas
+controls. Fullscreen fills the audience display with the slide, hiding the file
+toolbar and authoring frame. Escape or the Exit fullscreen overlay returns to
+windowed presentation on the same slide; Edit slides returns to authoring.
+`npm run build` includes the canvas
 and all talk media; serve `dist/` with `npm run preview`. The production check is
 `npm run test:production`.
 

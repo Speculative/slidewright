@@ -419,8 +419,11 @@ export function ScaledCanvas({
     const wrapper = wrapperRef.current;
     if (!wrapper) return;
     const fit = () => {
-      const w = wrapper.clientWidth - MARGIN * 2;
-      const h = wrapper.clientHeight - MARGIN * 2;
+      // Hosts can remove the authoring gutter in fullscreen audience mode.
+      const configuredMargin = parseFloat(getComputedStyle(wrapper).getPropertyValue('--sw-canvas-margin'));
+      const margin = Number.isFinite(configuredMargin) ? Math.max(0, configuredMargin) : MARGIN;
+      const w = wrapper.clientWidth - margin * 2;
+      const h = wrapper.clientHeight - margin * 2;
       if (w <= 0 || h <= 0) return;
       setScale(Math.min(w / DESIGN_W, h / DESIGN_H));
     };

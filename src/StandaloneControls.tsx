@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { parse } from '../slidewright/runtime/parser.js';
 import type { StandaloneHost, DeckChoice } from './standalone-host.js';
 
-export function StandaloneControls({ host, presenting, onPresent, onPresenter, presenterError }: { host: StandaloneHost; presenting: boolean; onPresent(): void; onPresenter(): void; presenterError: string }) {
+export function StandaloneControls({ host, presenting, onPresent, onPresenter, onFullscreen, presenterError }: { host: StandaloneHost; presenting: boolean; onPresent(): void; onPresenter(): void; onFullscreen(): void; presenterError: string }) {
   const [, refresh] = useState(0);
   const [message, setMessage] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
@@ -25,6 +25,7 @@ export function StandaloneControls({ host, presenting, onPresent, onPresenter, p
   }
   return <div className="sw-standalone-controls" role="group" aria-label="Deck files">
     <button type="button" onClick={onPresent}>{presenting ? 'Edit slides' : 'Present'}</button>
+    {presenting && <button type="button" onClick={onFullscreen}>Fullscreen</button>}
     <button type="button" onClick={onPresenter}>Presenter view</button>
     <label>Deck <select aria-label="Deck" value={host.deckChoice} onChange={event => { host.switchDeck(event.target.value as DeckChoice); setMessage(''); }}>
       <option value="reference">Slidewright reference</option><option value="plateau">PLATEAU 2026</option>

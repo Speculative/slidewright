@@ -1196,3 +1196,12 @@ input.sw-property-value:disabled {
 .sw-presenting .sw-resize-handle-shape, .sw-presenting .sw-arrow-handle { display: none; }
 .sw-presenting .sw-canvas-stage { pointer-events: none; }
 .sw-presenting .sw-canvas-stage button, .sw-presenting .sw-canvas-stage select, .sw-presenting .sw-canvas-stage video { pointer-events: auto; }
+
+/* Fullscreen audience chrome stays outside authored slide content. */
+.sw-standalone:fullscreen { --sw-canvas-margin: 0; width: 100%; height: 100%; background: #000; outline: none; }
+.sw-standalone:fullscreen .sw-standalone-controls { display: none; }
+.sw-audience-exit-fullscreen { position: fixed; top: 12px; right: 12px; z-index: 100; opacity: 0; transition: opacity .15s; font: 14px system-ui, sans-serif; padding: 6px 10px; border: 1px solid #aaa; border-radius: 4px; background: white; color: #111; }
+.sw-audience-exit-fullscreen:hover, .sw-audience-exit-fullscreen:focus-visible { opacity: 1; }
+
+.sw-standalone:fullscreen .presentation { background: #000; }
+.sw-standalone:fullscreen .presentation-canvas { outline: none !important; }

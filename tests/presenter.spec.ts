@@ -51,3 +51,62 @@ test('presenter notes follow live source and popup failure has actionable feedba
   await page.getByRole('button', { name: 'Presenter view', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('Allow this site to open');
 });
+
+test('fullscreen audience keeps navigation, notes sync and source intact through native exit', async ({ page }) => {
+  await page.goto('/canvas.html?deck=plateau');
+  const before = await getEditorSource(page);
+  const popupPromise = page.waitForEvent('popup');
+  await page.getByRole('button', { name: 'Presenter view', exact: true }).click();
+  const presenter = await popupPromise;
+  await page.getByRole('button', { name: 'Fullscreen', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement?.classList.contains('sw-standalone') ?? false)).toBe(true);
+  await expect(page.locator('.sw-standalone-controls')).toBeHidden();
+  await expect(page.locator('.sw-editor-pane')).toBeHidden();
+  await expect(page.locator('.sw-canvas-stage')).toBeVisible();
+  const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+  const width = Math.min(viewport.width / 1920, viewport.height / 1080) * 1920;
+  await expect.poll(async () => (await page.locator('.sw-canvas-stage .presentation-canvas').boundingBox())!.width).toBeCloseTo(width, 0);
+  await expect(page.locator('.sw-canvas-stage .presentation-canvas')).toHaveCSS('outline-style', 'none');
+  await page.keyboard.press('ArrowRight');
+  await expect(presenter.getByLabel('Presenter slide')).toContainText('Slide 2 of 20');
+  await expect(presenter.getByLabel('Speaker notes')).toContainText('Just to introduce');
+  await page.keyboard.press('End');
+  await expect(presenter.getByLabel('Presenter slide')).toContainText('Slide 20 of 20');
+  await page.keyboard.press('ArrowRight');
+  await expect(presenter.getByLabel('Presenter slide')).toContainText('Slide 20 of 20');
+  await page.keyboard.press('Home');
+  await expect(presenter.getByLabel('Presenter slide')).toContainText('Slide 1 of 20');
+  await page.screenshot({ path: test.info().outputPath('audience-fullscreen.png') });
+  // Browser-initiated exit (including native Escape) emits fullscreenchange.
+  await page.evaluate(() => document.exitFullscreen());
+  await expect(page.getByRole('button', { name: 'Edit slides', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Exit fullscreen', exact: true })).toHaveCount(0);
+  await expect(page.locator('.sw-editor-pane')).toBeHidden();
+  await page.getByRole('button', { name: 'Fullscreen', exact: true }).click();
+  const exit = page.getByRole('button', { name: 'Exit fullscreen', exact: true });
+  await exit.hover();
+  await expect(exit).toHaveCSS('opacity', '1');
+  await exit.click();
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+  await page.getByRole('button', { name: 'Edit slides', exact: true }).click();
+  await expect(page.locator('.sw-editor-pane')).toBeVisible();
+  expect(await getEditorSource(page)).toBe(before);
+});
+
+test('fullscreen request errors retain windowed presentation and source', async ({ page }) => {
+  await page.goto('/canvas.html?deck=plateau');
+  const before = await getEditorSource(page);
+  await page.getByRole('button', { name: 'Present', exact: true }).click();
+  await page.evaluate(() => { Element.prototype.requestFullscreen = async () => { throw new DOMException('Denied', 'NotAllowedError'); }; });
+  await page.getByRole('button', { name: 'Fullscreen', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Could not change fullscreen');
+  await page.evaluate(() => { Object.defineProperty(Element.prototype, 'requestFullscreen', { value: undefined, configurable: true }); });
+  await page.getByRole('button', { name: 'Fullscreen', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Fullscreen is unavailable');
+  await page.evaluate(() => { window.open = () => null; });
+  await page.getByRole('button', { name: 'Presenter view', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Allow this site to open');
+  await expect(page.locator('.sw-editor-pane')).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Edit slides', exact: true })).toBeVisible();
+  expect(await getEditorSource(page)).toBe(before);
+});
