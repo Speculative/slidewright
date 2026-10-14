@@ -437,3 +437,19 @@ test('selected TextBox defaults materialize through authoring controls without e
   expect(await getEditorSource(page)).toContain('"Hello"');
   expect(await getEditorSource(page)).not.toBe(before);
 });
+
+test('repeated canvas clicks select the TextBox without drilling into document internals', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=slide-grade-text');
+  const before = await getEditorSource(page);
+  const text = page.locator('.sw-canvas-stage').getByText('style', { exact: true });
+  for (let click = 0; click < 3; click++) {
+    await text.click();
+    await expect(page.locator('.sw-canvas-stage .sw-resize-ne')).toHaveCount(1);
+    await expect(page.locator('.sw-canvas-stage .sw-selection-slot')).toHaveCount(0);
+    await expect(page.getByRole('textbox', { name: 'Edit text' })).toHaveCount(0);
+  }
+  await text.dblclick();
+  await expect(page.getByRole('textbox', { name: 'Edit text' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  expect(await getEditorSource(page)).toBe(before);
+});

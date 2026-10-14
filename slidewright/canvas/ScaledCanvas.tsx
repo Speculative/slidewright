@@ -211,7 +211,12 @@ function buildSelectableChain(
   selectableSpans: ReadonlyMap<string, unknown>,
 ): SelectionTarget[] {
   const chain: SelectionTarget[] = [];
-  let el: Element | null = target;
+  // A continuous document is owned by its TextBox editor. Paragraphs,
+  // marks, and inline atoms aren't separate canvas drill targets; clicking
+  // them should retain the box's authored bounds and movement handles.
+  // Start at the owner, preserving any surrounding layout/slot drill chain.
+  const documentRoot = target.closest('[data-sw-textbox-content]');
+  let el: Element | null = documentRoot?.closest('[data-sw-component]') ?? target;
   while (el) {
     if (el instanceof HTMLElement) {
       // Slot wrapper? data-sw-slot-name present means this is a

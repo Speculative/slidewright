@@ -37,3 +37,27 @@ test('PLATEAU native heading edits and styling remain source backed', async ({ p
   await page.getByRole('button', { name: 'Apply box setting', exact: true }).click();
   await expect.poll(() => getEditorSource(page)).toContain('fontSize: 90');
 });
+
+test('title word keeps authored box bounds on repeated clicks and still enters text editing', async ({ page }) => {
+  await page.goto('/canvas.html?deck=plateau');
+  const before = await getEditorSource(page);
+  const title = page.locator('.sw-canvas-stage').getByText('autopsy', { exact: true });
+  const box = title.locator('xpath=ancestor::*[@data-sw-component="TextBox"]').locator(':scope > div').first();
+  for (let index = 0; index < 3; index++) {
+    await title.click();
+    await expect(page.locator('.sw-canvas-stage .sw-resize-ne')).toHaveCount(1);
+    await expect(page.locator('.sw-canvas-stage .sw-selection-slot')).toHaveCount(0);
+    const outline = (await page.locator('.sw-canvas-stage .sw-selection-outline').boundingBox())!;
+    const bounds = (await box.boundingBox())!;
+    // Selection outlines deliberately expand four design pixels per edge.
+    const scale = bounds.width / 550;
+    expect(Math.abs(outline.width - (bounds.width + 8 * scale))).toBeLessThan(1);
+    expect(Math.abs(outline.height - (bounds.height + 8 * scale))).toBeLessThan(1);
+    expect(Math.abs(outline.x - (bounds.x - 4 * scale))).toBeLessThan(1);
+    expect(Math.abs(outline.y - (bounds.y - 4 * scale))).toBeLessThan(1);
+  }
+  await title.dblclick();
+  await expect(page.getByRole('textbox', { name: 'Edit text' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  expect(await getEditorSource(page)).toBe(before);
+});
