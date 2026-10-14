@@ -24,6 +24,12 @@ assert.match(html, /breakpoint debugger/);
 assert.match(html, /program state/);
 assert.match(html, /data-chart-cursor/);
 assert.match(html, /data-chart-shipping/);
+// Canvas, thumbnails and presenter previews share a document; SVG markers
+// must remain local to each chart instance.
+const markers = [...html.matchAll(/<marker id="([^"]+)"/g)].map(match => match[1]);
+assert.equal(markers.length, chartModes.length);
+assert.equal(new Set(markers).size, markers.length);
+assert.match(html, /@keyframes sw-chart-appear/);
 assert.equal(emit(parse(emit(parse(source, 'charts.sw').ast), 'charts.sw').ast), emit(parse(source, 'charts.sw').ast));
 console.log('OK   PLATEAU trace fidelity, chart modes, SSR, and source round-trip');
 
