@@ -1,3 +1,4 @@
+import { annotateCodeLine } from '../../../decks/plateau-2026/components/debugger-code.js';
 import { STEPS, executionFrames } from '../../../decks/plateau-2026/components/debugger-stages.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -43,3 +44,15 @@ for (const step of [15, 16, 18, 19]) {
   assert.equal(last.row1, STEPS[step]!.printDotsVisibleRow1);
   assert.equal(last.row2, STEPS[step]!.printDotsVisibleRow2);
 }
+
+// The original explanation highlights state expressions, then only the two
+// operations. Annotation must preserve the complete displayed program text.
+for (const mode of [null, 'state-vars', 'cost'] as const) {
+  for (const line of execution.codeVariants.base.lines) {
+    assert.equal(annotateCodeLine(line, mode).map(part => part.text).join(''), line);
+  }
+}
+const highlighted = (mode: 'state-vars' | 'cost') => execution.codeVariants.base.lines.flatMap(line => annotateCodeLine(line, mode).filter(part => part.highlighted).map(part => part.text));
+assert.deepEqual(highlighted('state-vars'), execution.stateVarNames);
+assert.deepEqual(highlighted('cost'), ['item.price', 'item.total()']);
+assert.deepEqual(annotateCodeLine('itemized cartwheel item.other', 'state-vars').filter(part => part.highlighted), []);

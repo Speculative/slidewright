@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ComponentMeta, ComponentRenderProps } from '../../../slidewright/runtime/contract.js';
 import { makeRectAdapter } from '../../../slidewright/canvas/rect-adapter.js';
 import { execution as tr, printDots } from '../chart-data.js';
+import { annotateCodeLine } from './debugger-code.js';
 import { STEPS, executionFrames } from './debugger-stages.js';
 export const slidewright: ComponentMeta = {
   produces: 'block', slots: {},
@@ -37,6 +38,7 @@ export default function DebuggerDemo({ params }: ComponentRenderProps) {
   const code = snap.printCodeVersion === 2 ? tr.codeVariants.printV2 : snap.printCodeVersion === 1 ? tr.codeVariants.printV1 : tr.codeVariants.base;
   const codeVisible = snap.phase === 'code' || snap.phase === 'breakpoint' || snap.phase === 'print' || snap.showAxisCode;
   const sideVisible = codeVisible || snap.rightPanel !== 'none' || snap.showCostTerminal;
+  const technique = snap.stateTimeStep === 1 ? 'breakpoint' : snap.stateTimeStep >= 2 && snap.stateTimeStep <= 10 ? 'print' : null;
   const appear = (duration: number, delay = 0) => ({ animation: `sw-demo-appear ${duration}ms ease-out ${delay}ms both` });
   const stop = (event: { stopPropagation(): void }) => event.stopPropagation();
   function go(next: number) { setPlaying(false); setPaused(false); setStep(next); }
@@ -65,9 +67,13 @@ export default function DebuggerDemo({ params }: ComponentRenderProps) {
         </g>}
         {snap.phase === 'autopsy' && tr.autopsySliceXPositions.map((x, index) => <rect key={index} data-demo-slice x={x - 12} y="40" width="24" height="420" rx="4" fill="#1E40AF" fillOpacity=".2" style={appear(150, index * 60)} />)}
       </svg>
+      {technique && <div aria-label="Debugging technique" style={{ position: 'absolute', left: sideVisible ? '2.4%' : '4%', top: '6%', borderRadius: 6, background: 'rgba(255, 255, 255, .85)', padding: '8px 16px', fontFamily: 'var(--font-body, sans-serif)' }}>
+        <div style={{ fontSize: 48, fontWeight: 700, color: '#1E40AF', lineHeight: 1.25 }}>{technique === 'breakpoint' ? 'breakpoint debugger' : 'print debugging'}</div>
+        <div style={{ fontSize: 30, color: '#6b7280', lineHeight: 1.25 }}>{technique === 'breakpoint' ? 'all state · one moment' : 'some state · many moments'}</div>
+      </div>}
       <div data-demo-panels aria-hidden={!sideVisible} style={{ position: 'absolute', right: 0, top: 0, height: '100%', opacity: sideVisible ? 1 : 0, pointerEvents: sideVisible ? undefined : 'none', transition: 'width .7s, opacity .7s', width: snap.phase === 'code' ? '100%' : '40%', display: 'flex', flexDirection: 'column', gap: 15, minHeight: 0 }}>
         <div aria-label="Demo code" aria-hidden={!codeVisible} style={{ opacity: codeVisible ? 1 : 0, pointerEvents: codeVisible ? undefined : 'none', transition: 'opacity .7s, font-size .7s', flex: 1, overflow: 'auto', border: '1px solid #ddd', borderRadius: 12, padding: 18, background: '#f9fafb', fontFamily: 'var(--font-mono, monospace)', fontSize: snap.phase === 'code' ? 40 : Math.min(24, (Number(params.width) * .4 - 50) / (Math.max(...code.lines.map(line => line.length)) + 4) / .62) }}>
-          {code.lines.map((line, index) => <div key={index} data-demo-code-line={index} style={{ whiteSpace: 'pre', transition: snap.instantHighlight ? 'none' : 'background-color .3s', background: index === highlight ? '#bfdbfe' : snap.axisCodeHighlight === 'cost' && index === 2 || code.printLines.includes(index) ? '#fef3c7' : 'transparent' }}><span style={{ color: '#888' }}>{index + 1} </span>{snap.phase === 'breakpoint' && index === 2 ? '● ' : ''}{line}</div>)}
+          {code.lines.map((line, index) => <div key={index} data-demo-code-line={index} style={{ whiteSpace: 'pre', transition: snap.instantHighlight ? 'none' : 'background-color .3s', background: index === highlight ? '#bfdbfe' : code.printLines.includes(index) ? '#fef3c7' : 'transparent' }}><span style={{ color: '#888' }}>{index + 1} </span>{snap.phase === 'breakpoint' && index === 2 ? '● ' : ''}{annotateCodeLine(line, snap.axisCodeHighlight).map((part, partIndex) => <span key={partIndex} data-demo-annotation={part.highlighted ? snap.axisCodeHighlight : undefined} style={{ background: part.highlighted ? '#fef08a' : 'transparent', color: snap.axisCodeHighlight && !part.highlighted ? '#6b7280' : undefined, borderRadius: 4, transition: 'background-color .3s' }}>{part.text}</span>)}</div>)}
         </div>
         {snap.rightPanel === 'variables' && <div aria-label="Demo variables" style={{ flex: 1, overflow: 'auto', padding: 16, border: '1px solid #ddd', fontFamily: 'var(--font-mono, monospace)', fontSize: 22 }}>
           <strong>Variables · item {iteration + 1}</strong>{Object.entries(tr.breakpointSnapshots[iteration]!).map(([key, value]) => <div key={key}>{key}: <span style={{ color: '#1E40AF' }}>{value}</span></div>)}
