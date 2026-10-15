@@ -181,27 +181,49 @@ Type system is small and structural: primitives (`string`, `number`, `boolean`, 
 
 **No free-form expressions in the DSL.** Prop values are literals, names, or constrained "solve"/anchor-reference forms with a specific shape (e.g., `solve.minFitWidth(...)`, `#boxA.right`). Open-ended computations live in TS modules.
 
-### Text values **TENTATIVE**
+### Structured text documents **DECIDED**
 
-A `text` slot accepts a string, a sequence of `string | Span | List` runs, or
-a structured `List`. Spans carry inline style and link props from the deck
-typography vocabulary: color, font, size, weight, letter spacing, italic,
-underline, strikethrough, and href. Common text stays a string; styled cases
-use source-backed runs:
+`TextBox.content` has a distinct structured text-document type rather than
+overloading the general `text` type. Its canonical value is an ordered sequence
+of explicit `Paragraph` and `List` blocks. `Paragraph.content` and
+`ListItem.content` are inline sequences containing strings, marked `Span` runs,
+registered inline elements, and compatible named references. A `ListItem` may
+also own an optional nested `List` through `children`; its `content` does not
+accept arbitrary blocks. Each `List` owns its own `style`, `start`, and `items`,
+so marker semantics and nesting remain local and explicit.
 
 ```
-title:
-  "Vibe Debugging with "
-  Span color=accent font=mono: "autopsy-report"
+content: [
+  Paragraph {
+    content: ["Intro " Span { weight: "700", content: "text" }]
+  }
+  List {
+    style: "decimal"
+    start: 3
+    items: [
+      ListItem { content: ["First item"] }
+    ]
+  }
+]
 ```
 
-Flat lists can use `TextBox.bullets: array<text>` plus `listStyle` and
-`listStart`. Nested lists use `List { style, start, items: [ListItem { content,
-children }] }`; a ListItem's optional `children` is another List. This keeps
-marker and nesting semantics explicit without requiring paragraph nodes.
-Every string literal remains directly canvas-editable. The current inspector
-can mechanically edit Span fields, but text formatting is intended to move to
-the range-aware text toolbar rather than remain a generic inspector surface.
+As a migration convenience, `content: "plain text"` remains accepted as
+shorthand for a one-paragraph document, but the first structured text edit
+emits the canonical document form. The legacy `TextBox.bullets`, `listStyle`,
+and `listStart` fields have been removed and repository decks/tests migrated.
+
+The document is embedded in the normal DSL value system, not stored as an
+opaque editor payload. Consequently future typed bindings can supply a whole
+document or compatible inline value (for example, a deck-wide term referenced
+in several paragraphs). Resolution must retain the originating reference in
+the source mapping rather than copying its resolved text into each use. The
+exact editing affordance for a reference-backed inline value is deferred; it
+may be atomic in the outer rich-text session or navigate to/edit its definition.
+
+Spans carry inline style and link props from the deck typography vocabulary:
+color, font, size, weight, letter spacing, italic, underline, strikethrough,
+and href. Text formatting belongs in the range-aware text toolbar rather than
+the generic inspector.
 
 ### FFI to TypeScript **TENTATIVE**
 
@@ -294,9 +316,9 @@ A fuller worked example showing the existing deck's title slide as a Slidewright
 
 A component's `produces` value is drawn from the same vocabulary as slot types. Component placement is just type-checking — same machinery as filling any other slot. No separate "kind" concept.
 
-The v0 vocabulary:
+The runtime type vocabulary:
 
-- **Content types**: `text` (string or structured `Span` / `List` runs), `block` (a tree of layout primitives or composite components), `image` (image reference), `slide` (top-level slide content).
+- **Content types**: `text` (inline text content), `text-document` (ordered `Paragraph` / `List` blocks), `block` (a tree of layout primitives or composite components), `image` (image reference), `slide` (top-level slide content).
 - **Scalar types**: `string`, `number`, `boolean`.
 - **Token types**: `color-token`, `spacing-token`, `font-token` — drawn from the deck theme.
 - **Containers**: `array<T>`.
@@ -315,7 +337,7 @@ Practical implication: the type vocabulary must be runtime-inspectable, so the i
 
 The editor resolves DSL values to React-friendly forms before passing them to the component:
 
-- `text` slots arrive as React nodes (strings or fragments with `Span` styling and structured lists already applied) — the component author treats them as opaque renderable values, not as run arrays.
+- `text` and `text-document` slots arrive as React nodes (strings or fragments with inline styling and structured blocks already applied) — the component author treats them as opaque renderable values, not as run arrays.
 - `block` slots arrive as resolved React children (the sub-tree is already rendered against the runtime).
 - `image` slots arrive as strings (URL or asset path) ready for `<img src={...}>`.
 - Scalar and token types arrive as their resolved values (numbers, strings, resolved CSS variable references).

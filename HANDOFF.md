@@ -148,31 +148,32 @@ v0.4 has been delivered in successive cuts:
 ### Slide-grade text editing (landed)
 
 `TextBox` exposes source-backed `font`, `fontSize`, `fontWeight`, `lineHeight`,
-`letterSpacing`, `align`, `wrap`, `shrinkToFit`, and `color` params. Its
-optional `bullets: array<text>` slot renders a flat semantic list; `listStyle`
-selects unordered or ordered CSS marker styles and `listStart` preserves an
-authored starting number. Each flat item can be a string or a mixed run such
-as `["plain", Span { ... }]`. The `content: text` slot accepts plain strings,
-mixed runs, and built-in structured `List` / `ListItem` values. List items own
-their content and an optional child List, so ordered markers, explicit starts,
-and nesting round-trip without paragraph nodes or parallel indentation arrays.
-Canvas double-click edits every string literal in place, including nested list
-content, and commits through the normal AST round trip.
+`letterSpacing`, `align`, `wrap`, `shrinkToFit`, and `color` defaults. Its
+`content: text-document` slot holds an ordered sequence of explicit `Paragraph`
+and `List` blocks. Paragraphs and list items contain inline sequences of strings,
+marked Spans, registered inline elements, and compatible named references.
+List items may own a nested `List` through `children` but do not accept general
+block content. Each List owns `style`, `start`, and `items`. Single-string input
+remains migration shorthand for one paragraph and canonicalizes on the first
+structured edit. Repository decks/tests are migrated; legacy `bullets`,
+`listStyle`, and `listStart` fields are removed.
 
-Built-in `Span` runs are now registered as lightweight layout selections, so
-they appear in the hierarchy and their `color`, `font`, `size`, `weight`,
-`letterSpacing`, `italic`, `underline`, `strikethrough`, and `href` fields are
-inspector-editable. A Span with `href` renders as an anchor; underline and
-strikethrough combine through `text-decoration-line`. The inspector can
-also edit primitive items inside list-valued properties and materialize
-previously-missing scalar params by parsing the candidate with the real DSL
-parser and canonical-emitting the deck. `shrinkToFit` derives a rendered font
-size with DOM measurement while retaining the requested `fontSize` unchanged
-in source; disabling it restores the authored size. Coverage lives in
-`tests/text-editing.spec.ts` and `tests/fixtures/slide-grade-text.sw`. The
-reference deck's “Rich text” slide demonstrates all supported text features.
-Structured paragraphs/paragraph spacing and range-aware formatting controls
-remain separate deferred work.
+Canvas double-click opens continuous rich-text editing, including empty content.
+The private ProseMirror session preserves source origins while supporting native
+cross-run selection, inline formatting, links, paragraph/list structure, and
+custom inline ownership. Done, Mod-Enter, or blur commits one canvas undo entry;
+Escape or Cancel discards the draft. External source changes cancel drafts.
+Structured text remains ordinary DSL content rather than an opaque editor
+payload; reference-backed values remain atomic without explicit write-back.
+
+Dedicated text-authoring controls edit range/caret styles, paragraph settings,
+list style/start/nesting, and whole-box typography. TextBox's generic inspector
+exposes only x/y/width/height; Span exposes no fields. Spans support color, font,
+size, weight, letter spacing, italic, underline, strikethrough, and links.
+`shrinkToFit` derives the rendered font size while retaining the authored value.
+The inspector also edits primitive list items and materializes scalar params
+through the DSL parser/emitter. Coverage includes `tests/text-editing.spec.ts`,
+`tests/fixtures/slide-grade-text.sw`, and the rich-text and text-document suites.
 
 ### Color palette + picker (landed)
 
