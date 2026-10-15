@@ -13,3 +13,5 @@ test-results/
 playwright-report/
 # Local Ostraka items, activity, and supervisor state.
 /.ostraka/
+# Local reference decks, source projects, and media.
+/inspiration/

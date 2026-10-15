@@ -8,7 +8,7 @@
 # Do NOT add a trailing `USER carthage` — the base image already sets it,
 # and the entrypoint runs as that user.
 
-FROM ghcr.io/speculative/carthage-base:v1
+FROM carthage-base-personal:v2
 
 # Playwright headless chromium runtime libs. The v0.0 visual smoke test
 # bounced off `libglib-2.0.so.0: cannot open shared object file` against
