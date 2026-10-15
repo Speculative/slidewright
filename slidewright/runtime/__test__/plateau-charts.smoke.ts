@@ -1,3 +1,4 @@
+import { InitialDebuggerCode } from '../../../decks/plateau-2026/components/InitialDebuggerCode.js';
 import { annotateCodeLine } from '../../../decks/plateau-2026/components/debugger-code.js';
 import { STEPS, executionFrames } from '../../../decks/plateau-2026/components/debugger-stages.js';
 import assert from 'node:assert/strict';
@@ -56,3 +57,9 @@ const highlighted = (mode: 'state-vars' | 'cost') => execution.codeVariants.base
 assert.deepEqual(highlighted('state-vars'), execution.stateVarNames);
 assert.deepEqual(highlighted('cost'), ['item.price', 'item.total()']);
 assert.deepEqual(annotateCodeLine('itemized cartwheel item.other', 'state-vars').filter(part => part.highlighted), []);
+
+const syntax = renderToStaticMarkup(createElement(InitialDebuggerCode, { lines: ['for item in cart:', '    if item.qty < 10 & True:', ''] }));
+assert.match(syntax, /class="token keyword" style="color:#d73a49">for/);
+assert.match(syntax, /&lt;/);
+assert.match(syntax, /&amp;/);
+assert.equal((syntax.match(/data-demo-code-line=/g) ?? []).length, 3);

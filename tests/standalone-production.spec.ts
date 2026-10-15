@@ -15,6 +15,8 @@ test('production canvas loads all packaged PLATEAU media and saves a reloadable 
       expect(await video.getAttribute('src')).toContain('/assets/');
     }
   }
+  await page.getByRole('option', { name: 'Slide 3', exact: true }).click();
+  await expect(page.locator('.sw-canvas-stage [data-sw-debugger] .token.keyword').first()).toHaveCSS('color', 'rgb(215, 58, 73)');
   const fonts = await page.evaluate(async () => {
     await document.fonts.ready;
     return [...document.fonts].filter(face => face.family.includes('Plateau')).map(face => face.status);

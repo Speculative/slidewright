@@ -230,3 +230,20 @@ test('variables and execution use original palette and introduced print lines fl
   await expect(accent).toHaveCount(0);
   expect(await getEditorSource(page)).toBe(source);
 });
+
+test('opening code uses original syntax palette without altering program text or later scenes', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=plateau-debugger');
+  const demo = page.locator('.sw-canvas-stage [data-sw-debugger]');
+  const source = await getEditorSource(page);
+  const code = demo.getByLabel('Demo code');
+  await expect(code.locator('.token.keyword').first()).toHaveCSS('color', 'rgb(215, 58, 73)');
+  await expect(code.locator('.token.number').first()).toHaveCSS('color', 'rgb(0, 92, 197)');
+  expect(await code.locator('[data-demo-code-line]').allTextContents()).toEqual(execution.codeVariants.base.lines.map((line, index) => `${index + 1} ${line}`));
+  await demo.screenshot({ path: test.info().outputPath('opening-syntax.png') });
+  await demo.getByLabel('Demo stage').selectOption('10');
+  await expect(code.locator('.token')).toHaveCount(0);
+  await expect(code).toContainText('item.price *= 0.9');
+  await demo.getByRole('button', { name: 'Reset demo' }).click();
+  await expect(code.locator('.token.keyword').first()).toHaveCSS('color', 'rgb(215, 58, 73)');
+  expect(await getEditorSource(page)).toBe(source);
+});
