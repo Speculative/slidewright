@@ -14,6 +14,7 @@ import {
   EditorState,
   type Extension,
 } from '@codemirror/state';
+import { sourceFolding, hangingWrap } from './source-layout.js';
 import { indentWithTab } from '@codemirror/commands';
 import {
   slidewrightHighlighting,
@@ -184,7 +185,7 @@ export function EditorPane({
     globalEnd: 0,
     notes: null,
   });
-  const extensionsRef = useRef<Extension[]>([]);
+  const extensionsRef = useRef<(mode: EditorMode) => Extension[]>(() => []);
   const pendingSelectionRef = useRef<SourceRange | null>(null);
 
   projectionRef.current = projection;
@@ -227,10 +228,15 @@ export function EditorPane({
       projectionRef.current,
     );
     documentProjectionRef.current = initial;
-    extensionsRef.current = [
+    extensionsRef.current = (mode) => [
       basicSetup,
-      slidewrightLanguage.extension,
-      slidewrightHighlighting,
+      EditorView.lineWrapping,
+      hangingWrap(mode !== 'notes'),
+      ...(mode === 'notes' ? [] : [
+        slidewrightLanguage.extension,
+        slidewrightHighlighting,
+        sourceFolding,
+      ]),
       keymap.of([indentWithTab]),
       EditorView.editable.of(host.setSource != null),
       EditorView.updateListener.of((update) => {
@@ -262,7 +268,7 @@ export function EditorPane({
     const view = new EditorView({
       state: EditorState.create({
         doc: initial.text,
-        extensions: extensionsRef.current,
+        extensions: extensionsRef.current(initial.mode),
       }),
       parent,
     });
@@ -282,17 +288,18 @@ export function EditorPane({
   // editor-side equivalent of the canvas's external-edit barrier.
   useEffect(() => {
     const next = currentDocumentProjection;
+    const previousMode = documentProjectionRef.current.mode;
     documentProjectionRef.current = next;
     const view = viewRef.current;
     if (!view) return;
 
-    if (view.state.doc.toString() !== next.text) {
+    if (view.state.doc.toString() !== next.text || previousMode !== next.mode) {
       const cursor = clamp(view.state.selection.main.from, 0, next.text.length);
       view.setState(
         EditorState.create({
           doc: next.text,
           selection: EditorSelection.cursor(cursor),
-          extensions: extensionsRef.current,
+          extensions: extensionsRef.current(next.mode),
         }),
       );
     }
