@@ -171,8 +171,8 @@ interface Props {
   currentSelection: ReadonlyArray<SelectionTarget>;
   // Fired when pointer goes down on empty Freeform space in select
   // mode (v0.2.j). The handler renders a marquee preview during
-  // pointermove and, on release, sets selection to all shapes
-  // intersecting the rectangle.
+  // pointermove and updates selection to all shapes intersecting
+  // the rectangle throughout the drag.
   onMarqueeStart?: (target: MarqueeStart) => void;
   // Map keyed by `${start}-${end}` span identifying selectable
   // components (those with a `canvas` export — the loader

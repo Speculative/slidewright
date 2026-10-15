@@ -377,6 +377,7 @@ interface MarqueeState {
   designCurrentX: number;
   designCurrentY: number;
   shift: boolean;
+  initialSelection: SelectionTarget[];
 }
 
 // Look up a shape's canvas adapter from the static registry. Used
@@ -2046,39 +2047,21 @@ export function App({
   // ─── Marquee selection ──────────────────────────────────────────
   //
   // Pointerdown on empty Freeform space → marquee. setState per
-  // pointermove drives the React-rendered <MarqueePreviewOverlay/>;
-  // on release, walk the loaded shapes registry, intersect bounds
-  // with marquee rect, set selection.
+  // pointermove drives the marquee and live selection. Always derive
+  // selection from the gesture-start snapshot so shrinking a Shift
+  // marquee removes preview hits without losing the original selection.
   useEffect(() => {
     if (!marquee) return;
-    const { pointerStartX, pointerStartY, scale, designStartX, designStartY, freeformDiv, shift } = marquee;
+    const { pointerStartX, pointerStartY, scale, designStartX, designStartY, shift, initialSelection } = marquee;
 
-    const onMove = (e: PointerEvent) => {
-      const designCurrentX = (e.clientX - pointerStartX) / scale + designStartX;
-      const designCurrentY = (e.clientY - pointerStartY) / scale + designStartY;
-      setMarquee((prev) =>
-        prev ? { ...prev, designCurrentX, designCurrentY } : null,
-      );
-    };
-
-    let cancelled = false;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      cancelled = true;
-      setMarquee(null);
-    };
-
-    const onUp = (e: PointerEvent) => {
-      if (cancelled) return;
+    const updateSelection = (e: PointerEvent) => {
       const designCurrentX = (e.clientX - pointerStartX) / scale + designStartX;
       const designCurrentY = (e.clientY - pointerStartY) / scale + designStartY;
       const dx = designCurrentX - designStartX;
       const dy = designCurrentY - designStartY;
-      // Click without meaningful drag — treat as click-to-clear.
-      // Shift makes it a no-op.
+      // Click without meaningful drag — clear, or preserve with Shift.
       if (Math.abs(dx) < 1 && Math.abs(dy) < 1) {
-        if (!shift) setSelected([]);
-        setMarquee(null);
+        setSelected(shift ? initialSelection : []);
         return;
       }
       const left = Math.min(designStartX, designCurrentX);
@@ -2119,26 +2102,56 @@ export function App({
           }
         }
       }
+      const next = shift ? [...initialSelection] : intersected;
       if (shift) {
-        setSelected((current) => {
-          const out = [...current];
-          for (const t of intersected) {
-            if (findTargetIndex(out, t) === -1) out.push(t);
-          }
-          return out;
-        });
-      } else {
-        setSelected(intersected);
+        for (const target of intersected) {
+          if (findTargetIndex(initialSelection, target) === -1) next.push(target);
+        }
       }
+      setSelected((current) =>
+        current.length === next.length &&
+        current.every((target, index) => selectionTargetsEqual(target, next[index]!))
+          ? current
+          : next,
+      );
+    };
+
+    const onMove = (e: PointerEvent) => {
+      updateSelection(e);
+      const designCurrentX = (e.clientX - pointerStartX) / scale + designStartX;
+      const designCurrentY = (e.clientY - pointerStartY) / scale + designStartY;
+      setMarquee((prev) =>
+        prev ? { ...prev, designCurrentX, designCurrentY } : null,
+      );
+    };
+
+    let cancelled = false;
+    const onCancel = () => {
+      cancelled = true;
+      setSelected(initialSelection);
+      setMarquee(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      // Consume the cancel before the window-level selection-clear handler.
+      e.preventDefault();
+      e.stopPropagation();
+      onCancel();
+    };
+    const onUp = (e: PointerEvent) => {
+      if (cancelled) return;
+      updateSelection(e);
       setMarquee(null);
     };
 
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onCancel);
     document.addEventListener('keydown', onKey);
     return () => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onCancel);
       document.removeEventListener('keydown', onKey);
     };
   }, [marquee]);
@@ -2556,6 +2569,7 @@ export function App({
                         designCurrentX: target.designStartX,
                         designCurrentY: target.designStartY,
                         shift: target.shift,
+                        initialSelection: selected,
                       });
                     }}
                     onSelectShape={(target, modifiers) =>
@@ -2601,7 +2615,7 @@ export function App({
                     selected={selected}
                     shapes={state.shapes}
                     gestureDeltas={gestureDeltas}
-                    renderHandles={activeTool === SELECT_TOOL && !gestureMeta && !richEditing && !editing}
+                    renderHandles={activeTool === SELECT_TOOL && !gestureMeta && !marquee && !richEditing && !editing}
                     startGesture={startGesture}
                   />
                   <GestureOverlayLayer

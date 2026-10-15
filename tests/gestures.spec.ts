@@ -305,6 +305,82 @@ test('marquee drag selects every intersecting shape', async ({ page }) => {
   await expect(page.locator('.sw-selection-outline')).toHaveCount(2);
 });
 
+// Keep the button held so assertions observe the live preview.
+async function startMarquee(page: Page, x: number, y: number) {
+  const freeform = page.locator('.sw-canvas-stage [data-sw-component="Freeform"] > div').first();
+  const bounds = await freeform.boundingBox();
+  if (!bounds) throw new Error('freeform not visible');
+  const scale = await getCanvasScale(page);
+  const moveTo = (dx: number, dy: number) =>
+    page.mouse.move(bounds.x + dx * scale, bounds.y + dy * scale);
+  await moveTo(x, y);
+  await page.mouse.down();
+  await letReactCatchUp(page);
+  return moveTo;
+}
+
+test('marquee selection grows and shrinks before release', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=two-boxes');
+  const source = await getSource(page);
+  const moveTo = await startMarquee(page, 100, 100);
+  const outlines = page.locator('.sw-selection-outline');
+  await moveTo(450, 400);
+  await expect(outlines).toHaveCount(1);
+  await expect(page.locator('.sw-resize-handle-shape')).toHaveCount(0);
+  await moveTo(1100, 700);
+  await expect(outlines).toHaveCount(2);
+  await moveTo(450, 400);
+  await expect(outlines).toHaveCount(1);
+  await moveTo(150, 150);
+  await expect(outlines).toHaveCount(0);
+  // Reversing the drag also selects live.
+  await moveTo(1100, 700);
+  await expect(outlines).toHaveCount(2);
+  await page.mouse.up();
+  await expect(outlines).toHaveCount(2);
+  await expect(page.locator('.sw-marquee')).toHaveCount(0);
+  expect(await getSource(page)).toBe(source);
+});
+
+test('Shift marquee preserves original selection but removes withdrawn hits', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=two-boxes');
+  const boxes = page.locator('.sw-canvas-stage [data-sw-component="Box"] > div');
+  await boxes.nth(1).click();
+  await page.keyboard.down('Shift');
+  // Start below/right of box 1 and drag backwards across it.
+  const moveTo = await startMarquee(page, 600, 400);
+  await moveTo(100, 100);
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(2);
+  await moveTo(500, 380);
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
+  await page.mouse.up();
+  await page.keyboard.up('Shift');
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
+  const span = await boxes.nth(1).locator('..').getAttribute('data-sw-span-start');
+  await expect(page.locator('.sw-selection-outline')).toHaveAttribute('data-sw-overlay-for-start', span!);
+});
+
+for (const cancel of ['Escape', 'pointercancel']) {
+  test(`marquee ${cancel} restores selection from before the drag`, async ({ page }) => {
+    await page.goto('/canvas.html?fixture=two-boxes');
+    const boxes = page.locator('.sw-canvas-stage [data-sw-component="Box"] > div');
+    await boxes.nth(1).click();
+    const span = await boxes.nth(1).locator('..').getAttribute('data-sw-span-start');
+    const moveTo = await startMarquee(page, 100, 100);
+    await moveTo(450, 400);
+    await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
+    const firstSpan = await boxes.nth(0).locator('..').getAttribute('data-sw-span-start');
+    await expect(page.locator('.sw-selection-outline')).toHaveAttribute('data-sw-overlay-for-start', firstSpan!);
+    if (cancel === 'Escape') await page.keyboard.press('Escape');
+    else await page.evaluate(() => document.dispatchEvent(new PointerEvent('pointercancel')));
+    await expect(page.locator('.sw-marquee')).toHaveCount(0);
+    await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
+    await expect(page.locator('.sw-selection-outline')).toHaveAttribute('data-sw-overlay-for-start', span!);
+    await page.mouse.up();
+    await expect(page.locator('.sw-selection-outline')).toHaveAttribute('data-sw-overlay-for-start', span!);
+  });
+}
+
 test('marquee drag missing all shapes leaves selection empty', async ({ page }) => {
   await page.goto('/canvas.html?fixture=two-boxes');
   // Drag a small marquee in an empty corner of the freeform.
