@@ -64,6 +64,7 @@
 //     source.
 
 import type { SourceFile } from '../runtime/ast.js';
+import type { ShapeData } from '../runtime/loader.js';
 import type { ReactElement } from 'react';
 import type { PreserveSelection } from './ast-edits.js';
 
@@ -193,6 +194,9 @@ export interface HandlesProps {
 // ─── Adapter contract ────────────────────────────────────────────
 
 export interface ShapeAdapter {
+  // Bind direct authored children after the loader resolves their adapters.
+  // Containers can derive bounds without changing their positioning origin.
+  bindChildren?(children: readonly ShapeData[]): ShapeAdapter;
   // Translation-only containers opt out of multi-selection resize handles.
   supportsTransform?: boolean;
   // Compute the selection-outline bounds from the shape's params

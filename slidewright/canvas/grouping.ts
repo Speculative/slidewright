@@ -79,7 +79,7 @@ export function editGrouping(source: string, selected: readonly SelectionTarget[
         if (node.fills.some(fill => ['x', 'y'].includes(fill.name) && fill.value.kind !== 'number')) return null;
         const restored: Component[] = [];
         for (const member of members) {
-          if (member.kind !== 'component' || !translate(member, shapes, resolved.bounds.left, resolved.bounds.top)) return null;
+          if (member.kind !== 'component' || !translate(member, shapes, Number(resolved.data.params.x), Number(resolved.data.params.y))) return null;
           restored.push(member);
         }
         if (!restored.length) return null;

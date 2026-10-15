@@ -1053,9 +1053,13 @@ local coordinates; nested groups, comments, fractional positions and mixed
 registered shapes survive grouping and ungrouping. Each operation is one canvas
 undo step. Groups move as a unit; click again to drill into individual members.
 Groups currently support translation only, so selections containing a Group do
-not expose resize handles. Stored group bounds describe the frame at grouping
-time; editing a member does not automatically refit that frame. Flow-layout
-children and positions requiring changes to authored bindings are rejected.
+not expose resize handles. Group bounds are the recursive union of member
+bounds, so member edits refit the selection frame. The local positioning origin
+stays fixed even when members extend left or above it; ungrouping translates
+members by that origin. Stored width/height are only an empty-group fallback.
+The loader binds direct child adapters through `ShapeAdapter.bindChildren`.
+Flow-layout children and positions requiring changes to authored bindings
+are rejected.
 Implementation: `grouping.ts`, `GroupingControls.tsx`, `components/Group.tsx`;
 browser coverage: `tests/grouping.spec.ts`.
 

@@ -752,13 +752,25 @@ function renderComponent(comp: Component, ctx: LoadCtx): ReactNode {
     );
   }
 
+  // Child components have already rendered, including their bound adapters.
+  // Keep this hook opaque to the runtime, like the canvas export itself.
+  const bindChildren = (loaded.canvas as {
+    bindChildren?: (children: readonly ShapeData[]) => unknown;
+  } | undefined)?.bindChildren;
+  const childFill = comp.fills.find(fill => fill.name === 'children');
+  const childNodes = childFill?.value.kind === 'list' ? childFill.value.items : comp.implicitChildren;
+  const canvas = bindChildren ? bindChildren(childNodes.flatMap(child => {
+    const data = ctx.shapes.get(`${child.span.start.offset}-${child.span.end.offset}`);
+    return data ? [data] : [];
+  })) : loaded.canvas;
+
   // Register shapes with canvas adapters in the registry the
   // canvas reads for selection / gesture rendering.
   if (loaded.canvas !== undefined && ctx.currentSlideIdx >= 0) {
     const key = `${comp.span.start.offset}-${comp.span.end.offset}`;
     ctx.shapes.set(key, {
       comp,
-      canvas: loaded.canvas,
+      canvas,
       meta: loaded.meta,
       params,
       slideIdx: ctx.currentSlideIdx,
@@ -768,7 +780,7 @@ function renderComponent(comp: Component, ctx: LoadCtx): ReactNode {
 
   return ctx.wrapShape({
     comp,
-    loaded,
+    loaded: canvas === loaded.canvas ? loaded : { ...loaded, canvas },
     slots,
     params,
     slotsState,

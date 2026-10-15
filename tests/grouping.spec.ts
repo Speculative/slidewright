@@ -4,6 +4,87 @@ import { getEditorSource, setHostSource } from './editor-helpers';
 const rows = (page: Page, name: string) => page.locator(`.sw-hierarchy-node[data-sw-component="${name}"]`);
 const visuals = (page: Page, name: string) => page.locator(`.sw-canvas-stage [data-sw-component="${name}"] > div`);
 
+async function expectGroupBounds(page: Page) {
+  await expect.poll(async () => {
+    const scale = (await page.locator('.sw-canvas-stage .presentation-canvas').boundingBox())!.width / 1920;
+    const boxes = await visuals(page, 'Box').evaluateAll(nodes => nodes.map(node => {
+      const { left, top, right, bottom } = node.getBoundingClientRect();
+      return { left, top, right, bottom };
+    }));
+    const left = Math.min(...boxes.map(b => b.left));
+    const top = Math.min(...boxes.map(b => b.top));
+    const right = Math.max(...boxes.map(b => b.right));
+    const bottom = Math.max(...boxes.map(b => b.bottom));
+    const outline = await page.locator('.sw-selection-outline').boundingBox();
+    if (!outline) return Infinity;
+    return Math.max(Math.abs(outline.x - left + 4 * scale), Math.abs(outline.y - top + 4 * scale),
+      Math.abs(outline.width - (right - left + 8 * scale)), Math.abs(outline.height - (bottom - top + 8 * scale)));
+  }).toBeLessThan(1);
+}
+
+for (const direction of ['se', 'nw'] as const) {
+  test(`nested group bounds follow child ${direction} resize and preserve geometry on ungroup`, async ({ page }) => {
+    await page.goto('/canvas.html?fixture=two-boxes');
+    await setHostSource(page, `Deck { slides: [Slide { content: Freeform {
+      Group { x: 400 y: 300 width: 900 height: 600 children: [
+        Group { x: 100 y: 80 width: 500 height: 400 children: [
+          Box { x: 30 y: 40 width: 100 height: 80 fill: amber }
+        ] }
+      ] }
+    } }] }`);
+    await rows(page, 'Group').first().click();
+    await expectGroupBounds(page);
+    const original = await getEditorSource(page);
+    await rows(page, 'Box').click();
+    const handle = (await page.locator(`.sw-resize-${direction}`).boundingBox())!;
+    const scale = (await page.locator('.sw-canvas-stage .presentation-canvas').boundingBox())!.width / 1920;
+    const dx = direction === 'se' ? 100 : -200;
+    const dy = direction === 'se' ? 50 : -180;
+    await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(handle.x + handle.width / 2 + dx * scale, handle.y + handle.height / 2 + dy * scale, { steps: 8 });
+    await page.mouse.up();
+    await expect.poll(() => getEditorSource(page)).toMatch(direction === 'se' ? /width: 200\s+height: 130/ : /x: -170\s+y: -140/);
+    for (const index of [1, 0]) {
+      await rows(page, 'Group').nth(index).click();
+      await expectGroupBounds(page);
+    }
+    await page.keyboard.press('Control+z');
+    await expect.poll(() => getEditorSource(page)).toBe(original);
+    await rows(page, 'Group').first().click();
+    await expectGroupBounds(page);
+    await page.keyboard.press('Control+Shift+z');
+    await expect.poll(() => getEditorSource(page)).not.toBe(original);
+    await rows(page, 'Group').first().click();
+    await expectGroupBounds(page);
+    const before = await visuals(page, 'Box').boundingBox();
+    await page.getByRole('button', { name: 'Ungroup', exact: true }).click();
+    await expect(rows(page, 'Group')).toHaveCount(1);
+    await page.getByRole('button', { name: 'Ungroup', exact: true }).click();
+    await expect(rows(page, 'Group')).toHaveCount(0);
+    expect(await visuals(page, 'Box').boundingBox()).toEqual(before);
+  });
+}
+
+test('group refits the union after source edits grow and shrink implicit children', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=two-boxes');
+  const source = (width: number) => `Deck { slides: [Slide { content: Freeform {
+    Group {
+      Box { x: -40 y: -30 width: 100 height: 100 fill: amber }
+      Box { x: 200 y: 150 width: ${width} height: 80 fill: cyan }
+    }
+  } }] }`;
+  await setHostSource(page, source(200));
+  await rows(page, 'Group').click();
+  await expectGroupBounds(page);
+  for (const width of [400, 20]) {
+    await setHostSource(page, source(width));
+    await expect.poll(() => getEditorSource(page)).toBe(source(width));
+    await rows(page, 'Group').click();
+    await expectGroupBounds(page);
+  }
+});
+
 async function selectBoxes(page: Page) {
   await rows(page, 'Box').nth(0).click();
   await rows(page, 'Box').nth(1).click({ modifiers: ['Shift'] });
