@@ -280,8 +280,9 @@ function buildSelectableChain(
                 // purposes, so its slot wrappers shouldn't intercept
                 // clicks aimed at descendants either.
                 const parentTransparent =
-                  isLayoutAdapter(parentEntry.canvas) &&
-                  parentEntry.canvas.chainMode === 'transparent';
+                  (isLayoutAdapter(parentEntry.canvas) &&
+                    parentEntry.canvas.chainMode === 'transparent') ||
+                  (parentComp.getAttribute('data-sw-component') === 'Group' && slotName === 'children');
                 if (!parentTransparent) {
                   chain.push({
                     kind: 'slot',
@@ -662,7 +663,11 @@ export function ScaledCanvas({
           }
         }
       }
-      const draggable = selectable;
+      // Drag the resolved unit, including an outer Group selected through
+      // one of its members. Using the innermost hit would move the member.
+      const draggable = resolved?.kind === 'component'
+        ? document.querySelector<HTMLElement>(`.sw-canvas-stage [data-sw-span-start="${resolved.span.start}"][data-sw-span-end="${resolved.span.end}"]`)
+        : selectable;
       if (
         draggable instanceof HTMLElement &&
         onDragStart

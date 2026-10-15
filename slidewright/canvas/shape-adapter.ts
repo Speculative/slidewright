@@ -193,6 +193,8 @@ export interface HandlesProps {
 // ─── Adapter contract ────────────────────────────────────────────
 
 export interface ShapeAdapter {
+  // Translation-only containers opt out of multi-selection resize handles.
+  supportsTransform?: boolean;
   // Compute the selection-outline bounds from the shape's params
   // (gesture-adjusted if applicable). Used by selection
   // rendering. Returns null if the shape doesn't have a meaningful

@@ -27,7 +27,7 @@ function resolveSelection(selected: readonly SelectionTarget[], shapes: Readonly
     if (!bounds || !Object.values(bounds).every(Number.isFinite)) return null;
     const wrapper = document.querySelector(`.sw-canvas-stage [data-sw-span-start="${target.span.start}"][data-sw-span-end="${target.span.end}"]`);
     const parent = wrapper?.parentElement?.closest('[data-sw-component]');
-    if (parent?.getAttribute('data-sw-component') !== 'Freeform') return null;
+    if (!parent || !['Freeform', 'Group'].includes(parent.getAttribute('data-sw-component') ?? '')) return null;
     const positioned = parent.firstElementChild;
     if (!(positioned instanceof HTMLElement) || container && container !== positioned) return null;
     container = positioned;

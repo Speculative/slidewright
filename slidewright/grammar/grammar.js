@@ -5,8 +5,8 @@
  * declarative form. **Tree-sitter is not in the Slidewright build**; the
  * runtime parser (slidewright/runtime/parser.ts) is hand-rolled
  * recursive descent that tracks this grammar. See SLIDEWRIGHT.md /
- * Mediation layer / Parser for the rationale and HANDOFF.md /
- * Tree-sitter investigation for the alternative we considered.
+ * Mediation layer / Parser for the rationale, alternatives, and
+ * triggers for reconsidering tree-sitter.
  *
  * Why this file exists in tree-sitter form: it's a precise
  * specification of the syntax independent of the runtime parser, and

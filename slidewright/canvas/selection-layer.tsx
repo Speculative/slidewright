@@ -19,9 +19,8 @@
 //     Freeform ancestor). See `portal-target.ts:useSelectionPortal`
 //     for the conditional lookup.
 //
-// Multi-select scope: all selected shapes share one positioning
-// context (per SLIDEWRIGHT.md / Editor / multi-select scoping
-// rule), so one portal lookup suffices for the whole selection.
+// Hierarchy multi-selection can cross positioning contexts. Bounds are
+// converted into a common portal; combined resizing requires one context.
 
 import { Fragment, useEffect, useState } from 'react';
 import type { ReactElement, PointerEvent as ReactPointerEvent } from 'react';
@@ -121,19 +120,14 @@ export function SelectionLayer({
   renderHandles,
   startGesture,
 }: SelectionLayerProps): ReactElement | null {
-  // Portal lookup wants any span on a real DOM wrapper. Filled
+  // Portal lookup wants spans on real DOM wrappers. Filled
   // targets carry their own span; empty-slot targets fall back to
   // the parent component's span (the slot wrapper is inside that
   // component's wrapper, so the same Freeform-or-stage ancestor
   // applies).
-  const firstTarget = selected[0];
-  const firstSpan =
-    firstTarget && firstTarget.kind === 'empty-slot'
-      ? firstTarget.parentSpan
-      : firstTarget && firstTarget.kind !== 'slide'
-        ? firstTarget.span
-        : undefined;
-  const portalTarget = useSelectionPortal(firstSpan);
+  const spans = selected.flatMap(target => target.kind === 'empty-slot'
+    ? [target.parentSpan] : target.kind === 'slide' ? [] : [target.span]);
+  const portalTarget = useSelectionPortal(spans);
   // Layout bounds come from DOM measurement, not from params. Doing
   // it inline in render reads the DOM *before* React's commit phase
   // flushes layout-affecting source changes (e.g., a stack's
@@ -146,6 +140,7 @@ export function SelectionLayer({
   if (selected.length === 0) return null;
 
   const items: SelectionItem[] = [];
+  let sharedShapeFrame = true;
   for (const target of selected) {
     if (target.kind === 'slot') {
       const key = slotKey(target);
@@ -188,10 +183,9 @@ export function SelectionLayer({
     // they're slide-level layout templates that span the whole
     // slide, so a bounding-box outline would just trace the slide
     // chrome the user already sees. Treat them the same as the
-    // builtin Slide wrapper at outline-render time. Long-term we
-    // may fold their property rows into the Slide row entirely
-    // (see HANDOFF.md / Deferred features), at which point this
-    // filter goes away.
+    // builtin Slide wrapper at outline-render time. Their property
+    // rows merge into the Slide panel when unifiedSlideContent
+    // applies (see SLIDEWRIGHT.md / Inspector and source surfaces).
     if (data.meta.produces === 'slide') continue;
     if (isLayoutAdapter(data.canvas)) {
       const bounds = layoutBounds.get(key);
@@ -217,7 +211,11 @@ export function SelectionLayer({
     const adapter = data.canvas as ShapeAdapter;
     const delta = gestureDeltas.get(key);
     const params = delta ? adapter.applyGesture(data.params, delta) : data.params;
-    const bounds = adapter.calculateBounds(params);
+    const localBounds = adapter.calculateBounds(params);
+    const wrapper = document.querySelector(`.sw-canvas-stage [data-sw-span-start="${span.start}"][data-sw-span-end="${span.end}"]`);
+    const referenceFrame = wrapper && findPortalAncestor(wrapper);
+    if (referenceFrame !== portalTarget) sharedShapeFrame = false;
+    const bounds = localBounds && referenceFrame && portalTarget && boundsInPortal(localBounds, referenceFrame, portalTarget);
     if (!bounds) continue;
     items.push({ kind: 'shape', span, key, adapter, params, bounds });
   }
@@ -262,8 +260,9 @@ export function SelectionLayer({
   // Handles render for any single-selected item with a Handles
   // component (shape: required; layout: optional). Group handles
   // (rigid-body resize) only fire on shape selections.
-  const showHandles = items.length === 1 && renderHandles;
-  const showGroupHandles = items.length > 1 && renderHandles && groupCore && allShapes;
+  const showHandles = items.length === 1 && renderHandles && sharedShapeFrame;
+  const showGroupHandles = items.length > 1 && renderHandles && groupCore && allShapes && sharedShapeFrame &&
+    items.every(item => item.kind === 'shape' && item.adapter.supportsTransform !== false);
 
   return createPortal(
     <>
@@ -455,7 +454,8 @@ function useMeasuredLayoutBounds(
         const data = shapes.get(key);
         if (!data || !isLayoutAdapter(data.canvas)) continue;
         const snap = measureLayoutSnapshot(span);
-        if (snap) next.set(key, snap.layout);
+        const bounds = snap && boundsInPortal(snap.layout, snap.referenceFrame, portalTarget);
+        if (bounds) next.set(key, bounds);
       }
       setLayoutBounds((prev) => (boundsMapsEqual(prev, next) ? prev : next));
     };
@@ -582,6 +582,20 @@ function measureSlotBounds(
 }
 
 const EMPTY_BOUNDS: ReadonlyMap<string, Bounds> = new Map();
+
+// Adapter and layout bounds are local to their positioning frame. Use
+// frame offsets, rather than shape DOM bounds, to retain live gesture previews.
+function boundsInPortal(bounds: Bounds, referenceFrame: HTMLElement, portalTarget: HTMLElement): Bounds | null {
+  if (referenceFrame === portalTarget) return bounds;
+  const canvas = document.querySelector('.sw-canvas-stage .presentation-canvas');
+  if (!(canvas instanceof HTMLElement)) return null;
+  const scale = canvas.getBoundingClientRect().width / canvas.offsetWidth;
+  if (!Number.isFinite(scale) || scale <= 0) return null;
+  const from = referenceFrame.getBoundingClientRect();
+  const to = portalTarget.getBoundingClientRect();
+  return { ...bounds, left: bounds.left + (from.left - to.left) / scale,
+    top: bounds.top + (from.top - to.top) / scale };
+}
 
 function boundsMapsEqual(
   a: ReadonlyMap<string, Bounds>,

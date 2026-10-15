@@ -20,13 +20,9 @@
 //     dimensions. Layout measurements against the stage give
 //     stage-relative bounds.
 //
-// The conditional fallback keeps existing Freeform-anchored paths
-// identical (no shape changes; no layout-inside-Freeform changes)
-// while extending support to layouts at slide-level. Cross-context
-// coord comparison (e.g., distance between a stage-level layout
-// and a Freeform-internal shape) isn't directly meaningful since
-// no v0.4 feature consumes that — both render at correct slide-
-// design positions, which is what matters for visuals.
+// Single-context selections keep their local frame. Hierarchy selections
+// spanning contexts use the slide canvas, with bounds converted by the
+// selection layer before combining them.
 
 import { useEffect, useState } from 'react';
 
@@ -38,7 +34,10 @@ import type { SourceRange } from './host.js';
 // Pure DOM walk — usable from non-React code (e.g., gesture-start
 // handlers in adapters).
 export function findPortalAncestor(el: Element): HTMLElement | null {
-  const freeform = el.closest('[data-sw-component="Freeform"]');
+  // A Group's own bounds are in its parent's coordinates; descendants use
+  // the Group's positioned div as their local frame.
+  const anchor = el.matches('[data-sw-component="Group"]') ? el.parentElement : el;
+  const freeform = anchor?.closest('[data-sw-component="Freeform"], [data-sw-component="Group"]');
   const inner = freeform?.firstElementChild;
   if (inner instanceof HTMLElement) return inner;
   const stage = document.querySelector(
@@ -47,15 +46,18 @@ export function findPortalAncestor(el: Element): HTMLElement | null {
   return stage instanceof HTMLElement ? stage : null;
 }
 
-// Find the portal target for selection visuals on `firstSpan`.
+// Find a common portal target for selection visuals. Mixed positioning
+// contexts use the slide canvas; their bounds must be converted into it.
 // Looks up the span's wrapper and walks up via findPortalAncestor.
 // Returns null while no selection / no canvas mounted.
 export function useSelectionPortal(
-  firstSpan?: SourceRange,
+  spans?: SourceRange | readonly SourceRange[],
 ): HTMLElement | null {
+  const targets = !spans ? [] : 'start' in spans ? [spans] : spans;
+  const targetsKey = targets.map(span => `${span.start}-${span.end}`).join(',');
   const [el, setEl] = useState<HTMLElement | null>(null);
   useEffect(() => {
-    if (!firstSpan) {
+    if (!targets.length) {
       setEl(null);
       return;
     }
@@ -63,18 +65,21 @@ export function useSelectionPortal(
     // (`data-sw-span-*`) or a slot wrapper (`data-sw-slot-span-*`).
     // Try both — whichever matches gives a wrapper to walk up
     // from for the portal-ancestor lookup.
-    const wrapper =
-      document.querySelector(
-        `.sw-canvas-stage [data-sw-span-start="${firstSpan.start}"][data-sw-span-end="${firstSpan.end}"]`,
-      ) ??
-      document.querySelector(
-        `.sw-canvas-stage [data-sw-slot-span-start="${firstSpan.start}"][data-sw-slot-span-end="${firstSpan.end}"]`,
-      );
-    if (!wrapper) {
-      setEl(null);
-      return;
-    }
-    setEl(findPortalAncestor(wrapper));
-  }, [firstSpan?.start, firstSpan?.end]);
+    const portals = targets.map(span => {
+      const wrapper =
+        document.querySelector(
+          `.sw-canvas-stage [data-sw-span-start="${span.start}"][data-sw-span-end="${span.end}"]`,
+        ) ??
+        document.querySelector(
+          `.sw-canvas-stage [data-sw-slot-span-start="${span.start}"][data-sw-slot-span-end="${span.end}"]`,
+        );
+      return wrapper ? findPortalAncestor(wrapper) : null;
+    });
+    const first = portals[0];
+    const canvas = document.querySelector('.sw-canvas-stage .presentation-canvas');
+    setEl(portals.every(portal => portal === first)
+      ? first ?? null
+      : canvas instanceof HTMLElement ? canvas : null);
+  }, [targetsKey]);
   return el;
 }

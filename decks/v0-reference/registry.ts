@@ -18,6 +18,7 @@ import * as CardRow from './components/CardRow.js';
 import * as VStack from './components/VStack.js';
 import * as HStack from './components/HStack.js';
 import * as Freeform from './components/Freeform.js';
+import * as Group from './components/Group.js';
 import * as Box from './components/Box.js';
 import * as TextBox from './components/TextBox.js';
 import * as Arrow from './components/Arrow.js';
@@ -36,6 +37,7 @@ export const components = buildRegistry({
   VStack,
   HStack,
   Freeform,
+  Group,
   Box,
   TextBox,
   Arrow,

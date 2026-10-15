@@ -99,6 +99,8 @@ import {
   type SlotInfo,
 } from './InspectorPanels.js';
 import { AlignmentControls } from './AlignmentControls.js';
+import { GroupingControls } from './GroupingControls.js';
+import { findPortalAncestor } from './portal-target.js';
 import { ToolPalette, SELECT_TOOL, type Tool, type ToolEntry } from './ToolPalette.js';
 import {
   acceptsTargetSlot,
@@ -2084,6 +2086,8 @@ export function App({
           // bounds are flow-laid and they often span the whole slide
           // area, making marquee selection counterintuitive.
           if (isLayoutAdapter(data.canvas)) continue;
+          const wrapper = document.querySelector(`.sw-canvas-stage [data-sw-span-start="${data.comp.span.start.offset}"][data-sw-span-end="${data.comp.span.end.offset}"]`);
+          if (!wrapper || findPortalAncestor(wrapper) !== marquee.freeformDiv) continue;
           const adapter = data.canvas as ShapeAdapter;
           const b = adapter.calculateBounds(data.params);
           if (!b) continue;
@@ -2673,6 +2677,7 @@ export function App({
         </div>
         <ResizeHandle axis="x" invert size={propertiesWidth} setSize={setPropertiesWidth} min={PROPERTIES_WIDTH_MIN} max={PROPERTIES_WIDTH_MAX} />
         <aside className="sw-properties-sidebar" aria-label="Element properties" style={{ width: propertiesWidth }}>
+          <GroupingControls selected={selected} shapes={state.shapes} disabled={!!richEditing || !!gestureMeta || !!createPreview || !!marquee || !!toolDrag} onCommit={commitToHost} source={state.source} />
           <AlignmentControls selected={selected} shapes={state.shapes} disabled={!!richEditing} onCommit={commitToHost} source={state.source} />
           <PropertiesPanel
             componentShape={selectedShape}

@@ -373,8 +373,8 @@ interface PropertiesPanelProps {
   onRemoveListItem: (range: SourceRange) => void;
   // Loader's shapes registry. SlidePropertiesView reads it to look
   // up the slide-content component's meta when unifying Slide +
-  // content rows into a single panel (per the eventual direction
-  // of making Slide abstract — see HANDOFF).
+  // content rows into a single panel (see SLIDEWRIGHT.md /
+  // Implementation notes / Inspector and source surfaces).
   shapes: ReadonlyMap<string, ShapeData>;
   // Deck-scope color tokens (`accent`, `magenta`, …). Rendered as
   // the global swatch row above any color-typed PropertyRow editor.
@@ -964,10 +964,10 @@ function unOmitDefault(type: SlotType): string {
 // a registered meta (i.e., it has a `canvas` export). Three surfaces
 // key off this — the slide property panel merges its rows in, the
 // hierarchy suppresses its row, and PropertiesPanel redirects a
-// direct selection of it to the unified panel. See HANDOFF / "Fold
-// slide-content into Slide row" (option 2). When content is a plain
-// block (Freeform, VStack, …) or missing, returns null and every
-// surface keeps the two-row behavior.
+// direct selection of it to the unified panel. See SLIDEWRIGHT.md /
+// Implementation notes / Inspector and source surfaces. When
+// content is a plain block (Freeform, VStack, …) or missing,
+// returns null and every surface keeps the two-row behavior.
 function unifiedSlideContent(
   slide: SlideAstData,
   shapes: ReadonlyMap<string, ShapeData>,
@@ -1016,8 +1016,7 @@ function SlidePropertiesView({
   const rowName = (r: PropertyRowDescriptor): string =>
     r.kind === 'filled' ? r.fill.name : r.name;
   // Speaker notes are deliberately absent from the inspector — a
-  // dedicated notes surface is their eventual home (see HANDOFF /
-  // Speaker-notes editor tab). Until then they're edited in source.
+  // dedicated Notes mode in EditorPane edits their source literal.
   let rows = buildPropertyRowDescriptors(slide.comp, slide.meta).filter(
     (r) => rowName(r) !== 'notes',
   );

@@ -1,13 +1,69 @@
-# Slide template
+# Slidewright
 
-HTML deck framework derived from the NoSQL lecture, packaged as a Vite +
-React project.
+A projectional editor for code-based slide decks. Typed brace-block `.sw`
+source and React/TypeScript components share one source of truth with the
+visual canvas: direct edits round-trip back into source.
+
+## Run and develop
 
 ```sh
 npm install
-npm run dev      # http://localhost:5173
-npm run build    # static output in dist/
+npm run dev                 # Vite at http://localhost:5173
+npm run build               # static output in dist/
+npm run preview             # serve the production build
 ```
+
+- `/canvas.html` — standalone Slidewright editor, with a deck picker.
+- `/canvas.html?deck=plateau` — editable PLATEAU talk. See the
+  [talk README](decks/plateau-2026/README.md) for required local media,
+  browser drafts, presenting, and the speaker console.
+- `/canvas.html?fixture=<name>` — load `tests/fixtures/<name>.sw` for debugging.
+- `/` — read-only reference-deck presentation.
+
+The standalone editor saves drafts in browser storage. Download source to
+persist edits to a `.sw` file; browser edits do not overwrite repository files.
+The hosts use bundled component registries; arbitrary deck-local TSX compilation
+is not yet implemented.
+
+```sh
+npm test                    # typecheck + runtime/canvas smoke tests
+npm run test:e2e             # Playwright browser suites, excluding perf
+npm run test:perf            # opt-in gesture scaling sweep
+npm run test:production      # build + production browser checks
+npm run slidewright -- decks/v0-reference/deck.sw  # validate source
+npm run extension:build      # build the VS Code extension
+npm run extension:watch      # watch extension bundles
+npm run extension:typecheck  # extension and webview typechecks
+npm run code-server         # browser VS Code on :8080 in Carthage
+```
+
+See the [extension README](extension/README.md) for the F5 development-host
+workflow and the **Slidewright: Open Canvas** command. Browser tests run against
+the standalone host; desktop VS Code still needs a smoke check before release.
+
+## Repository map
+
+- [SLIDEWRIGHT.md](SLIDEWRIGHT.md) — design commitments, rationale, and
+  implementation notes. Ostraka items hold work discussions and outstanding
+  tasks; the Ostraka project brief holds concise durable agent context.
+- `decks/v0-reference/` — reference `deck.sw`, shared `registry.ts`, and
+  component modules. Modules export React rendering, `slidewright` metadata,
+  and optional `canvas` adapters.
+- `decks/plateau-2026/` — editable talk, custom components, and local assets.
+- `decks/ne-agents-day-2026/` — original React/JSX deck retained as a reference.
+- `slidewright/runtime/` — lexer, parser, AST, emitter, loader, component
+  contract, cells, scope, and diagnostics; `__test__/` contains smoke tests.
+- `slidewright/grammar/` — declarative grammar specification, outside the build.
+- `slidewright/canvas/` — host-agnostic editor. `App.tsx` coordinates state and
+  commits; `host.ts` defines the host boundary; `ScaledCanvas.tsx` handles the
+  design surface and pointer dispatch; `InspectorPanels.tsx` handles hierarchy
+  and properties; `EditorPane.tsx` hosts the standalone CodeMirror source view.
+  Gesture and grouping entry points are documented in SLIDEWRIGHT.md.
+- `src/canvas-standalone.tsx` and `src/standalone-host.ts` — browser entry and
+  Host adapter; `canvas.html` is the HTML entry.
+- `extension/src/canvas.ts` and `extension/src/webview/` — VS Code integration.
+- `tests/` — Playwright suites and `.sw` fixtures; `design/sketches/` — worked
+  DSL examples with commentary.
 
 ## Repository assets and commit checks
 
@@ -25,83 +81,17 @@ are unaffected. Run `npm run check:staged` to check manually and
 Git ignore rules cannot enforce a size limit. The hook is local protection;
 Git's `--no-verify` option can bypass it, and clones need the install step.
 
-## Layout
+## React presentation runtime
 
-- `index.html` — Vite entry. Loads fonts and mounts React into `#app`.
-- `src/main.jsx` — React entry; imports `deck-stage.js` and `styles.css`,
-  mounts `<App />`.
-- `src/App.jsx` — composes `<deck-stage>`, the deck, and the tweaks panel.
-- `src/slides/Deck.jsx` — your deck content. Edit this.
-- `src/slides/helpers.jsx` — `<Slide>` and `<Section>` components plus
-  `ACTS`, `TOTAL`, `DECK_NAME`, `DECK_SUBTITLE`.
-- `src/styles.css` — visual system: colors, typography, card/chip/code/table
-  treatments. CSS variables under `:root` are the swap points.
-- `src/deck-stage.js` — `<deck-stage>` web component: keyboard nav,
-  auto-scaling, print stylesheet, slide persistence, `slidechange`
-  events. Generic; do not edit per-deck.
-- `src/TweaksPanel.jsx` — accent-color picker + speaker-notes overlay
-  wiring. Posts edit-mode messages to a parent frame; harmless when run
-  standalone.
-- `src/speaker-notes.js` — array of speaker-note strings, one per slide.
-- `src/notes-markdown.js` — minimal-markdown renderer shared between the
-  in-page overlay and the popout.
-- `public/notes.html` — speaker-notes popout served as a static file.
-  Press **N** in the deck to open.
+`index.html` loads `src/main.jsx`, which mounts `src/App.jsx`. That app wraps the
+rendered reference deck in `src/Presentation.jsx`; `src/Slide.jsx` supplies Slide
+and Section primitives. The runtime owns keyboard navigation, viewport scaling,
+slide persistence, print sizing, and the `public/notes.html` speaker popout.
+The original JSX deck is retained in `decks/ne-agents-day-2026/Deck.jsx`.
 
-## Authoring a slide
+Presentation keys: arrows / Page Up / Page Down / Space navigate, digits jump,
+Home / End select first / last, R resets, and N opens notes. Browser Print →
+Save as PDF emits one page per slide at the design size.
 
-```jsx
-<Slide idx={N} label="...">
-  <div className="eyebrow">EYEBROW</div>
-  <div className="slide-title">Title.</div>
-  {/* body JSX */}
-</Slide>
-```
-
-Section dividers (inverted black background):
-
-```jsx
-<Section idx={N} label="..." actNum={1}
-         titleLines={<>Title<br/>Lines</>}
-         subtitle="Subtitle" />
-```
-
-Keep `TOTAL` and the `ACTS` ranges in sync as you add slides. Edit
-`DECK_NAME` / `DECK_SUBTITLE` in `helpers.jsx` once for your deck — they
-drive the breadcrumb in the chrome footer.
-
-## Speaker notes
-
-Edit the array in `src/speaker-notes.js`. One string per slide, in order.
-Markdown subset: `**bold**`, `*italic*`, `` `code` ``, `-` / `•` bullets
-with 2-space indent for nesting. Keep notes self-contained — they're
-shown one at a time, so don't reference "slide 5" or "the next one".
-
-## Keyboard
-
-- `←` `→` / PgUp PgDn / Space — navigate
-- Number keys — jump to slide
-- `Home` / `End` — first / last
-- `R` — reset to slide 1
-- `N` — open speaker-notes popout
-
-## Print to PDF
-
-The deck includes a print stylesheet. Use the browser's Print → Save as
-PDF; you get one page per slide at the design size.
-
-## Style vocabulary
-
-CSS classes you'll reach for most:
-
-- Layout: `.cols`, `.cols-3`, `.card-grid`, `.card-grid-3`, `.stack-48`,
-  `.stack-32`, `.stack-24`, `.stack-16`
-- Type: `.title`, `.title-xl`, `.title-xxl`, `.slide-title`, `.eyebrow`,
-  `.body`, `.body-lg`, `.small`, `.big-fig`
-- Cards: `.card` plus color modifier (`.amber`, `.cyan`, `.magenta`,
-  `.lime`, `.red`, `.purple`, `.inverted`)
-- Misc: `.chip`, `pre.code` (+ `.dark`), `table.tbl`, `hr.rule`,
-  `.accent-rule`
-
-Accent color is `var(--accent)`. The Tweaks panel (visible only inside an
-edit-mode parent frame) lets you switch it live.
+`src/styles.css` defines the shared typography, layout, card, chip, and code
+styles. Accent color is `var(--accent)`.

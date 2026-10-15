@@ -4,11 +4,20 @@ A projectional editor for code-based slide decks, designed for human/AI co-autho
 
 ## Status
 
-Implementation in progress. This document started as a snapshot of an initial design conversation; pre-v0 design pass is complete (see "Pre-v0 design topics" below). v0.0 (read-only viewer), v0.1 (VS Code extension + standalone web app + selection sync), v0.2 (interactive gestures + round-trip emit, including text editing, drawing tools, drag, resize, single-shape selection), v0.2.j (multi-select), and the React-native gesture refactor (originally a v0.3 polish item, prioritized to eliminate a recurring "visual didn't update during drag" bug class) are implemented. The remainder of v0.3 (slot-aware editing, inspector, external-edit reconciliation) is the active surface area.
+v0.0–v0.3 and the v0.4 tight cut are implemented, including stack editing,
+named-slot drill-in, empty-slot placeholders, the component toolbar, and color
+editing. Structured TextBox editing, media primitives, and persistent grouping
+are also implemented. The phase sequencing below records the original design;
+the implementation notes describe current behavior and limits.
 
-Sections marked **OPEN** have multiple options on the table; sections marked **TENTATIVE** have a leading candidate but are not locked in; sections marked **DECIDED** represent stronger commitments but may still be revisited.
+Sections marked **OPEN** have multiple options on the table; sections marked
+**TENTATIVE** have a leading candidate but are not locked in; sections marked
+**DECIDED** represent stronger commitments but may still be revisited.
 
-The agent reading this should treat the design as input to ongoing implementation and as a living document to be updated as implementation reveals what works. Day-to-day "where things are now" lives in `HANDOFF.md`; load-bearing design commitments and rationale live here.
+Setup and repository navigation live in [README.md](README.md). This document
+holds versioned design commitments and implementation notes. Work discussions,
+progress, and outstanding tasks live on Ostraka items; the Ostraka project brief
+holds concise durable agent context.
 
 ---
 
@@ -420,7 +429,7 @@ The parser is **error-recovering**: malformed source produces a partial AST with
 
 The diagnostics translator (slot-type mismatches, missing-required hints, "did you mean...") lives in the parser and validator with full context, not as a post-hoc CST visitor.
 
-**Tree-sitter is investigated and deferred.** A `grammar.js` file in `slidewright/grammar/` captures the brace-block grammar in tree-sitter's declarative form as a precise specification independent of the runtime parser, and as the entry point if we ever revisit. The investigation that produced this decision is captured in `HANDOFF.md / Tree-sitter investigation`. Triggers for revisiting: (a) the recovery code becomes a maintenance burden, or (b) we add a second grammar dialect. Syntax highlighting is handled independently by the VS Code TextMate contribution and the standalone CodeMirror stream language.
+**Tree-sitter is investigated and deferred.** A `grammar.js` file in `slidewright/grammar/` captures the brace-block grammar in tree-sitter's declarative form as a precise specification independent of the runtime parser, and as the entry point if we ever revisit. The earlier investigation is preserved in git history (`0790967` and earlier). Triggers for revisiting: (a) the recovery code becomes a maintenance burden, or (b) we add a second grammar dialect. Syntax highlighting is handled independently by the VS Code TextMate contribution and the standalone CodeMirror stream language.
 
 **Worked recovery and round-trip emit are v0.2+ work**, not v0.0. The v0.0 bridge does enough recovery to keep simple smoke tests honest; full recovery synchronization at the floors above is deferred until the canvas + emit work needs it.
 
@@ -623,7 +632,12 @@ Today's bespoke gestures: `box-resize` (rect-adapter — Box / TextBox), `arrow-
 
 **Multi-select scope:**
 
-Selection is bounded to *one layout context* — two Boxes on the same Freeform can be multi-selected; a Box on Freeform plus a Card in CardRow cannot. Cross-context multi-select is forbidden because the shapes live in different coordinate systems and group operations would be ill-defined.
+Hierarchy selection can span positioning contexts, including a Group member
+and an outside shape. `portal-target.ts` chooses a common slide-canvas frame for
+mixed selections; `selection-layer.tsx` converts each local bound before drawing
+individual outlines and the combined border. Combined resize handles require a
+shared positioning context and compatible adapters. A single-context selection
+retains its local frame.
 
 **Selection preservation across emit cycles:**
 
@@ -651,7 +665,11 @@ Concerns within the current Freeform-bound architecture, captured so future work
 
 **Per-frame full-tree re-render.** `setGestureLive` changes the GestureProvider's value, fires every `ShapeProjection`'s `useShapeDelta` consumer regardless of whether that shape is in the gesture's targets. Non-affected shapes return null, params pass through unchanged, but the function component still runs. Slide-scale (~50–500 shapes) is invisible; we measured the cliff around N=2000. Mitigations when needed: `useContextSelector`-style selector hook, per-shape `React.memo` with custom prop equality, or splitting GestureProvider into per-span contexts (overkill).
 
-~~**SelectionLayer's portal target via DOM lookup.**~~ Resolved in v0.4: `slidewright/canvas/portal-target.ts:useSelectionPortal` does a conditional lookup — prefer the closest Freeform's positioned div, fall back to the slide stage (`.presentation-canvas`) when there's no Freeform ancestor. Selection visuals + gesture overlays now work for layouts at any depth, including layouts at slide-level (`body: VStack { ... }`). The Freeform-anchored path is unchanged for shapes; existing coord semantics preserved. Cross-context coord comparison (e.g., distance between a stage-level layout and a Freeform-internal shape) isn't directly supported but isn't needed by current features — both paths render at correct slide-design positions.
+**Selection portal frames.** `portal-target.ts` uses the closest Freeform or
+Group positioning context, falling back to `.presentation-canvas` for slide-level
+layouts. Mixed-context selections use the slide canvas with converted bounds as
+described above. Layout measurements and overlay rendering must agree on their
+reference frame.
 
 **`gestureMeta` + `gestureLive` split is non-obvious.** Two pieces of state for what's conceptually one gesture, gated on the perf concern that `setGesture(prev => …)`-per-frame would re-fire the gesture-lifecycle effect (cleanup + re-attach document listeners ~60×/sec). The split is justified but adds a tiny ceremony at every gesture-start path (set both, clear both). A future consolidation that skips the perf optimization would only cost per-frame remove-and-add of two listeners — measurable but not user-visible at slide scale.
 
@@ -904,7 +922,7 @@ The fundamental bet: **bidirectional projectional editing of a typed component t
 v0 is broken into incremental milestones. Each ends in a runnable demo of the substrate at that level — we don't wait for full v0 before exercising the system. The split was made deliberately: direct manipulation is meaningful work that depends on a working parser+renderer, so the first cut (v0.0) defers all canvas/gesture concerns to validate the foundation in isolation.
 
 **v0.0 — Read-only viewer.** Parser + renderer + minimal cell runtime. No canvas, no editing. **Status: implemented (this revision).**
-- Hand-rolled recursive-descent parser (`slidewright/runtime/parser.ts`) tracking the brace-block grammar specification in `slidewright/grammar/grammar.js`. Parser commitment captured in Mediation layer / Parser. Tree-sitter was investigated and deferred (see HANDOFF.md / Tree-sitter investigation); the lineage we're aiming for is rustc / Roslyn / TypeScript-compiler hand-rolled parsers, prioritizing diagnostics ceiling over declarative-grammar economy.
+- Hand-rolled recursive-descent parser (`slidewright/runtime/parser.ts`) tracking the brace-block grammar specification in `slidewright/grammar/grammar.js`. Parser commitment captured in Mediation layer / Parser. Tree-sitter was investigated and deferred (see [Parser](#parser-decided-hand-rolled-recursive-descent)); the lineage we're aiming for is rustc / Roslyn / TypeScript-compiler hand-rolled parsers, prioritizing diagnostics ceiling over declarative-grammar economy.
 - Diagnostics translator (`slidewright/runtime/diagnostics.ts`): structured kinds (`parse`, `lex`, `slot-type-mismatch`, `missing-required-slot`, `unknown-slot`, `duplicate-slot`, `unknown-reference`, `unknown-component`, `invalid-implicit-children`, `asset-not-found`, `component-load-error`).
 - Cell-resolution runtime (`slidewright/runtime/cells.ts`): `resolve(handle, context): T` interface, `(handle, context)`-keyed cache, v0 context is empty, literals only — computed defaults reserved for v0.2+.
 - Slide-component contract consumer (`slidewright/runtime/contract.ts` + `loader.ts`): load `.tsx` files with `slidewright` metadata, validate slot fillings, dispatch to default React export with resolved `{ slots, params }`.
@@ -1023,6 +1041,158 @@ A user can:
 If those work reliably, the architecture is proven and we can scope v1.
 
 ---
+
+## Implementation notes
+
+### Persistent grouping
+
+Persistent grouping is available for freely positioned shape siblings in
+Freeform or Group: Group / Ungroup in the properties sidebar, Ctrl/Cmd+G /
+Ctrl/Cmd+Shift+G. `Group { x, y, width, height, children }` stores members in
+local coordinates; nested groups, comments, fractional positions and mixed
+registered shapes survive grouping and ungrouping. Each operation is one canvas
+undo step. Groups move as a unit; click again to drill into individual members.
+Groups currently support translation only, so selections containing a Group do
+not expose resize handles. Stored group bounds describe the frame at grouping
+time; editing a member does not automatically refit that frame. Flow-layout
+children and positions requiring changes to authored bindings are rejected.
+Implementation: `grouping.ts`, `GroupingControls.tsx`, `components/Group.tsx`;
+browser coverage: `tests/grouping.spec.ts`.
+
+### Layouts, slots, and insertion
+
+`LayoutAdapter` (`slidewright/canvas/layout-adapter.ts`) makes flow layouts selectable and
+inspectable without requiring gesture support. Optional `interceptChildDrag`,
+`Handles`, opaque-delta methods, and `GestureOverlay` let a parent own child
+reorder and gap-drag. `stack-adapter.ts:makeStackAdapter({ axis })` implements
+these for HStack/VStack. `layout-measurement.ts` provides ResizeObserver-backed
+bounds through `measureLayoutSnapshot` and `useLayoutMeasurement`; observer
+remount caveats are described under Known design concerns above.
+
+Freeform has no authored width/height params; it fills its container and exports
+a bare layout adapter with `chainMode: 'transparent'`. Children remain reachable
+without selecting the positioning context first. Freeform resizing or a separate
+slide annotation layer would require a design decision about sizing and ownership.
+
+Selection targets distinguish components, filled slots, empty slots, and the
+active slide. Empty slots use `(parentSpan, slotName)` identity because no fill
+span exists. `omit` is a first-class value, distinct from `null`: it suppresses
+an empty-slot placeholder. `ComponentRenderProps.slotsState` reports `filled`,
+`missing`, or `omit`, allowing a component to collapse intentionally omitted
+wrappers while retaining wrappers for missing-slot placeholders.
+
+`ComponentMeta.insertion` declares supported `drag`/`modal` gestures and a `stub`
+factory taking an `InsertionContext` (target slot type, optional rectangle and
+insertion index). Factories live with components and use runtime AST builders.
+Components without insertion metadata remain source-authored. Category and
+description metadata drive the toolbar. Pointer events drive both gesture modes.
+Drops require compatible `produces`/slot types and an empty-slot placeholder or
+array gap; filled scalar slots reject replacement and omitted slots have no drop
+target. Click-empty-slot-then-pick insertion remains unimplemented.
+
+Array insertion supports before-first, between, and after-last gaps. Hit testing
+compares distance to candidate gaps and uses DOM depth to break ties: choosing
+only the deepest wrapper makes an outer gap unreachable when nested stacks are
+flush. Axis comes from stack identity, including one-child stacks; empty arrays
+use the parent layout's bounds. Implicit children receive drop-target wrappers
+without slot spans, and insertion preserves their implicit surface form. See
+`tests/toolbar-insertion.spec.ts` for these cases.
+
+### Inspector and source surfaces
+
+`InspectorPanels.tsx` renders a hierarchy tree. A sole registered
+`produces: 'slide'` content component merges its properties into the Slide panel
+and has no separate hierarchy row; block content such as Freeform keeps its own
+row. Slide-content components do not draw full-slide selection outlines. Notes
+are excluded from the property panel and edited in the dedicated source mode.
+
+The standalone `EditorPane.tsx` owns one CodeMirror 6 view. Deck, active-slide,
+and Notes modes project the Host's canonical full-deck source; edits route
+through `Host.setSource`, and selection offsets remain global. Notes mode decodes
+and re-encodes the source literal, including materializing a missing notes fill.
+Host replacements reset text history as an external-edit barrier. CodeMirror
+text history and canvas undo are still separate. Syntax highlighting lives in
+`canvas/sw-language.ts` and the extension's TextMate grammar.
+
+Slide-strip selection supports range and toggle selection, drag reorder, and
+bulk deletion; source mutations enter canvas undo. `ast-edits.ts` owns slide
+insertion/removal/reordering helpers; `tests/slide-ops.spec.ts` covers behavior.
+
+### Structured text editing
+
+`TextBox` exposes source-backed `font`, `fontSize`, `fontWeight`, `lineHeight`,
+`letterSpacing`, `align`, `wrap`, `shrinkToFit`, and `color` defaults. Its
+`content: text-document` slot holds an ordered sequence of explicit `Paragraph`
+and `List` blocks. Paragraphs and list items contain inline sequences of strings,
+marked Spans, registered inline elements, and compatible named references.
+List items may own a nested `List` through `children` but do not accept general
+block content. Each List owns `style`, `start`, and `items`. Single-string input
+remains migration shorthand for one paragraph and canonicalizes on the first
+structured edit. Repository decks/tests are migrated; legacy `bullets`,
+`listStyle`, and `listStart` fields are removed.
+
+Canvas double-click opens continuous rich-text editing, including empty content.
+The private ProseMirror session preserves source origins while supporting native
+cross-run selection, inline formatting, links, paragraph/list structure, and
+custom inline ownership. Done, Mod-Enter, or blur commits one canvas undo entry;
+Escape or Cancel discards the draft. External source changes cancel drafts.
+Structured text remains ordinary DSL content rather than an opaque editor
+payload; reference-backed values remain atomic without explicit write-back.
+
+Dedicated text-authoring controls edit range/caret styles, paragraph settings,
+list style/start/nesting, and whole-box typography. TextBox's generic inspector
+exposes only x/y/width/height; Span exposes no fields. Spans support color, font,
+size, weight, letter spacing, italic, underline, strikethrough, and links.
+`shrinkToFit` derives the rendered font size while retaining the authored value.
+The inspector also edits primitive list items and materializes scalar params
+through the DSL parser/emitter. Coverage includes `tests/text-editing.spec.ts`,
+`tests/fixtures/slide-grade-text.sw`, and the rich-text and text-document suites.
+
+### Color editing
+
+Inspector replaces the free-text input for `color-token`-typed rows with a swatch palette + OKLCH picker hosted in a portaled popover.
+
+**Source representation: `ColorLit` Value kind.** `oklch(L C H)` — three space-separated numbers (L ∈ [0, 1], C ≥ 0, H ∈ [0, 360); no alpha, no hex). Lexer recognizes `oklch(` and consumes through the matching `)` as a single `color_oklch` token; parser unpacks via regex (malformed → parse diagnostic + zeroed literal). Emitter writes the canonical form with shortest-round-tripping decimals. Round-trip property test covers it.
+
+**Resolver: `readColorValue` returns ready-to-use CSS color strings** in `slidewright/runtime/loader.ts`:
+
+- `name_ref` → `ctx.colorTokens[name] ?? var(--<name>)`. Registry tokens fall through to the CSS-variable cascade; source-declared tokens (see below) override.
+- `color_oklch` → `oklch(L C H)` verbatim.
+- `string` → passed through (lets users hand-write hex / rgb / any CSS color).
+- Components consume the resolved string directly — no per-component `var(--${name})` wrapping. `color-token` param defaults are wrapped at injection time so `default: 'accent'` still works.
+
+**Source-declared tokens via `Deck.tokens: Tokens { … }`.** `Tokens` is a builtin meta (`produces: 'block'`, empty schema); the loader's `processDeckTokens` iterates its fills *directly*, no `renderComponent` and no `validateAgainstMeta`, so the open-schema body doesn't trigger unknown-slot diagnostics. Resolved tokens land in `ctx.colorTokens` (separate from `scope.bindings` so text-slot name_refs aren't polluted with CSS-color strings) and are exposed as `LoadDeckResult.tokens`. App merges with the registry's `staticTokens` (wrapped to `var(--name)`) into a single map plumbed through to `PropertiesPanel` and `ColorPicker`.
+
+**Picker UI (`slidewright/canvas/ColorPicker.tsx`).**
+
+- 2D L × C plane painted via `<canvas>` at 384×192. Per-pixel `oklab → linear sRGB → gamma → 8-bit RGB` via Björn Ottosson's forward matrices, inverted **numerically at module init** (his published 10-digit inverses leave a -1.4e-4 row-sum error on G that turns every achromatic point into magenta after channel clamping). Out-of-gamut points get chroma-compressed to `maxChromaForLH(L, H)` — matches what CSS Color 4 does at display time.
+- sRGB gamut boundary traced as SVG path (binary search per L row, ~14 iter for ~3e-5 precision). Memoized per hue.
+- Hue slider painted via `linear-gradient(in oklch longer hue, …)` — native browser interpolation.
+- L / C / H drag-to-scrub on the field labels via Pointer Lock (shift ×10, alt ×0.1). Plane + slider drags route through the inspector's scrub channel so a multi-frame drag becomes one undo entry.
+- Opens to the value's actual color (not the default blue) — `resolveToLCH` probes `name_ref`s through the merged token map. `parseOklchString` is a fast-path skipping the probe when the input CSS is already `oklch(...)` (also necessary because Chrome's `getComputedStyle` returns oklch backgrounds verbatim, not as `rgb()`).
+- L/C/H field wrappers use `<div>` (not `<label>`) — a `<label>` wrapping a form control auto-focuses on click within the label, which stole focus from the cell during scrub drags.
+
+**Popover (`ColorPopover` in `InspectorPanels.tsx`).** Portaled to `document.body` via `createPortal` so the inspector pane's overflow can't clip it. Position computed from the anchor cell's `getBoundingClientRect`; flips above the cell when below would overflow the viewport (two-pass `useLayoutEffect` + `ResizeObserver`). Capture-phase scroll listener handles ancestor scrolls. Closes on outside mousedown / Escape via document-level listeners (not focus blur — the portaled popover would otherwise close on every click inside it).
+
+**Palette (`ColorPalette`).** Two rows: global tokens (registry + source-declared, merged) and per-slide colors (derived by `collectSlideColors` walking the active slide AST for `color-token`-typed fills, deduped against the global row). Resolved-RGB dedup via `useResolvedDedup` — an offscreen probe div resolves each candidate's CSS to its RGB form, keeping only the first occurrence per RGB. Catches CSS-variable aliases like `--accent: var(--blue)`.
+
+The picker currently has no alpha channel or Hex/RGB/HSL input UI. Promoting a
+slide color into a source token is not exposed as a UI operation.
+
+### Runtime and host boundaries
+
+The built-in Slide renders through `src/Slide.jsx`. Asset URIs are host-owned:
+VS Code uses `webview.asWebviewUri()`, while standalone uses Vite asset imports.
+The hosts bundle component catalogs; compiling arbitrary deck-local TSX remains
+future work. Slidewright therefore needs a bundler as part of its authoring
+application, even though its canvas and runtime are host-independent.
+
+The component contract has potential external consumers; ShapeAdapter remains
+an internal canvas API, carried opaquely by `LoadedComponent.canvas` so the
+runtime stays canvas-agnostic. `shape-projection.tsx` bridges runtime rendering
+to canvas gesture state, `gesture-context.tsx` distributes deltas, and
+`rect-adapter.ts` shares rectangle gesture math. `grouping.ts` handles persistent
+Group AST edits separately from transient multi-selection transforms.
 
 ## Build process and decision-making
 
