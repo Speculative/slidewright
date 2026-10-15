@@ -84,6 +84,7 @@ import type {
 } from './shape-adapter.js';
 import { resizeRect } from './rect-adapter.js';
 import { GestureProvider, spanKey } from './gesture-context.js';
+import { crossesDragThreshold } from './drag-threshold.js';
 import { wrapShape } from './shape-projection.js';
 import { isLayoutAdapter, type LayoutAdapter } from './layout-adapter.js';
 import { SelectionLayer } from './selection-layer.js';
@@ -1696,7 +1697,13 @@ export function App({
       groupResize,
     } = gestureMeta;
 
+    let dragged = false;
+    const updateThreshold = (e: PointerEvent) => {
+      dragged ||= crossesDragThreshold(e.clientX - pointerStartX, e.clientY - pointerStartY);
+      return dragged;
+    };
     const onMove = (e: PointerEvent) => {
+      if (!updateThreshold(e)) return;
       const dx = (e.clientX - pointerStartX) / scale;
       const dy = (e.clientY - pointerStartY) / scale;
       setGestureLive({ dx, dy });
@@ -1710,6 +1717,8 @@ export function App({
     let cancelled = false;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
       cancelled = true;
       setGestureMeta(null);
       setGestureLive(ZERO_LIVE);
@@ -1719,11 +1728,9 @@ export function App({
       if (cancelled) return;
       const dx = (e.clientX - pointerStartX) / scale;
       const dy = (e.clientY - pointerStartY) / scale;
-      // Treat near-zero motion as a click rather than a gesture
-      // commit. (For body drag this means clicking a shape selects
-      // without committing; for handle drag, an accidental click
-      // on a corner does nothing.)
-      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
+      // Once movement crosses the screen-space threshold it remains a
+      // drag, even if the pointer returns near its starting position.
+      if (!updateThreshold(e)) {
         setGestureMeta(null);
         setGestureLive(ZERO_LIVE);
         return;
@@ -1763,12 +1770,19 @@ export function App({
 
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
+    const onCancel = () => {
+      cancelled = true;
+      setGestureMeta(null);
+      setGestureLive(ZERO_LIVE);
+    };
+    document.addEventListener('pointercancel', onCancel);
     document.addEventListener('keydown', onKey);
     if (cursor) document.body.style.cursor = cursor;
     document.body.style.userSelect = 'none';
     return () => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onCancel);
       document.removeEventListener('keydown', onKey);
       if (cursor) document.body.style.cursor = '';
       document.body.style.userSelect = '';
@@ -2056,13 +2070,13 @@ export function App({
     if (!marquee) return;
     const { pointerStartX, pointerStartY, scale, designStartX, designStartY, shift, initialSelection } = marquee;
 
+    let dragged = false;
     const updateSelection = (e: PointerEvent) => {
+      dragged ||= crossesDragThreshold(e.clientX - pointerStartX, e.clientY - pointerStartY);
       const designCurrentX = (e.clientX - pointerStartX) / scale + designStartX;
       const designCurrentY = (e.clientY - pointerStartY) / scale + designStartY;
-      const dx = designCurrentX - designStartX;
-      const dy = designCurrentY - designStartY;
       // Click without meaningful drag — clear, or preserve with Shift.
-      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) {
+      if (!dragged) {
         setSelected(shift ? initialSelection : []);
         return;
       }
@@ -2122,6 +2136,7 @@ export function App({
 
     const onMove = (e: PointerEvent) => {
       updateSelection(e);
+      if (!dragged) return;
       const designCurrentX = (e.clientX - pointerStartX) / scale + designStartX;
       const designCurrentY = (e.clientY - pointerStartY) / scale + designStartY;
       setMarquee((prev) =>

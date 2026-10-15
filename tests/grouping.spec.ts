@@ -60,6 +60,54 @@ test('keyboard grouping, group body drag and ungroup preserve member positions',
   await expect.poll(() => getEditorSource(page)).toMatch(/Box\s*\{\s*x: 900\s+y: 550/);
 });
 
+for (const gesture of ['drag', 'small movement', 'return near start', 'Escape', 'pointercancel'] as const) {
+  test(`selected group ${gesture} preserves the correct selection level`, async ({ page }) => {
+    await page.goto('/canvas.html?fixture=two-boxes');
+    await setHostSource(page, `Deck { slides: [Slide { content: Freeform { children: [
+      Group { x: 200 y: 200 width: 600 height: 400 children: [
+        Box { x: 50 y: 60 width: 200 height: 150 fill: amber }
+      ] }
+    ] } }] }`);
+    const box = visuals(page, 'Box').first();
+    await box.click();
+    await expect(rows(page, 'Group')).toHaveClass(/selected/);
+    const before = await getEditorSource(page);
+    const bounds = (await box.boundingBox())!;
+    const scale = (await page.locator('.sw-canvas-stage .presentation-canvas').boundingBox())!.width / 1920;
+    const x = bounds.x + bounds.width / 2;
+    const y = bounds.y + bounds.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    // Drilling must wait for release, even for an eventual click.
+    await expect(rows(page, 'Group')).toHaveClass(/selected/);
+    if (gesture === 'drag' || gesture === 'return near start') {
+      await page.mouse.move(x + 100 * scale, y + 50 * scale, { steps: 8 });
+      if (gesture === 'return near start') await page.mouse.move(x + 2, y);
+    } else {
+      await page.mouse.move(x + 2, y + 2);
+    }
+    if (gesture === 'Escape') await page.keyboard.press('Escape');
+    if (gesture === 'pointercancel') {
+      await page.evaluate(() => document.dispatchEvent(new PointerEvent('pointercancel', { pointerId: 1 })));
+    }
+    await page.mouse.up();
+    if (gesture === 'small movement') {
+      await expect(rows(page, 'Box')).toHaveClass(/selected/);
+      expect(await getEditorSource(page)).toBe(before);
+    } else {
+      await expect(rows(page, 'Group')).toHaveClass(/selected/);
+      await expect.poll(() => getEditorSource(page)).toMatch(/Box\s*\{\s*x: 50\s+y: 60/);
+      if (gesture === 'drag') {
+        await expect.poll(() => getEditorSource(page)).toMatch(/Group\s*\{\s*x: 300\s+y: 250/);
+        await page.keyboard.press('Control+z');
+        await expect.poll(() => getEditorSource(page)).toBe(before);
+      } else if (gesture !== 'return near start') {
+        expect(await getEditorSource(page)).toBe(before);
+      }
+    }
+  });
+}
+
 test('nested groups and implicit children work with mixed shapes and retain comments', async ({ page }) => {
   await page.goto('/canvas.html?fixture=two-boxes');
   await setHostSource(page, `Deck { slides: [Slide { content: Freeform {

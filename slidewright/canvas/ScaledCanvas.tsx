@@ -26,6 +26,7 @@ import type {
 import type { SlotType } from '../runtime/contract.js';
 import { isLayoutAdapter } from './layout-adapter.js';
 import type { SourceRange } from './host.js';
+import { crossesDragThreshold } from './drag-threshold.js';
 import {
   findTargetIndex,
   type SelectionTarget,
@@ -154,7 +155,7 @@ interface Props {
   // creation tool is active (activeTool !== 'select'). Same gesture
   // lifecycle — handler attaches its own move/up listeners.
   onCreateStart?: (target: CreateStart) => void;
-  // Fired when pointer goes down in Select mode. Argument is the
+  // Fired on initial selection or click release in Select mode. Argument is the
   // resolved selection target (or null if the click landed on
   // canvas background — clear selection there) plus modifier
   // state. ScaledCanvas resolves the target via its drill rule
@@ -375,31 +376,6 @@ function innermostComponent(
   return null;
 }
 
-// Walk up from `target` to find the innermost selectable component
-// element. Used for body-drag dispatch (drag only fires when the
-// click resolves to a draggable shape; checking against `selectable`
-// keeps us consistent with the chain-walk's selection rules).
-function findSelectable(
-  target: Element,
-  selectableSpans: ReadonlyMap<string, unknown>,
-): HTMLElement | null {
-  let el: Element | null = target;
-  while (el) {
-    if (
-      el instanceof HTMLElement &&
-      el.hasAttribute('data-sw-component')
-    ) {
-      const start = el.getAttribute('data-sw-span-start');
-      const end = el.getAttribute('data-sw-span-end');
-      if (start && end && selectableSpans.has(`${start}-${end}`)) {
-        return el;
-      }
-    }
-    el = el.parentElement;
-  }
-  return null;
-}
-
 export function ScaledCanvas({
   children,
   onSelectRange,
@@ -418,6 +394,11 @@ export function ScaledCanvas({
   const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
+  const pendingClickCleanup = useRef<(() => void) | null>(null);
+
+  // Source replacements, navigation, tool changes, and unmount cancel a
+  // pending click rather than applying a selection with stale source spans.
+  useLayoutEffect(() => () => pendingClickCleanup.current?.(), [selectableSpans, activeTool]);
 
   useLayoutEffect(() => {
     const wrapper = wrapperRef.current;
@@ -525,6 +506,7 @@ export function ScaledCanvas({
     // Only the primary mouse button initiates a gesture; let middle /
     // right click pass through for browser-default behavior.
     if (event.button !== 0) return;
+    pendingClickCleanup.current?.();
     const target = event.target as Element | null;
     if (!target?.closest) return;
     if (target.closest('.sw-rich-text-editor')) return;
@@ -598,17 +580,18 @@ export function ScaledCanvas({
       // activeTool !== 'select').
     }
 
-    // Select-mode dispatch: build the selectable chain from the
-    // click target, drill against current selection, emit the
-    // resolved target. Click on background (empty chain) → clear.
+    // Preserve the selected unit on pointerdown. Only release without
+    // meaningful movement drills further into the chain.
     // Shift-click toggles the chain's outermost in multi-select
     // (skips drilling — multi-select operates on whole-units).
     const modifiers = { shift: event.shiftKey };
     const chain = buildSelectableChain(target, selectableSpans);
     if (chain.length > 0) {
-      const resolved = modifiers.shift
+      const clicked = drillSelection(chain, currentSelection);
+      const selectedIndex = Math.max(-1, ...currentSelection.map(sel => findTargetIndex(chain, sel)));
+      const resolved = modifiers.shift || selectedIndex < 0
         ? chain[0]!
-        : drillSelection(chain, currentSelection);
+        : chain[selectedIndex]!;
       onSelectShape?.(resolved, modifiers);
       // Shift-click is a selection-modifier gesture (toggle), not a
       // drag-initiating click. Skip the drag dispatch.
@@ -616,25 +599,52 @@ export function ScaledCanvas({
         event.preventDefault();
         return;
       }
+      const { clientX, clientY, pointerId } = event;
+      let dragged = false;
+      const onMove = (e: PointerEvent) => {
+        if (e.pointerId !== pointerId) return;
+        dragged ||= crossesDragThreshold(e.clientX - clientX, e.clientY - clientY);
+      };
+      const cleanup = () => {
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        document.removeEventListener('pointercancel', onCancel);
+        document.removeEventListener('keydown', onKey);
+        pendingClickCleanup.current = null;
+      };
+      const onUp = (e: PointerEvent) => {
+        if (e.pointerId !== pointerId) return;
+        onMove(e);
+        cleanup();
+        if (!dragged) onSelectShape?.(clicked, modifiers);
+      };
+      const onCancel = (e: PointerEvent) => {
+        if (e.pointerId === pointerId) cleanup();
+      };
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') cleanup();
+      };
+      pendingClickCleanup.current = cleanup;
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+      document.addEventListener('pointercancel', onCancel);
+      document.addEventListener('keydown', onKey);
       // Body-drag / layout-intercept only fire if the resolved
       // target is a component (not slot). Slots aren't draggable.
-      if (
-        resolved &&
-        (resolved.kind === 'slot' || resolved.kind === 'empty-slot')
-      ) {
+      if (resolved.kind !== 'component') {
         event.preventDefault();
         return;
       }
       // Registered shape adapters own translation. Dispatch by
       // source span so custom shapes and media get the same gestures
       // as the original primitives; the host skips layout adapters.
-      const selectable = findSelectable(target, selectableSpans);
-      // Layout-intercept (v0.4 reorder). Walk up to find the
-      // innermost component AND its parent component. If the
-      // host's onChildDragStart says yes, dispatch returned and
-      // skip body-drag.
+      const draggable = canvasRef.current?.querySelector<HTMLElement>(
+        `[data-sw-span-start="${resolved.span.start}"][data-sw-span-end="${resolved.span.end}"]`,
+      );
+      // Layout-intercept uses the resolved unit and its parent, so a
+      // selected container never accidentally reorders a nested child.
       if (onChildDragStart) {
-        const innerComp = target.closest('[data-sw-component]');
+        const innerComp = draggable;
         const parentComp = innerComp?.parentElement?.closest('[data-sw-component]');
         if (innerComp instanceof HTMLElement && parentComp instanceof HTMLElement) {
           const childStart = parseInt(innerComp.getAttribute('data-sw-span-start') ?? '', 10);
@@ -665,9 +675,6 @@ export function ScaledCanvas({
       }
       // Drag the resolved unit, including an outer Group selected through
       // one of its members. Using the innermost hit would move the member.
-      const draggable = resolved?.kind === 'component'
-        ? document.querySelector<HTMLElement>(`.sw-canvas-stage [data-sw-span-start="${resolved.span.start}"][data-sw-span-end="${resolved.span.end}"]`)
-        : selectable;
       if (
         draggable instanceof HTMLElement &&
         onDragStart

@@ -589,3 +589,23 @@ test('stack reorder drags keep the moved child selected at its new index', async
   await expect(page.locator('.sw-hierarchy-node.selected')).toHaveAttribute('data-sw-span-start', start!);
   await expect(page.locator('.sw-selection-outline')).toHaveAttribute('data-sw-overlay-for-start', start!);
 });
+
+test('dragging selected stack child through its text reorders the selected component', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=slide-level-vstack');
+  await page.locator('.sw-hierarchy-node[data-sw-component="CardRow"]').first().click();
+  const stage = page.locator('.sw-canvas-stage');
+  const firstText = stage.getByText('First card.', { exact: true });
+  const first = (await firstText.boundingBox())!;
+  const second = (await stage.locator('[data-sw-component="CardRow"] > div').nth(1).boundingBox())!;
+  const x = first.x + first.width / 2;
+  await page.mouse.move(x, first.y + first.height / 2);
+  await page.mouse.down();
+  await letReactCatchUp(page);
+  await page.mouse.move(x, second.y + second.height + 8, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(async () => {
+    const source = await getSource(page);
+    return source.indexOf('"Second card."') < source.indexOf('"First card."');
+  }).toBe(true);
+  await expect(page.locator('.sw-hierarchy-node.selected')).toHaveAttribute('data-sw-component', 'CardRow');
+});
