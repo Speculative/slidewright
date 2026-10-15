@@ -241,18 +241,7 @@ html, body, #root {
   min-height: 0;
 }
 
-.sw-authoring-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  flex: 0 0 auto;
-  border-bottom: 1px solid #ddd;
-  background: #fafafa;
-  font: 12px system-ui, sans-serif;
-  z-index: 20;
-}
-.sw-authoring-bar button, .sw-properties-sidebar button, .sw-dock-toggles button {
+.sw-properties-sidebar button {
   font: inherit;
   border: 1px solid #d5d7dc;
   background: white;
@@ -261,17 +250,19 @@ html, body, #root {
   color: #252a33;
   cursor: pointer;
 }
-.sw-authoring-bar button:hover, .sw-properties-sidebar button:hover:not(:disabled) { background: #edf2fa; }
+.sw-properties-sidebar button:hover:not(:disabled) { background: #edf2fa; }
 .sw-properties-sidebar button:disabled { opacity: .4; cursor: default; }
-.sw-authoring-bar button[aria-pressed="true"], .sw-dock-toggles button[aria-pressed="true"] { background: #e8eef9; border-color: #b4c6e5; }
-.sw-tool-palette { display: flex; align-items: center; gap: 8px; position: relative; flex: 1; min-width: 0; }
-.sw-tool-status { color: #616875; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sw-command-results {
-  position: absolute; top: calc(100% + 8px); left: 0;
-  width: min(440px, 80vw); max-height: min(480px, 65vh); overflow-y: auto;
+.sw-tool-palette {
+  position: fixed; top: min(18vh, 120px); left: 50%; transform: translateX(-50%);
+  width: min(480px, calc(100vw - 32px)); max-height: calc(82vh - 16px);
+  display: flex; flex-direction: column; gap: 8px; padding: 12px;
+  box-sizing: border-box; z-index: 1000;
   background: white; border: 1px solid #d5d7dc; border-radius: 8px;
-  padding: 8px; box-shadow: 0 8px 28px #0002;
+  box-shadow: 0 8px 28px #0003; font: 12px system-ui, sans-serif;
 }
+.sw-picker-heading { font-weight: 600; color: #252a33; }
+.sw-tool-palette .sw-tool-search { width: 100%; box-sizing: border-box; padding: 8px; flex: 0 0 auto; }
+.sw-command-results { min-height: 0; max-height: min(480px, 60vh); overflow-y: auto; }
 .sw-command-results .sw-tool { display: block; width: 100%; }
 .sw-command-results .sw-tool[aria-selected="true"] { background: #e8eef9; }
 .sw-command-help { color: #687080; font-size: 11px; padding: 10px 6px 2px; }
@@ -472,10 +463,8 @@ html, body, #root {
   cursor: move;
 }
 
-/* Bottom dock: independently hideable hierarchy and source/notes panes. */
+/* Bottom dock: hierarchy and source/notes panes. */
 .sw-canvas-bottom-strip {
-  position: relative;
-  padding-top: 32px;
   box-sizing: border-box;
   flex: 0 0 auto;
   display: flex;
@@ -1195,5 +1184,4 @@ input.sw-property-value:disabled {
 .sw-standalone:fullscreen .presentation { background: #000; }
 .sw-standalone:fullscreen .presentation-canvas { outline: none !important; }
 
-.sw-dock-toggles { position: absolute; top: 0; left: 0; right: 0; height: 32px; display: flex; gap: 6px; align-items: center; padding: 0 8px; border-bottom: 1px solid #ddd; font: 11px system-ui; }
-.sw-presenting .sw-authoring-bar, .sw-presenting .sw-properties-sidebar { display: none; }
+.sw-presenting .sw-properties-sidebar { display: none; }

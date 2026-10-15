@@ -17,7 +17,7 @@
 
 import { test, expect } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
-import { getEditorSource } from './editor-helpers';
+import { openInsertionPicker, getEditorSource, setHostSource } from './editor-helpers';
 
 const DESIGN_W = 1920;
 
@@ -204,7 +204,7 @@ test('Arrow endpoint-2 handle moves only the tip', async ({ page }) => {
 
 test('Box tool draws a new Box from drag rectangle', async ({ page }) => {
   await page.goto('/canvas.html?fixture=empty-freeform');
-  await page.getByRole('combobox', { name: 'Insert element' }).click();
+  await openInsertionPicker(page);
   await page.locator('.sw-tool', { hasText: /^Box$/ }).click();
   // Drag from (300, 200) to (700, 500) in design space — should
   // append `Box { x: 300 y: 200 width: 400 height: 300 ... }`.
@@ -218,7 +218,7 @@ test('Box tool draws a new Box from drag rectangle', async ({ page }) => {
 
 test('Arrow tool draws a new Arrow from drag', async ({ page }) => {
   await page.goto('/canvas.html?fixture=empty-freeform');
-  await page.getByRole('combobox', { name: 'Insert element' }).click();
+  await openInsertionPicker(page);
   await page.locator('.sw-tool', { hasText: /^Arrow$/ }).click();
   await dragDesignPoints(page, 200, 200, 600, 500);
   const source = await getSource(page);
@@ -434,7 +434,7 @@ test('Esc during drag-to-move cancels without committing', async ({ page }) => {
 
 test('Esc during create-rect cancels without adding a shape', async ({ page }) => {
   await page.goto('/canvas.html?fixture=empty-freeform');
-  await page.getByRole('combobox', { name: 'Insert element' }).click();
+  await openInsertionPicker(page);
   await page.locator('.sw-tool', { hasText: /^Box$/ }).click();
   const before = await getSource(page);
   const freeform = page
@@ -453,4 +453,63 @@ test('Esc during create-rect cancels without adding a shape', async ({ page }) =
   await page.mouse.up();
   const after = await getSource(page);
   expect(after).toBe(before);
+});
+
+for (const multiple of [false, true]) {
+  test(`nested ${multiple ? 'multi' : 'single'} selection survives moving and resizing`, async ({ page }) => {
+    await page.goto('/canvas.html?fixture=two-boxes');
+    await setHostSource(page, `Deck { name: "Nested drags" slides: [ Slide {
+      content: PlateauSlide { content: Freeform { children: [
+        Box { x: 200 y: 200 width: 200 height: 150 }
+        Box { x: 800 y: 500 width: 200 height: 150 }
+      ] } }
+    } ] }`);
+    const boxes = page.locator('.sw-canvas-stage [data-sw-component="Box"] > div');
+    await expect(boxes).toHaveCount(2);
+    const rows = page.locator('.sw-hierarchy-node[data-sw-component="Box"]');
+    await rows.nth(0).click();
+    if (multiple) await rows.nth(1).click({ modifiers: ['Shift'] });
+    await dragByDesign(page, boxes.first(), 50, 30);
+    await expect.poll(() => getSource(page)).toMatch(/x:\s*250\s+y:\s*230/);
+    const count = multiple ? 2 : 1;
+    await expect(page.locator('.sw-hierarchy-node.selected')).toHaveCount(count);
+    await expect(page.locator('.sw-selection-outline')).toHaveCount(count);
+    await dragByDesign(page, page.locator('.sw-resize-se'), 40, 30);
+    await expect(page.locator('.sw-hierarchy-node.selected')).toHaveCount(count);
+    await expect(page.locator('.sw-selection-outline')).toHaveCount(count);
+    await expect(page.locator('.sw-resize-se')).toHaveCount(1);
+  });
+}
+
+test('stack spacing drags keep the layout selected', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=slide-level-vstack');
+  await page.locator('.sw-hierarchy-node[data-sw-component="VStack"]').click();
+  await dragByDesign(page, page.locator('.sw-gap-grip'), 0, 30);
+  await expect.poll(() => getSource(page)).toMatch(/spacing:\s*54\b/);
+  await expect(page.locator('.sw-hierarchy-node.selected')).toHaveAttribute('data-sw-component', 'VStack');
+  await expect(page.locator('.sw-gap-grip')).toBeVisible();
+});
+
+test('stack reorder drags keep the moved child selected at its new index', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=slide-level-vstack');
+  const stage = page.locator('.sw-canvas-stage');
+  await page.locator('.sw-hierarchy-node[data-sw-component="CardRow"]').first().click();
+  const cards = stage.locator('[data-sw-component="CardRow"] > div');
+  const first = await cards.first().boundingBox();
+  const second = await cards.nth(1).boundingBox();
+  if (!first || !second) throw new Error('Missing stack children');
+  // Start in the card padding so this drag addresses the whole card.
+  await page.mouse.move(first.x + 5, first.y + 5);
+  await page.mouse.down();
+  await letReactCatchUp(page);
+  await page.mouse.move(first.x + 5, second.y + second.height + 8, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(async () => {
+    const source = await getSource(page);
+    return source.indexOf('"Second card."') < source.indexOf('"First card."');
+  }).toBe(true);
+  const moved = stage.locator('[data-sw-component="CardRow"]').filter({ hasText: 'First card.' });
+  const start = await moved.getAttribute('data-sw-span-start');
+  await expect(page.locator('.sw-hierarchy-node.selected')).toHaveAttribute('data-sw-span-start', start!);
+  await expect(page.locator('.sw-selection-outline')).toHaveAttribute('data-sw-overlay-for-start', start!);
 });

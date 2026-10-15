@@ -7,10 +7,13 @@ test('continuous TextBox uses Enter for structure and commits once through Done/
   await page.locator('.sw-canvas-stage').getByText('Hello', { exact: true }).dblclick();
   const editor = page.getByRole('textbox', { name: 'Edit text' });
   await expect(editor).toBeVisible();
+  await expect(page.locator('.sw-selection-outline')).toBeVisible();
+  await expect(page.locator('.sw-resize-handle-shape')).toHaveCount(0);
   await selectRichText(page, 'Hello', 2);
   await page.keyboard.press('Enter');
   await page.keyboard.type('new');
   await expect(editor.locator('p')).toHaveCount(2);
+  await expect(page.locator('.sw-selection-outline')).toBeVisible();
   expect(await getEditorSource(page)).toBe(before);
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(editor).toHaveCount(0);
@@ -452,4 +455,22 @@ test('repeated canvas clicks select the TextBox without drilling into document i
   await expect(page.getByRole('textbox', { name: 'Edit text' })).toBeVisible();
   await page.keyboard.press('Escape');
   expect(await getEditorSource(page)).toBe(before);
+});
+
+test('a selected custom element retains its outline while editing a literal slot', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-child-vstack');
+  const stage = page.locator('.sw-canvas-stage');
+  const before = await getEditorSource(page);
+  const card = stage.locator('[data-sw-component="CardRow"]');
+  const start = await card.getAttribute('data-sw-span-start');
+  await stage.getByText('Single child.', { exact: true }).dblclick();
+  await expect(stage.locator('[contenteditable="plaintext-only"]')).toBeFocused();
+  const outline = page.locator(`.sw-selection-outline[data-sw-overlay-for-start="${start}"]`);
+  await expect(outline).toBeVisible();
+  await page.keyboard.type('Updated heading');
+  await expect(page.getByRole('dialog', { name: 'Insert element' })).toHaveCount(0);
+  await expect(outline).toBeVisible();
+  expect(await getEditorSource(page)).toBe(before);
+  await page.keyboard.press('Escape');
+  await expect(stage.getByText('Single child.', { exact: true })).toBeVisible();
 });

@@ -147,12 +147,9 @@ export function findNumericSlot(
   return null;
 }
 
-// Walks a freshly parsed AST to find the Freeform that's the
-// `content` of the active slide. v0.2.f's Box drawing tool only
-// supports slides where content is *directly* a Freeform — the
-// reference deck's Freeform-demo slide. Future generalization
-// (drawing inside Freeforms nested deeper, e.g., inside a ZStack)
-// is straightforward but not in scope.
+// Find a slide's direct Freeform for the legacy child-index selection
+// helpers below. Drawing destinations resolve by authored source span
+// instead, so they can target nested Freeforms as well.
 export function findActiveSlideFreeform(
   ast: SourceFile,
   activeIdx: number,
@@ -651,6 +648,8 @@ export interface CommitResult {
 //   - returns `{ preserveSelections: [...] }` to commit AND have
 //     this helper re-find each shape post-emit and report their
 //     new spans via `newSelections` on the result
+//   - returns `{ selectComponents: [...] }` to select inserted/authored
+//     components by structural path, including inside nested containers
 //
 // preserveSelections (plural) supports group gestures naturally —
 // each selected shape's onCommit contributes one PreserveSelection
@@ -665,18 +664,24 @@ export function commitSourceEdit(
   label: string,
   mutate: (
     ast: SourceFile,
-  ) => { preserveSelections?: PreserveSelection[] } | null,
+  ) => { preserveSelections?: PreserveSelection[]; selectComponents?: Component[] } | null,
 ): CommitResult | null {
   const result = parse(source, label);
   if (result.diagnostics.some((d) => d.severity === 'error')) return null;
   const outcome = mutate(result.ast);
   if (!outcome) return null;
+  const selectedPaths: PathSegment[][] = [];
+  for (const component of outcome.selectComponents ?? []) {
+    const path = pathToComponent(result.ast, component);
+    if (!path) return null;
+    selectedPaths.push(path);
+  }
   const newSource = emit(result.ast);
   let newSelections: SourceRange[] = [];
-  if (outcome.preserveSelections && outcome.preserveSelections.length > 0) {
+  if (outcome.preserveSelections?.length || selectedPaths.length) {
     const reparsed = parse(newSource, `${label}-after`);
     if (!reparsed.diagnostics.some((d) => d.severity === 'error')) {
-      for (const { slideIdx, childIdx } of outcome.preserveSelections) {
+      for (const { slideIdx, childIdx } of outcome.preserveSelections ?? []) {
         const newShape = findShapeAtChildIdx(reparsed.ast, slideIdx, childIdx);
         if (newShape) {
           newSelections.push({
@@ -684,6 +689,10 @@ export function commitSourceEdit(
             end: newShape.span.end.offset,
           });
         }
+      }
+      for (const path of selectedPaths) {
+        const component = componentByPath(reparsed.ast, path);
+        if (component) newSelections.push({ start: component.span.start.offset, end: component.span.end.offset });
       }
     }
   }

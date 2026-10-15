@@ -80,6 +80,8 @@ export interface CreateStart {
   // same coordinate system), and to use the same coord system when
   // emitting source.
   containerEl: HTMLElement;
+  // Authored destination, including Freeforms nested inside other components.
+  containerSpan: SourceRange;
   pointerStartX: number;
   pointerStartY: number;
   designStartX: number;
@@ -572,13 +574,16 @@ export function ScaledCanvas({
     if (activeTool !== 'select' && onCreateStart) {
       const freeformWrapper = target.closest('[data-sw-component="Freeform"]');
       const freeformDiv = freeformWrapper?.firstElementChild;
-      if (freeformDiv instanceof HTMLElement) {
+      const start = parseInt(freeformWrapper?.getAttribute('data-sw-span-start') ?? '', 10);
+      const end = parseInt(freeformWrapper?.getAttribute('data-sw-span-end') ?? '', 10);
+      if (freeformDiv instanceof HTMLElement && Number.isFinite(start) && Number.isFinite(end)) {
         const rect = freeformDiv.getBoundingClientRect();
         const designStartX = (event.clientX - rect.left) / scale;
         const designStartY = (event.clientY - rect.top) / scale;
         event.preventDefault();
         onCreateStart({
           containerEl: freeformDiv,
+          containerSpan: { start, end },
           pointerStartX: event.clientX,
           pointerStartY: event.clientY,
           designStartX,

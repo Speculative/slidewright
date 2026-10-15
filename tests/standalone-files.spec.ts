@@ -48,7 +48,8 @@ test('presentation view hides editor chrome and retains slide and opaque playbac
   await page.keyboard.press('Delete');
   expect(await getEditorSource(page)).toBe(before);
   await expect(page.locator('.sw-editor-pane')).toBeHidden();
-  await expect(page.locator('.sw-tool-palette')).toBeHidden();
+  await page.keyboard.press('i');
+  await expect(page.locator('.sw-tool-palette')).toHaveCount(0);
   await page.locator('.sw-standalone-controls').click({ position: { x: 5, y: 5 } });
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');

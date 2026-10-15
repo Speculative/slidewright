@@ -1,6 +1,15 @@
 import { expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
+export async function openInsertionPicker(page: Page): Promise<void> {
+  const search = page.getByRole('combobox', { name: 'Insert element' });
+  if (!(await search.isVisible())) {
+    await expect(page.locator('.sw-canvas-stage')).toBeVisible();
+    await page.keyboard.press('i');
+  }
+  await expect(search).toBeFocused();
+}
+
 export async function getEditorSource(page: Page): Promise<string> {
   const pane = page.locator('.sw-editor-pane');
   // The pane mounts before the host's immediate subscription callback has

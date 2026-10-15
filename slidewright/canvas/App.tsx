@@ -62,10 +62,8 @@ import {
 import {
   addStringSlotFill,
   appendEmptySlide,
-  appendShapeToFreeform,
   commitSourceEdit,
   componentByPath,
-  findActiveSlideFreeform,
   findComponentAtSpan,
   findStringAt,
   insertIntoArraySlot,
@@ -76,7 +74,6 @@ import {
   removeShapeAtSpan,
   removeSlidesAtIndices,
   reorderSlides,
-  type PreserveSelection,
 } from './ast-edits.js';
 import type {
   BoxResizeDirection,
@@ -357,6 +354,7 @@ interface CreatePreview {
   // Freeform's positioned div (the portal target — selection
   // visuals and create preview both portal in here).
   freeformDiv: HTMLElement;
+  containerSpan: SourceRange;
   pointerStartX: number;
   pointerStartY: number;
   scale: number;
@@ -856,10 +854,6 @@ export function App({
       PROPERTIES_WIDTH_MAX,
     ),
   );
-  const [propertiesOpen, setPropertiesOpen] = useState(true);
-  const [bottomOpen, setBottomOpen] = useState(true);
-  const [hierarchyOpen, setHierarchyOpen] = useState(true);
-  const [sourceOpen, setSourceOpen] = useState(true);
   const [editing, setEditing] = useState<TextEditTarget | null>(null);
   const [richEditing, setRichEditing] = useState<TextEditorSnapshot | null>(null);
   const [textFormatting, setTextFormatting] = useState<TextFormattingState | null>(null);
@@ -1732,10 +1726,14 @@ export function App({
         return;
       }
       const result = commitSourceEdit(sourceRef.current, label, (ast) => {
-        // For each affected shape, look up its adapter and dispatch
-        // adapter.commit with the final delta. Collect each shape's
-        // PreserveSelection contribution.
-        const preserveSelections: PreserveSelection[] = [];
+        // Keep references to the selected authored nodes before adapters
+        // mutate them. Structural paths follow these nodes through nested
+        // containers and layout reorders when source offsets change.
+        const selectionSpans = selected.flatMap(target => target.kind === 'component' ? [target.span] : []);
+        const selectComponents = (selectionSpans.length ? selectionSpans : spans).flatMap(span => {
+          const component = findComponentAtSpan(ast, span.start, span.end);
+          return component ? [component] : [];
+        });
         let any = false;
         for (const span of spans) {
           const key = spanKey(span);
@@ -1749,12 +1747,9 @@ export function App({
           const out = adapter.commit(ast, span, finalDelta, slideIdx);
           if (!out) continue;
           any = true;
-          if (out.preserveSelection) {
-            preserveSelections.push(out.preserveSelection);
-          }
         }
         if (!any) return null;
-        return { preserveSelections };
+        return { selectComponents };
       });
       if (result) {
         commitToHost(result.newSource, result.newSelections);
@@ -1784,7 +1779,7 @@ export function App({
   // the React-rendered <CreatePreviewOverlay/> picks up.
   useEffect(() => {
     if (!createPreview) return;
-    const { pointerStartX, pointerStartY, scale, designStartX, designStartY, tool } = createPreview;
+    const { pointerStartX, pointerStartY, scale, designStartX, designStartY, tool, containerSpan } = createPreview;
 
     const onMove = (e: PointerEvent) => {
       const designCurrentX = (e.clientX - pointerStartX) / scale + designStartX;
@@ -1809,8 +1804,8 @@ export function App({
       const designCurrentX = (e.clientX - pointerStartX) / scale + designStartX;
       const designCurrentY = (e.clientY - pointerStartY) / scale + designStartY;
       const result = commitSourceEdit(sourceRef.current, '<create>', (ast) => {
-        const freeform = findActiveSlideFreeform(ast, activeIdxRef.current);
-        if (!freeform) return null;
+        const freeform = findComponentAtSpan(ast, containerSpan.start, containerSpan.end);
+        if (freeform?.name !== 'Freeform') return null;
         // Minimum-drag threshold — clicks without meaningful drag
         // don't commit anything. Uniform across components since
         // both rect and line previews are degenerate below ~5px.
@@ -1825,21 +1820,21 @@ export function App({
         const height = Math.abs(designCurrentY - designStartY);
         const node = insertion.stub({
           gesture: 'modal',
-          // The active-slide Freeform's `children` slot is the
-          // canonical modal-draw target. Today every modal
-          // create goes here; multi-target modal flows would
-          // resolve `targetSlotType` from the actual drop site.
+          // Draw into the Freeform under the pointer, in the same
+          // coordinate system used by the preview.
           targetSlotType: 'array<block>',
           rect: { x: left, y: top, width, height },
           dragStart: { x: designStartX, y: designStartY },
           dragEnd: { x: designCurrentX, y: designCurrentY },
         });
         if (!node) return null;
-        appendShapeToFreeform(freeform, node);
-        return {};
+        const inserted = insertIntoArraySlot(freeform, 'children', Number.MAX_SAFE_INTEGER, node)
+          || materializeSlotFill(freeform, 'children', 'array<block>', node);
+        if (!inserted) return null;
+        return { selectComponents: [node] };
       });
       if (result) {
-        commitToHost(result.newSource);
+        commitToHost(result.newSource, result.newSelections);
         setActiveTool(SELECT_TOOL);
       }
       setCreatePreview(null);
@@ -1873,9 +1868,9 @@ export function App({
       const result = commitSourceEdit(sourceRef.current, '<insert>', ast => {
         const parent = findComponentAtSpan(ast, target.parentSpan.start, target.parentSpan.end);
         const node = insertion.stub({ gesture: 'drag', targetSlotType: target.slotType });
-        return parent && node && materializeSlotFill(parent, target.slotName, target.slotType, node) ? {} : null;
+        return parent && node && materializeSlotFill(parent, target.slotName, target.slotType, node) ? { selectComponents: [node] } : null;
       });
-      if (result) { commitToHost(result.newSource); return; }
+      if (result) { commitToHost(result.newSource, result.newSelections); return; }
     }
     setToolDrag({ tool, committed: true, pointerStartX: 0, pointerStartY: 0,
       pointerCurrentX: 0, pointerCurrentY: 0, target: null, invalidHover: false });
@@ -1995,10 +1990,10 @@ export function App({
                     node,
                   );
             if (!ok) return null;
-            return {};
+            return { selectComponents: [node] };
           },
         );
-        if (result) commitToHost(result.newSource);
+        if (result) commitToHost(result.newSource, result.newSelections);
         return null;
       });
     };
@@ -2500,17 +2495,12 @@ export function App({
         {state.fileName.split('/').pop()} · slide {activeIdx + 1} of {total}
       </div>
       <DiagnosticsPanel diagnostics={errors} />
-      <div className="sw-authoring-bar">
-        <ToolPalette
-          active={activeTool}
-          placing={!!toolDrag?.committed}
-          tools={toolEntries}
-          onSelect={chooseInsertTool}
-          onDragStart={handleToolDragStart}
-        />
-        <button type="button" aria-pressed={bottomOpen} onClick={() => setBottomOpen(value => !value)}>Bottom dock</button>
-        <button type="button" aria-pressed={propertiesOpen} onClick={() => setPropertiesOpen(value => !value)}>Properties</button>
-      </div>
+      <ToolPalette
+        placing={!!toolDrag?.committed}
+        tools={toolEntries}
+        onSelect={chooseInsertTool}
+        onDragStart={handleToolDragStart}
+      />
       <div className="sw-authoring-workspace">
         <div className="sw-main-workspace">
           <div className="sw-canvas-body">
@@ -2531,6 +2521,7 @@ export function App({
             />
             {preparedSlide ? (
               <div className="sw-canvas-stage" onPointerDownCapture={event => { if (toolDrag) event.stopPropagation(); }}>
+                {activeTool !== SELECT_TOOL && !toolDrag?.committed && <div className="sw-placement-hint sw-tool-status" role="status">Draw {activeTool} · Esc to cancel</div>}
                 {toolDrag?.committed && <div className="sw-placement-hint" role="status">Click a compatible slot or gap to insert {toolDrag.tool} · Esc to cancel</div>}
                 <TextDocumentSessionContext.Provider value={richEditing ? {
                   span: { start: richEditing.component.span.start.offset, end: richEditing.component.span.end.offset },
@@ -2607,10 +2598,10 @@ export function App({
                     detached DOM and never re-attach on nav-back. */}
                   <SelectionLayer
                     key={`selection-${activeIdx}`}
-                    selected={richEditing ? [] : selected}
+                    selected={selected}
                     shapes={state.shapes}
                     gestureDeltas={gestureDeltas}
-                    renderHandles={activeTool === SELECT_TOOL && !gestureMeta}
+                    renderHandles={activeTool === SELECT_TOOL && !gestureMeta && !richEditing && !editing}
                     startGesture={startGesture}
                   />
                   <GestureOverlayLayer
@@ -2627,25 +2618,21 @@ export function App({
               </div>
             ) : null}
           </div>
-          {bottomOpen && <ResizeHandle
+          <ResizeHandle
             axis="y"
             invert
             size={bottomHeight}
             setSize={setBottomHeight}
             min={BOTTOM_HEIGHT_MIN}
             max={BOTTOM_HEIGHT_MAX}
-          />}
+          />
           <div
             className="sw-canvas-bottom-strip"
-            style={{ height: `${bottomHeight}px`, display: bottomOpen ? undefined : 'none' }}
+            style={{ height: `${bottomHeight}px` }}
           >
-            <div className="sw-dock-toggles">
-              <button type="button" aria-pressed={hierarchyOpen} onClick={() => setHierarchyOpen(value => !value)}>Hierarchy</button>
-              {renderedBottomExtra && <button type="button" aria-pressed={sourceOpen} onClick={() => setSourceOpen(value => !value)}>Source / Notes</button>}
-            </div>
             <div
               className="sw-bottom-col"
-              style={{ width: sourceOpen && renderedBottomExtra ? hierarchyWidth : '100%', display: hierarchyOpen ? undefined : 'none' }}
+              style={{ width: renderedBottomExtra ? hierarchyWidth : '100%' }}
             >
               <HierarchyPanel
                 shapes={state.shapes}
@@ -2658,95 +2645,93 @@ export function App({
                 onJumpToSource={(range) => host.sendSelection(range)}
               />
             </div>
-            {hierarchyOpen && sourceOpen && renderedBottomExtra && <ResizeHandle
+            {renderedBottomExtra && <ResizeHandle
               axis="x"
               size={hierarchyWidth}
               setSize={setHierarchyWidth}
               min={HIERARCHY_WIDTH_MIN}
               max={HIERARCHY_WIDTH_MAX}
             />}
-            {renderedBottomExtra && <div className="sw-bottom-col sw-bottom-col-flex" style={{ display: sourceOpen ? undefined : 'none' }}>
+            {renderedBottomExtra && <div className="sw-bottom-col sw-bottom-col-flex">
               {renderedBottomExtra}
             </div>}
           </div>
         </div>
-        {propertiesOpen && <>
-          <ResizeHandle axis="x" invert size={propertiesWidth} setSize={setPropertiesWidth} min={PROPERTIES_WIDTH_MIN} max={PROPERTIES_WIDTH_MAX} />
-          <aside className="sw-properties-sidebar" aria-label="Element properties" style={{ width: propertiesWidth }}>
-            <AlignmentControls selected={selected} shapes={state.shapes} disabled={!!richEditing} onCommit={commitToHost} source={state.source} />
-            <PropertiesPanel
-              componentShape={selectedShape}
-              slotInfo={slotInfo}
-              emptySlotInfo={emptySlotInfo}
-              activeSlide={activeSlide}
-              multiCount={selected.length}
-              source={state.source}
-              onCommit={(newSource, newSelections) =>
-                commitToHost(newSource, newSelections)
-              }
-              onScrubBegin={beginScrub}
-              onScrubPreview={applyScrubPreview}
-              onScrubEnd={endScrub}
-              onMaterializeTextSlot={materializeTextSlot}
-              onSelectComponent={(range) =>
-                setSelected([componentTarget(range)])
-              }
-              onRemoveListItem={(range) => {
-                const preSource = sourceRef.current;
-                const result = commitSourceEdit(
-                  preSource,
-                  '<remove-list-item>',
-                  (ast) =>
-                    removeListItemAtSpan(ast, range, 'any-kind')
-                      ? {}
-                      : null,
-                );
-                if (!result) return;
-                // Preserve any selected component(s) by shifting
-                // their spans relative to the edit. Inspector
-                // changes should keep the parent selected — the
-                // user is still working on it.
-                const delta = result.newSource.length - preSource.length;
-                const preserved: SourceRange[] = [];
-                for (const t of selected) {
-                  if (t.kind !== 'component') continue;
-                  const s = t.span;
-                  if (s.end <= range.start) {
-                    preserved.push({ start: s.start, end: s.end });
-                  } else if (s.start <= range.start && s.end >= range.end) {
-                    preserved.push({
-                      start: s.start,
-                      end: s.end + delta,
-                    });
-                  } else if (s.start >= range.end) {
-                    preserved.push({
-                      start: s.start + delta,
-                      end: s.end + delta,
-                    });
-                  }
-                  // selection straddling the edit gets dropped
+        <ResizeHandle axis="x" invert size={propertiesWidth} setSize={setPropertiesWidth} min={PROPERTIES_WIDTH_MIN} max={PROPERTIES_WIDTH_MAX} />
+        <aside className="sw-properties-sidebar" aria-label="Element properties" style={{ width: propertiesWidth }}>
+          <AlignmentControls selected={selected} shapes={state.shapes} disabled={!!richEditing} onCommit={commitToHost} source={state.source} />
+          <PropertiesPanel
+            componentShape={selectedShape}
+            slotInfo={slotInfo}
+            emptySlotInfo={emptySlotInfo}
+            activeSlide={activeSlide}
+            multiCount={selected.length}
+            source={state.source}
+            onCommit={(newSource, newSelections) =>
+              commitToHost(newSource, newSelections)
+            }
+            onScrubBegin={beginScrub}
+            onScrubPreview={applyScrubPreview}
+            onScrubEnd={endScrub}
+            onMaterializeTextSlot={materializeTextSlot}
+            onSelectComponent={(range) =>
+              setSelected([componentTarget(range)])
+            }
+            onRemoveListItem={(range) => {
+              const preSource = sourceRef.current;
+              const result = commitSourceEdit(
+                preSource,
+                '<remove-list-item>',
+                (ast) =>
+                  removeListItemAtSpan(ast, range, 'any-kind')
+                    ? {}
+                    : null,
+              );
+              if (!result) return;
+              // Preserve any selected component(s) by shifting
+              // their spans relative to the edit. Inspector
+              // changes should keep the parent selected — the
+              // user is still working on it.
+              const delta = result.newSource.length - preSource.length;
+              const preserved: SourceRange[] = [];
+              for (const t of selected) {
+                if (t.kind !== 'component') continue;
+                const s = t.span;
+                if (s.end <= range.start) {
+                  preserved.push({ start: s.start, end: s.end });
+                } else if (s.start <= range.start && s.end >= range.end) {
+                  preserved.push({
+                    start: s.start,
+                    end: s.end + delta,
+                  });
+                } else if (s.start >= range.end) {
+                  preserved.push({
+                    start: s.start + delta,
+                    end: s.end + delta,
+                  });
                 }
-                commitToHost(
-                  result.newSource,
-                  preserved.length > 0 ? preserved : undefined,
-                );
-              }}
-              shapes={state.shapes}
-              colorTokens={state.colorTokens}
-              slideColors={slideColors}
-            />
-            {(richEditing || boxShape?.comp.name === 'TextBox') && <div className="sw-text-session-actions" onKeyDown={event => event.stopPropagation()}
-              onBlur={event => { const next = event.relatedTarget; if (!(next instanceof Element) || !next.closest('.sw-text-session-actions, .sw-rich-text-editor')) richSessionRef.current?.finish('commit'); }}>
-              <BoxSettings onApply={applyBoxSetting} current={{ ...boxShape?.params, ...boxDraft }} />
-              {richEditing && <>
-              <FormattingToolbar session={richSessionRef} state={textFormatting} />
-              <span>Editing text</span>
-              <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => richSessionRef.current?.finish('commit')}>Done</button>
-              <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => richSessionRef.current?.finish('cancel')}>Cancel</button>
-              </>}
-            </div>}
-          </aside>
-        </>}
+                // selection straddling the edit gets dropped
+              }
+              commitToHost(
+                result.newSource,
+                preserved.length > 0 ? preserved : undefined,
+              );
+            }}
+            shapes={state.shapes}
+            colorTokens={state.colorTokens}
+            slideColors={slideColors}
+          />
+          {(richEditing || boxShape?.comp.name === 'TextBox') && <div className="sw-text-session-actions" onKeyDown={event => event.stopPropagation()}
+            onBlur={event => { const next = event.relatedTarget; if (!(next instanceof Element) || !next.closest('.sw-text-session-actions, .sw-rich-text-editor')) richSessionRef.current?.finish('commit'); }}>
+            <BoxSettings onApply={applyBoxSetting} current={{ ...boxShape?.params, ...boxDraft }} />
+            {richEditing && <>
+            <FormattingToolbar session={richSessionRef} state={textFormatting} />
+            <span>Editing text</span>
+            <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => richSessionRef.current?.finish('commit')}>Done</button>
+            <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => richSessionRef.current?.finish('cancel')}>Cancel</button>
+            </>}
+          </div>}
+        </aside>
       </div>
     </DeckMetaContext.Provider>
   );
@@ -2949,6 +2934,7 @@ function startCreate(
     tool: activeTool,
     previewShape: insertion.modalPreview ?? 'rect',
     freeformDiv: target.containerEl,
+    containerSpan: target.containerSpan,
     pointerStartX: target.pointerStartX,
     pointerStartY: target.pointerStartY,
     scale: target.scale,

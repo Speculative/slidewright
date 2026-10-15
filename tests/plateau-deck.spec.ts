@@ -15,10 +15,8 @@ test('all twenty PLATEAU slides render packaged assets and native/opaque objects
     for (const video of await slide.locator('video').all()) await expect.poll(() => video.evaluate((node: HTMLVideoElement) => node.readyState)).toBeGreaterThanOrEqual(2);
     if (index === 2) await expect(slide.locator('[data-sw-debugger]')).toBeVisible();
     if ([6, 10, 12, 14, 16].includes(index)) await expect(slide.locator('[data-sw-chart]')).toBeVisible();
-    await page.locator('.sw-tool-palette').evaluate(node => { (node as HTMLElement).style.visibility = 'hidden'; });
     await slide.screenshot({ path: test.info().outputPath(`slide-${String(index + 1).padStart(2, '0')}.png`) });
   }
-  await page.locator('.sw-tool-palette').evaluate(node => { (node as HTMLElement).style.visibility = ''; });
   expect(await getEditorSource(page)).toBe(source);
 });
 
@@ -79,7 +77,6 @@ test('title text fits its authored frames and the blue background contains the w
   expect(background.y).toBeLessThan(word.y);
   expect(background.x + background.width).toBeGreaterThan(word.x + word.width);
   expect(background.y + background.height).toBeGreaterThan(word.y + word.height);
-  await page.locator('.sw-tool-palette').evaluate(node => { (node as HTMLElement).style.visibility = 'hidden'; });
   await stage.screenshot({ path: test.info().outputPath('title-fitted.png') });
 });
 
