@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { getEditorSource } from './editor-helpers';
+import { execution } from '../decks/plateau-2026/chart-data';
+import { getEditorSource, setHostSource } from './editor-helpers';
 
 test('debugger stages preserve code, variables, output, rewind, and final autopsy view', async ({ page }) => {
   await page.goto('/canvas.html?fixture=plateau-debugger');
@@ -155,5 +156,77 @@ test('axis explanations highlight expressions and technique captions follow stag
   await expect(caption).toHaveCount(0);
   await stage.selectOption('10');
   await expect(caption).toContainText('all state · one moment');
+  expect(await getEditorSource(page)).toBe(source);
+});
+
+
+test('axis explanations center over the full chart and retain original cost rows when resized', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=plateau-debugger');
+  const demo = page.locator('.sw-canvas-stage [data-sw-debugger]');
+  const source = await getEditorSource(page);
+  const stage = demo.getByLabel('Demo stage');
+  const settle = () => expect.poll(() => demo.evaluate(element => element.getAnimations({ subtree: true }).filter(animation => animation.playState === 'running').length)).toBe(0);
+  async function checkGeometry() {
+    await settle();
+    const owner = (await demo.boundingBox())!;
+    const chart = (await demo.locator('[data-demo-chart]').boundingBox())!;
+    const panel = (await demo.locator('[data-demo-explanation]').boundingBox())!;
+    expect(chart.width).toBeCloseTo(owner.width, 0);
+    expect(panel.width).toBeCloseTo(owner.width * .75, 0);
+    expect(panel.x + panel.width / 2).toBeCloseTo(owner.x + owner.width / 2, 0);
+    const fit = await demo.getByLabel('Demo code').evaluate(element => ({ width: element.clientWidth, scrollWidth: element.scrollWidth, height: element.clientHeight, scrollHeight: element.scrollHeight }));
+    expect(fit.scrollWidth).toBeLessThanOrEqual(fit.width + 1);
+    expect(fit.scrollHeight).toBeLessThanOrEqual(fit.height + 1);
+  }
+  await stage.selectOption('3');
+  await checkGeometry();
+  expect(await demo.getByLabel('Demo code').evaluate(element => parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThan(30);
+  await stage.selectOption('7');
+  await checkGeometry();
+  const rows = demo.locator('[data-demo-cost-row]');
+  await expect(rows).toHaveText(execution.terminalLines.map(([label, value]) => `${label} ${value}`));
+  await expect(demo.locator('[data-demo-cost-value]').first()).toHaveCSS('color', 'rgb(255, 255, 255)');
+  const code = (await demo.getByLabel('Demo code').boundingBox())!;
+  const terminal = (await demo.getByLabel('Demo terminal').boundingBox())!;
+  expect(terminal.x).toBeGreaterThanOrEqual(code.x + code.width);
+  await demo.screenshot({ path: test.info().outputPath('centered-cost-explanation.png') });
+  expect(await getEditorSource(page)).toBe(source);
+  await setHostSource(page, source.replace('width: 1500 height: 700', 'width: 1100 height: 600'));
+  await stage.selectOption('7');
+  await checkGeometry();
+  await expect(rows).toHaveText(execution.terminalLines.map(([label, value]) => `${label} ${value}`));
+  await stage.selectOption('10');
+  await expect(demo.locator('[data-demo-explanation]')).toHaveCount(0);
+  await stage.selectOption('3');
+  await checkGeometry();
+});
+
+test('variables and execution use original palette and introduced print lines flash briefly', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=plateau-debugger');
+  const demo = page.locator('.sw-canvas-stage [data-sw-debugger]');
+  const source = await getEditorSource(page);
+  const stage = demo.getByLabel('Demo stage');
+  await stage.selectOption('10');
+  await expect(demo.getByLabel('Demo variables')).toHaveCSS('background-color', 'rgb(17, 24, 39)');
+  await expect(demo.locator('[data-demo-variable-value]').first()).toHaveCSS('color', 'rgb(255, 255, 255)');
+  await expect(demo.locator('[data-demo-code-line="2"]')).toHaveCSS('background-color', 'rgb(254, 240, 138)');
+  await stage.selectOption('14');
+  const accent = demo.locator('[data-demo-print-accent]');
+  await expect(accent).toHaveCount(1);
+  const flash = await accent.evaluate(element => {
+    const animation = element.getAnimations()[0]!;
+    animation.pause();
+    animation.currentTime = 400;
+    const during = getComputedStyle(element).backgroundColor;
+    animation.finish();
+    return { duration: animation.effect!.getTiming().duration, during, after: getComputedStyle(element).backgroundColor };
+  });
+  expect(flash).toEqual({ duration: 800, during: 'rgb(254, 240, 138)', after: 'rgba(0, 0, 0, 0)' });
+  await stage.selectOption('17');
+  await expect(accent).toHaveCount(2);
+  expect(await accent.first().evaluate(element => element.getAnimations().length)).toBe(1);
+  await expect(accent.first()).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await stage.selectOption('13');
+  await expect(accent).toHaveCount(0);
   expect(await getEditorSource(page)).toBe(source);
 });
