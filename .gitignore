@@ -11,3 +11,5 @@ dist
 # Playwright's per-run trace / screenshot output.
 test-results/
 playwright-report/
+# Local Ostraka items, activity, and supervisor state.
+/.ostraka/
