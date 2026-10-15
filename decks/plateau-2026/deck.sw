@@ -32,29 +32,37 @@ Deck {
                 }
               ]
             }
-            Box {
+            Group {
               x: 125
               y: 550
               width: 580
               height: 149
-              fill: "#0000FF"
-              borderWidth: 0
-            }
-            TextBox {
-              x: 140
-              y: 555
-              width: 550
-              height: 139
-              font: "mono"
-              fontSize: 98
-              fontWeight: "700"
-              lineHeight: 1.25
-              color: "#fff"
-              align: "left"
-              content: [
-                Paragraph {
+              children: [
+                Box {
+                  x: 0
+                  y: 0
+                  width: 580
+                  height: 149
+                  fill: "#0000FF"
+                  borderWidth: 0
+                }
+                TextBox {
+                  x: 15
+                  y: 5
+                  width: 550
+                  height: 139
+                  font: "mono"
+                  fontSize: 98
+                  fontWeight: "700"
+                  lineHeight: 1.25
+                  color: "#fff"
+                  align: "left"
                   content: [
-                    "autopsy"
+                    Paragraph {
+                      content: [
+                        "autopsy"
+                      ]
+                    }
                   ]
                 }
               ]
@@ -614,29 +622,37 @@ Deck {
       content: PlateauSlide {
         content: Freeform {
           children: [
-            Box {
+            Group {
               x: 125
               y: 95
               width: 570
               height: 140
-              fill: "#0000FF"
-              borderWidth: 0
-            }
-            TextBox {
-              x: 135
-              y: 95
-              width: 550
-              height: 140
-              font: "mono"
-              fontSize: 98
-              fontWeight: "700"
-              lineHeight: 1.25
-              color: "#fff"
-              align: "left"
-              content: [
-                Paragraph {
+              children: [
+                Box {
+                  x: 0
+                  y: 0
+                  width: 570
+                  height: 140
+                  fill: "#0000FF"
+                  borderWidth: 0
+                }
+                TextBox {
+                  x: 10
+                  y: 0
+                  width: 550
+                  height: 140
+                  font: "mono"
+                  fontSize: 98
+                  fontWeight: "700"
+                  lineHeight: 1.25
+                  color: "#fff"
+                  align: "left"
                   content: [
-                    "autopsy"
+                    Paragraph {
+                      content: [
+                        "autopsy"
+                      ]
+                    }
                   ]
                 }
               ]

@@ -41,6 +41,8 @@ test('title word keeps authored box bounds on repeated clicks and still enters t
   const before = await getEditorSource(page);
   const title = page.locator('.sw-canvas-stage').getByText('autopsy', { exact: true });
   const box = title.locator('xpath=ancestor::*[@data-sw-component="TextBox"]').locator(':scope > div').first();
+  await title.click();
+  await expect(page.locator('.sw-hierarchy-node[data-sw-component="Group"]')).toHaveClass(/selected/);
   for (let index = 0; index < 3; index++) {
     await title.click();
     await expect(page.locator('.sw-canvas-stage .sw-resize-ne')).toHaveCount(1);
@@ -119,3 +121,42 @@ test('autopsy introduction background contains the editable word frame', async (
   expect(background.x + background.width).toBeGreaterThan(word.x + word.width);
   expect(background.y + background.height + 0.01).toBeGreaterThanOrEqual(word.y + word.height);
 });
+
+for (const slideNumber of [1, 8]) {
+  test(`slide ${slideNumber} autopsy group moves text and background together and keeps text editable`, async ({ page }) => {
+    await page.goto('/canvas.html?deck=plateau');
+    await page.getByRole('option', { name: `Slide ${slideNumber}`, exact: true }).click();
+    const stage = page.locator('.sw-canvas-stage');
+    const group = stage.locator('[data-sw-component="Group"] > div');
+    const word = group.locator('[data-sw-component="TextBox"] > div');
+    const background = group.locator('[data-sw-component="Box"] > div');
+    const source = await getEditorSource(page);
+    const beforeWord = (await word.boundingBox())!;
+    const beforeBackground = (await background.boundingBox())!;
+    const scale = beforeWord.width / 550;
+    // The first gesture selects and moves the group, preserving local offsets.
+    const x = beforeWord.x + beforeWord.width / 2;
+    const y = beforeWord.y + beforeWord.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 100 * scale, y + 50 * scale, { steps: 8 });
+    await page.mouse.up();
+    await expect.poll(() => getEditorSource(page)).not.toBe(source);
+    for (const [node, before] of [[word, beforeWord], [background, beforeBackground]] as const) {
+      const after = (await node.boundingBox())!;
+      expect(after.x - before.x).toBeCloseTo(100 * scale, 0);
+      expect(after.y - before.y).toBeCloseTo(50 * scale, 0);
+      expect(after.width).toBeCloseTo(before.width, 1);
+      expect(after.height).toBeCloseTo(before.height, 1);
+    }
+    await page.keyboard.press('Control+z');
+    await expect.poll(() => getEditorSource(page)).toBe(source);
+    await word.getByText('autopsy', { exact: true }).dblclick();
+    await expect(page.getByRole('textbox', { name: 'Edit text' })).toBeVisible();
+    await selectRichText(page, 'autopsy', 0, 'autopsy', 7);
+    await page.keyboard.type('autopsy!');
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    await expect.poll(() => getEditorSource(page)).toContain('"autopsy!"');
+    await expect(group.locator('[data-sw-component="TextBox"]')).toHaveCount(1);
+  });
+}
