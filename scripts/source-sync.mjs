@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { closeSync, fstatSync, ftruncateSync, openSync, readFileSync, statSync, writeSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const files = { reference: 'decks/v0-reference/deck.sw', 'plateau': 'decks/plateau-2026/deck.sw' };
+const files = { reference: 'decks/v0-reference/deck.sw', 'uist-2026': 'decks/uist-2026/deck.sw' };
 const MAX_BODY = 5 * 1024 * 1024;
 
 function snapshot(fd) {

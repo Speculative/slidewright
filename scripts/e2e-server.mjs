@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { createServer } from 'vite';
 
 const root = await mkdtemp(join(tmpdir(), 'slidewright-e2e-'));
-for (const deck of ['v0-reference', 'plateau-2026']) {
+for (const deck of ['v0-reference', 'uist-2026']) {
   await mkdir(join(root, 'decks', deck), { recursive: true });
   await copyFile(`decks/${deck}/deck.sw`, join(root, 'decks', deck, 'deck.sw'));
 }

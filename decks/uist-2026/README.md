@@ -1,22 +1,28 @@
-# Editable PLATEAU 2026 talk
+# Editable UIST 2026 talk
 
-Open `/canvas.html?deck=plateau` through `npm run dev`.
+Open `/canvas.html?deck=uist-2026` through `npm run dev`.
 
-The five presentation videos are local assets, excluded from Git. Before
+A preserved [example/demo snapshot](../plateau-demo/README.md) is available at
+`/canvas.html?deck=plateau-demo`. Its edits stay in browser drafts, leaving the
+example source intact. This working talk continues to save to disk.
+
+The headshot (`assets/headshot.jpg`) and five presentation videos are local
+assets, excluded from Git. Supply `headshot.jpg` separately in
+`decks/uist-2026/assets/` when setting up a fresh checkout. Before
 building or running the PLATEAU tests in a new checkout, copy `agg_filter.mp4`,
 `computed.mp4`, `stack_trace.mp4`, `stepping.mp4`, and `streams.mp4` into
-`decks/plateau-2026/assets/`. If you have the original talk under `inspiration/`,
+`decks/uist-2026/assets/`. If you have the original talk under `inspiration/`,
 run this from the repository root:
 
 ```sh
-cp inspiration/talk/static/{agg_filter,computed,stack_trace,stepping,streams}.mp4 decks/plateau-2026/assets/
+cp inspiration/talk/static/{agg_filter,computed,stack_trace,stepping,streams}.mp4 decks/uist-2026/assets/
 ```
 
 These files remain on disk in the existing working checkout. Keep a separate
-copy when moving to another machine; a Git clone does not contain the videos.
+copy when moving to another machine; a Git clone does not contain the headshot or videos.
 
 `deck.sw` contains the 20 slides from the actual presentation, including
-speaker notes. Original PLATEAU wording is preserved as the editing baseline.
+speaker notes. The PLATEAU talk supplies the editing baseline for UIST 2026.
 The source is canonical structured text. Headings, prose, code examples,
 labels, panels, images, and videos are native movable canvas objects.
 
@@ -37,12 +43,13 @@ so host/reference typography is preserved. Box border width/color and corner
 radius are source-backed; decorative title highlights have no border. `migration.json` records the original source
 hash and normalized speaker-note hashes for preservation checks.
 
-Use the Deck picker to switch between PLATEAU and the reference deck. Committed
-edits are saved separately in browser storage; Save draft confirms storage.
+Use the Deck picker to switch between UIST 2026, the PLATEAU demo, and the reference deck. With
+`npm run dev`, committed edits save continuously to the repository source file.
+External file changes display “Out of sync” and stop writes; download the local
+text or use Reload from disk to discard it and reconnect. Static builds and
+imported decks keep browser drafts instead; Save draft confirms storage.
 Download source exports the current full deck as a `.sw` file. Open source
-imports a saved deck with the bundled component/asset catalog. These browser
-edits do not overwrite the repository file; replace `deck.sw` with a downloaded
-copy when you want to keep the changes in version control.
+imports a saved deck with the bundled component/asset catalog.
 
 Present hides editor chrome and keeps keyboard slide navigation and media/demo
 controls. Fullscreen fills the audience display with the slide, hiding the file

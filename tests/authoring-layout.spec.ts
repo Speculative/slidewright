@@ -178,7 +178,7 @@ test('picker opens from canvas focus, leaves Escape available, and ignores sourc
 });
 
 test('TextBox drawing inserts into the nested PLATEAU Freeform in one undo step', async ({ page }) => {
-  await page.goto('/canvas.html?deck=plateau');
+  await page.goto('/canvas.html?deck=uist-2026');
   const stage = page.locator('.sw-canvas-stage');
   const boxes = stage.locator('[data-sw-component="TextBox"]');
   await expect(boxes.first()).toBeVisible();

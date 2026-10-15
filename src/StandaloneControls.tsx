@@ -18,7 +18,7 @@ export function StandaloneControls({ host, presenting, onPresent, onPresenter, o
   function download() {
     const url = URL.createObjectURL(new Blob([host.source], { type: 'text/plain;charset=utf-8' }));
     const anchor = document.createElement('a');
-    anchor.href = url; anchor.download = host.deckChoice === 'plateau' ? 'plateau-2026.sw' : host.fileName.split('/').at(-1) ?? 'deck.sw';
+    anchor.href = url; anchor.download = host.deckChoice === 'plateau-demo' ? 'plateau-demo.sw' : host.deckChoice === 'uist-2026' ? 'uist-2026.sw' : host.fileName.split('/').at(-1) ?? 'deck.sw';
     anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   async function open(file: File) {
@@ -36,7 +36,7 @@ export function StandaloneControls({ host, presenting, onPresent, onPresenter, o
     {presenting && <button type="button" onClick={onFullscreen}>Fullscreen</button>}
     <button type="button" onClick={onPresenter}>Presenter view</button>
     <label>Deck <select aria-label="Deck" value={host.deckChoice} onChange={event => { host.switchDeck(event.target.value as DeckChoice); setMessage(''); }}>
-      <option value="reference">Slidewright reference</option><option value="plateau">PLATEAU 2026</option>
+      <option value="reference">Slidewright reference</option><option value="uist-2026">UIST 2026</option><option value="plateau-demo">PLATEAU 2026 demo</option>
       {host.hasCustomDeck && <option value="custom">Opened deck</option>}
     </select></label>
     <button type="button" onClick={() => setMessage(host.saveDraft() ? 'Saved in this browser' : 'Browser storage unavailable; download a copy.')}>Save draft</button>

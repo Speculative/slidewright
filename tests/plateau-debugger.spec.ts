@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { execution } from '../decks/plateau-2026/chart-data';
+import { execution } from '../decks/uist-2026/chart-data';
 import { getEditorSource, setHostSource } from './editor-helpers';
 
 test('debugger stages preserve code, variables, output, rewind, and final autopsy view', async ({ page }) => {

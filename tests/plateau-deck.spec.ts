@@ -3,7 +3,7 @@ import { getEditorSource, selectRichText } from './editor-helpers';
 
 test('all twenty PLATEAU slides render packaged assets and native/opaque objects', async ({ page }) => {
   test.setTimeout(60000);
-  await page.goto('/canvas.html?deck=plateau');
+  await page.goto('/canvas.html?deck=uist-2026');
   await expect(page.getByRole('option', { name: /^Slide \d+$/ })).toHaveCount(20);
   const source = await getEditorSource(page);
   for (let index = 0; index < 20; index++) {
@@ -21,7 +21,7 @@ test('all twenty PLATEAU slides render packaged assets and native/opaque objects
 });
 
 test('PLATEAU native heading edits and styling remain source backed', async ({ page }) => {
-  await page.goto('/canvas.html?deck=plateau');
+  await page.goto('/canvas.html?deck=uist-2026');
   const heading = page.locator('.sw-canvas-stage').getByText('Data-oriented Debugging with', { exact: true });
   await heading.dblclick();
   await expect(page.getByRole('textbox', { name: 'Edit text' })).toBeVisible();
@@ -37,7 +37,7 @@ test('PLATEAU native heading edits and styling remain source backed', async ({ p
 });
 
 test('title word keeps authored box bounds on repeated clicks and still enters text editing', async ({ page }) => {
-  await page.goto('/canvas.html?deck=plateau');
+  await page.goto('/canvas.html?deck=uist-2026');
   const before = await getEditorSource(page);
   const title = page.locator('.sw-canvas-stage').getByText('autopsy', { exact: true });
   const box = title.locator('xpath=ancestor::*[@data-sw-component="TextBox"]').locator(':scope > div').first();
@@ -63,7 +63,7 @@ test('title word keeps authored box bounds on repeated clicks and still enters t
 });
 
 test('title text fits its authored frames and the blue background contains the word frame', async ({ page }) => {
-  await page.goto('/canvas.html?deck=plateau');
+  await page.goto('/canvas.html?deck=uist-2026');
   const stage = page.locator('.sw-canvas-stage');
   const contents = stage.locator('[data-sw-textbox-content]');
   await expect(contents).toHaveCount(4);
@@ -85,7 +85,7 @@ test('title text fits its authored frames and the blue background contains the w
 test('PLATEAU fonts load locally and panel borders match the original talk', async ({ page }) => {
   await page.route('https://fonts.googleapis.com/**', route => route.abort());
   await page.route('https://fonts.gstatic.com/**', route => route.abort());
-  await page.goto('/canvas.html?deck=plateau');
+  await page.goto('/canvas.html?deck=uist-2026');
   await expect(page.locator('.sw-canvas-stage [data-sw-plateau-slide]')).toBeVisible();
   const fonts = await page.evaluate(async () => {
     await document.fonts.ready;
@@ -111,7 +111,7 @@ test('PLATEAU fonts load locally and panel borders match the original talk', asy
 
 
 test('autopsy introduction background contains the editable word frame', async ({ page }) => {
-  await page.goto('/canvas.html?deck=plateau');
+  await page.goto('/canvas.html?deck=uist-2026');
   await page.getByRole('option', { name: 'Slide 8', exact: true }).click();
   const stage = page.locator('.sw-canvas-stage');
   const word = (await stage.locator('[data-sw-component="TextBox"] > div').first().boundingBox())!;
@@ -124,7 +124,7 @@ test('autopsy introduction background contains the editable word frame', async (
 
 for (const slideNumber of [1, 8]) {
   test(`slide ${slideNumber} autopsy group moves text and background together and keeps text editable`, async ({ page }) => {
-    await page.goto('/canvas.html?deck=plateau');
+    await page.goto('/canvas.html?deck=uist-2026');
     await page.getByRole('option', { name: `Slide ${slideNumber}`, exact: true }).click();
     const stage = page.locator('.sw-canvas-stage');
     const group = stage.locator('[data-sw-component="Group"] > div');

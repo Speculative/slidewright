@@ -1,7 +1,7 @@
-// Editable PLATEAU 2026 deck; speaker notes preserved from the actual talk.
+// Editable UIST 2026 deck, adapted from the PLATEAU talk.
 Deck {
-  name: "Data-oriented Debugging with autopsy"
-  subtitle: "PLATEAU 2026"
+  name: "UIST 2026"
+  subtitle: "UIST 2026"
   width: 1920
   height: 1080
   slides: [
@@ -9,7 +9,7 @@ Deck {
     Slide {
       label: "Data-oriented Debugging with autopsy"
       chromeless: true
-      notes: "Hello! I'm Jeff, a PhD student at Penn, and today I'm excited to tell you about Data-oriented Debugging, which is a new approach for thinking about the debugging process and debugging tools, and about autopsy, a new debugger that implements some of these ideas."
+      notes: "Hello! I'm Jeff, a PhD student at Penn, and today I'm excited to tell you about Data-Oriented Debugging Across Space and Time, which is a framework for thinking about the fundamentals of debugging and"
       content: PlateauSlide {
         content: Freeform {
           children: [
@@ -27,42 +27,12 @@ Deck {
               content: [
                 Paragraph {
                   content: [
-                    "Data-oriented Debugging with"
+                    "Data-Oriented Debugging"
                   ]
                 }
-              ]
-            }
-            Group {
-              x: 125
-              y: 550
-              width: 580
-              height: 149
-              children: [
-                Box {
-                  x: 0
-                  y: 0
-                  width: 580
-                  height: 149
-                  fill: "#0000FF"
-                  borderWidth: 0
-                }
-                TextBox {
-                  x: 15
-                  y: 5
-                  width: 550
-                  height: 139
-                  font: "mono"
-                  fontSize: 98
-                  fontWeight: "700"
-                  lineHeight: 1.25
-                  color: "#fff"
-                  align: "left"
+                Paragraph {
                   content: [
-                    Paragraph {
-                      content: [
-                        "autopsy"
-                      ]
-                    }
+                    "Across Space and Time"
                   ]
                 }
               ]
@@ -105,7 +75,7 @@ Deck {
               content: [
                 Paragraph {
                   content: [
-                    "PLATEAU 2026"
+                    "UIST 2026"
                   ]
                 }
               ]
@@ -134,96 +104,7 @@ Deck {
         }
       }
     }
-    // Slide 2
-    Slide {
-      label: "Why I Care About Debugging"
-      chromeless: true
-      notes: "Just to introduce where I'm coming from with debugging. I used to be a senior software engineer in the industry, where I worked on auth, notifications, client/server sync. All things that are procedural, highly stateful, highly complex, prone to bugs, and really annoying to debug. And in all that time I was one of those programmers who always used print statements to debug. But I found the debugging tools at my disposal unsatisfying."
-      content: PlateauSlide {
-        content: Freeform {
-          children: [
-            TextBox {
-              x: 110
-              y: 65
-              width: 1700
-              height: 150
-              font: "body"
-              fontSize: 82
-              fontWeight: "700"
-              lineHeight: 1.25
-              color: "#111"
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    "Why I Care About Debugging"
-                  ]
-                }
-              ]
-            }
-            TextBox {
-              x: 120
-              y: 300
-              width: 1260
-              height: 660
-              font: "body"
-              fontSize: 46
-              fontWeight: "400"
-              lineHeight: 1.25
-              color: "#111"
-              align: "left"
-              content: [
-                List {
-                  style: "disc"
-                  items: [
-                    ListItem {
-                      content: [
-                        "Previously: Senior SWE @ Microsoft & MongoDB"
-                      ]
-                      spaceAfter: 22
-                    }
-                    ListItem {
-                      content: [
-                        "Auth, Notifications, Client/Server Sync, Dev Tools"
-                      ]
-                      spaceAfter: 22
-                    }
-                    ListItem {
-                      content: [
-                        "Highly stateful code, complex logic"
-                      ]
-                      spaceAfter: 22
-                    }
-                    ListItem {
-                      content: [
-                        "Now: DB & HCI @ Penn: tools for programmers"
-                      ]
-                      spaceAfter: 22
-                    }
-                    ListItem {
-                      content: [
-                        "Shameless print() debugger"
-                      ]
-                      spaceAfter: 22
-                    }
-                  ]
-                }
-              ]
-            }
-            Image {
-              x: 1480
-              y: 340
-              width: 310
-              height: 310
-              src: plateauHeadshot
-              alt: "Jeffrey Tao"
-              fit: "cover"
-              radius: 155
-            }
-          ]
-        }
-      }
-    }
+    Slide {}
     // Slide 3
     Slide {
       label: "How do you debug this?"

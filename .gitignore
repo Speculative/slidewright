@@ -22,3 +22,6 @@ playwright-report/
 *.mkv
 *.m4v
 *.avi
+
+# Local talk/demo headshot pending durable example-asset storage.
+/decks/uist-2026/assets/headshot.jpg

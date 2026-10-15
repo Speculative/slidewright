@@ -5,7 +5,7 @@ import { getEditorSource, setHostSource } from './editor-helpers';
 // Built-in decks now save on the test server; restore its private copies so
 // another test never inherits an edit made by this file.
 test.afterEach(async ({ request }) => {
-  for (const [choice, directory] of [['reference', 'v0-reference'], ['plateau', 'plateau-2026']]) {
+  for (const [choice, directory] of [['reference', 'v0-reference'], ['uist-2026', 'uist-2026']]) {
     const endpoint = `/__slidewright/source?deck=${choice}`;
     const disk = await (await request.get(endpoint)).json();
     const source = await readFile(`decks/${directory}/deck.sw`, 'utf8');
@@ -14,11 +14,11 @@ test.afterEach(async ({ request }) => {
 });
 
 test('deck switching keeps server edits and imported browser drafts across reload and exports actual source', async ({ page }) => {
-  await page.goto('/canvas.html?deck=plateau');
+  await page.goto('/canvas.html?deck=uist-2026');
   await expect(page.getByRole('status')).toHaveText('Saved to source file');
-  await expect(page.getByLabel('Deck', { exact: true }).locator('option:checked')).toHaveText('PLATEAU 2026');
+  await expect(page.getByLabel('Deck', { exact: true }).locator('option:checked')).toHaveText('UIST 2026');
   const source = await getEditorSource(page);
-  const edited = source.replace('PLATEAU 2026', 'UIST draft');
+  const edited = source.replace('UIST 2026', 'UIST draft');
   await setHostSource(page, edited);
   await page.getByRole('button', { name: 'Save draft', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('Saved in this browser');
@@ -27,12 +27,12 @@ test('deck switching keeps server edits and imported browser drafts across reloa
   await page.getByLabel('Deck', { exact: true }).selectOption('reference');
   await expect(page.getByRole('option', { name: /^Slide \d+$/ })).toHaveCount(7);
   expect(await getEditorSource(page)).not.toBe(edited);
-  await page.getByLabel('Deck', { exact: true }).selectOption('plateau');
+  await page.getByLabel('Deck', { exact: true }).selectOption('uist-2026');
   await expect.poll(() => getEditorSource(page)).toBe(edited);
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download source', exact: true }).click();
   const download = await downloadPromise;
-  expect(download.suggestedFilename()).toBe('plateau-2026.sw');
+  expect(download.suggestedFilename()).toBe('uist-2026.sw');
   expect(await readFile((await download.path())!, 'utf8')).toBe(edited);
   await page.getByLabel('Open deck file', { exact: true }).setInputFiles({ name: 'uist-talk.sw', mimeType: 'text/plain', buffer: Buffer.from(edited) });
   await expect(page.getByRole('status')).toContainText('Opened uist-talk.sw');
@@ -54,7 +54,8 @@ test('invalid imports preserve the current deck and fixture edits do not persist
 });
 
 test('presentation view hides editor chrome and retains slide and opaque playback controls', async ({ page }) => {
-  await page.goto('/canvas.html?deck=plateau');
+  await page.goto('/canvas.html?deck=plateau-demo');
+  await expect(page.getByLabel('Deck', { exact: true })).toHaveValue('plateau-demo');
   const before = await getEditorSource(page);
   await page.locator('.sw-canvas-stage').getByText('Data-oriented Debugging with', { exact: true }).click();
   await page.getByRole('button', { name: 'Present', exact: true }).click();

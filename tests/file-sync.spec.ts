@@ -96,7 +96,7 @@ test('failed saves survive reload and deck switching without overwriting disk', 
   await expect(page.getByRole('status')).toContainText('Out of sync');
   expect(await getEditorSource(page)).toBe(local);
   expect((await (await request.get(endpoint)).json()).source).toBe(original.source);
-  await page.getByLabel('Deck', { exact: true }).selectOption('plateau');
+  await page.getByLabel('Deck', { exact: true }).selectOption('uist-2026');
   await expect(page.getByRole('status')).toHaveText('Saved to source file');
   await page.getByLabel('Deck', { exact: true }).selectOption('reference');
   await expect(page.getByRole('status')).toContainText('Out of sync');

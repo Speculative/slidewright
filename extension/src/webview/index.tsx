@@ -4,7 +4,7 @@
 // host-agnostic App from slidewright/canvas/. All canvas UI logic
 // lives there; this file just wires the host to React's root.
 
-import '../../../decks/plateau-2026/presentation.css';
+import '../../../decks/uist-2026/presentation.css';
 import { createRoot } from 'react-dom/client';
 import { App } from '../../../slidewright/canvas/App.js';
 import { VSCodeHost } from './vscode-host.js';

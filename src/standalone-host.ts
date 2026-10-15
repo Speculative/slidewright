@@ -9,7 +9,8 @@
 // (pane → canvas) wire up bidirectional selection sync.
 //
 import { SourceSync } from './source-sync.js';
-import plateauSource from '../decks/plateau-2026/deck.sw?raw';
+import plateauDemoSource from '../decks/plateau-demo/deck.sw?raw';
+import uistSource from '../decks/uist-2026/deck.sw?raw';
 import deckSourceInitial from '../decks/v0-reference/deck.sw?raw';
 import headshotImg from '../decks/v0-reference/headshot.jpg';
 import type {
@@ -18,7 +19,7 @@ import type {
   SourceRange,
 } from '../slidewright/canvas/host.js';
 
-const plateauAssetModules = import.meta.glob('../decks/plateau-2026/assets/*', { query: '?url', import: 'default', eager: true }) as Record<string, string>;
+const plateauAssetModules = import.meta.glob('../decks/uist-2026/assets/*', { query: '?url', import: 'default', eager: true }) as Record<string, string>;
 const plateauAssetNames: Record<string, string> = { 'headshot.jpg': 'plateauHeadshot', 'penn-hci.svg': 'plateauPennHci', 'js_console.png': 'plateauConsole', 'pandas.png': 'plateauPandas', 'stack_trace.mp4': 'plateauStackTrace', 'streams.mp4': 'plateauStreams', 'stepping.mp4': 'plateauStepping', 'computed.mp4': 'plateauComputed', 'agg_filter.mp4': 'plateauFiltering' };
 const plateauAssets = Object.fromEntries(Object.entries(plateauAssetModules).map(([path, url]) => [plateauAssetNames[path.split('/').at(-1)!]!, url]));
 const FILE_NAME = 'decks/v0-reference/deck.sw';
@@ -45,10 +46,11 @@ for (const [path, source] of Object.entries(fixtureModules)) {
   if (match && match[1]) fixtures[match[1]] = source;
 }
 
-export type DeckChoice = 'reference' | 'plateau' | 'custom';
+export type DeckChoice = 'reference' | 'uist-2026' | 'plateau-demo' | 'custom';
 const builtins = {
   reference: { source: deckSourceInitial, fileName: FILE_NAME },
-  plateau: { source: plateauSource, fileName: 'decks/plateau-2026/deck.sw' },
+  'uist-2026': { source: uistSource, fileName: 'decks/uist-2026/deck.sw' },
+  'plateau-demo': { source: plateauDemoSource, fileName: 'decks/plateau-demo/deck.sw' },
 };
 interface Draft { source: string; fileName: string; pending?: boolean }
 function draftKey(deck: DeckChoice): string { return `slidewright:standalone:draft:v1:${deck}`; }
@@ -73,7 +75,7 @@ export class StandaloneHost implements Host {
   private fixture = false;
   persistenceAvailable = true;
   private custom: Draft | null = null;
-  get serverBacked(): boolean { return import.meta.env.DEV && !this.fixture && (this.choice === 'reference' || this.choice === 'plateau'); }
+  get serverBacked(): boolean { return import.meta.env.DEV && !this.fixture && (this.choice === 'reference' || this.choice === 'uist-2026'); }
   get syncStatus() { return this.serverBacked ? this.sync?.status ?? 'connecting' : null; }
   get deckChoice(): DeckChoice { return this.choice; }
   get fileName(): string { return this.state.fileName; }
@@ -84,7 +86,7 @@ export class StandaloneHost implements Host {
     const query = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search);
     const fixture = query.get('fixture');
     this.fixture = !!fixture && !!fixtures[fixture];
-    this.choice = query.get('deck') === 'plateau' ? 'plateau' : query.get('deck') === 'custom' && readDraft('custom') ? 'custom' : 'reference';
+    this.choice = query.get('deck') === 'plateau-demo' ? 'plateau-demo' : query.get('deck') === 'uist-2026' ? 'uist-2026' : query.get('deck') === 'custom' && readDraft('custom') ? 'custom' : 'reference';
     const draft = readDraft(this.choice);
     this.unsaved = !this.fixture && this.serverBacked && draft?.pending === true;
     const initial = this.fixture ? { source: fixtures[fixture!]!, fileName: `tests/fixtures/${fixture}.sw` } : (this.serverBacked && !this.unsaved ? null : draft) ?? builtins[this.choice === 'custom' ? 'reference' : this.choice];
@@ -131,7 +133,7 @@ export class StandaloneHost implements Host {
     window.history.replaceState(null, '', url);
   }
   switchDeck(choice: DeckChoice): void {
-    const useDisk = import.meta.env.DEV && (choice === 'reference' || choice === 'plateau');
+    const useDisk = import.meta.env.DEV && (choice === 'reference' || choice === 'uist-2026');
     const draft = readDraft(choice);
     const pending = useDisk && draft?.pending === true;
     const next = (useDisk && !pending ? null : draft) ?? (choice === 'custom' ? this.custom : builtins[choice]);

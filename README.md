@@ -14,13 +14,15 @@ npm run preview             # serve the production build
 ```
 
 - `/canvas.html` — standalone Slidewright editor, with a deck picker.
-- `/canvas.html?deck=plateau` — editable PLATEAU talk. See the
-  [talk README](decks/plateau-2026/README.md) for required local media,
+- `/canvas.html?deck=uist-2026` — editable UIST 2026 talk. See the
+  [talk README](decks/uist-2026/README.md) for required local media,
   browser drafts, presenting, and the speaker console.
+- `/canvas.html?deck=plateau-demo` — preserved PLATEAU example; edits stay in
+  browser drafts. See the [demo README](decks/plateau-demo/README.md).
 - `/canvas.html?fixture=<name>` — load `tests/fixtures/<name>.sw` for debugging.
 - `/` — read-only reference-deck presentation.
 
-With `npm run dev`, edits to the reference and PLATEAU decks save continuously
+With `npm run dev`, edits to the reference and UIST decks save continuously
 back to their repository `.sw` files. The editor checks disk revisions every
 500 ms, including while idle. An external change stops writes and displays
 “Out of sync”; local text stays available to download. **Reload from disk**
@@ -28,7 +30,7 @@ discards the local draft and reconnects to the current file. Saves compare the
 last acknowledged revision before writing. This is optimistic synchronization:
 independent processes writing in place can still race the filesystem calls.
 
-Static builds, imported files, and fixtures do not write
+The PLATEAU demo, static builds, imported files, and fixtures do not write
 repository files.
 Static builds and imports keep browser drafts; use **Download source** to export
 them. Server-backed decks normally load from disk. Pending unsaved edits are backed
@@ -64,7 +66,8 @@ the standalone host; desktop VS Code still needs a smoke check before release.
 - `decks/v0-reference/` — reference `deck.sw`, shared `registry.ts`, and
   component modules. Modules export React rendering, `slidewright` metadata,
   and optional `canvas` adapters.
-- `decks/plateau-2026/` — editable talk, custom components, and local assets.
+- `decks/plateau-demo/` — preserved PLATEAU example source, sharing talk assets.
+- `decks/uist-2026/` — editable talk, custom components, and local assets.
 - `decks/ne-agents-day-2026/` — original React/JSX deck retained as a reference.
 - `slidewright/runtime/` — lexer, parser, AST, emitter, loader, component
   contract, cells, scope, and diagnostics; `__test__/` contains smoke tests.
@@ -82,8 +85,9 @@ the standalone host; desktop VS Code still needs a smoke check before release.
 
 ## Repository assets and commit checks
 
-Video files are local assets and are ignored by Git. See
-`decks/plateau-2026/README.md` for the PLATEAU media setup.
+Presentation videos and `decks/uist-2026/assets/headshot.jpg` are local assets
+and are ignored by Git. See
+`decks/uist-2026/README.md` for the PLATEAU media setup.
 
 `npm install` / `npm ci` installs the versioned pre-commit hook through the
 `prepare` script. For an existing checkout, run `npm run prepare` once.

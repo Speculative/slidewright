@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { getEditorSource, setHostSource } from './editor-helpers';
 
 test('presenter console syncs notes and slide navigation without changing source', async ({ page }) => {
-  await page.goto('/canvas.html?deck=plateau');
+  await page.goto('/canvas.html?deck=uist-2026');
   const before = await getEditorSource(page);
   const popupPromise = page.waitForEvent('popup');
   await page.getByRole('button', { name: 'Presenter view', exact: true }).click();
@@ -38,7 +38,7 @@ test('presenter console syncs notes and slide navigation without changing source
 });
 
 test('presenter notes follow live source and popup failure has actionable feedback', async ({ page }) => {
-  await page.goto('/canvas.html?deck=plateau');
+  await page.goto('/canvas.html?deck=uist-2026');
   const popupPromise = page.waitForEvent('popup');
   await page.getByRole('button', { name: 'Presenter view', exact: true }).click();
   const presenter = await popupPromise;
@@ -53,7 +53,7 @@ test('presenter notes follow live source and popup failure has actionable feedba
 });
 
 test('fullscreen audience keeps navigation, notes sync and source intact through native exit', async ({ page }) => {
-  await page.goto('/canvas.html?deck=plateau');
+  await page.goto('/canvas.html?deck=uist-2026');
   const before = await getEditorSource(page);
   const popupPromise = page.waitForEvent('popup');
   await page.getByRole('button', { name: 'Presenter view', exact: true }).click();
@@ -94,7 +94,7 @@ test('fullscreen audience keeps navigation, notes sync and source intact through
 });
 
 test('fullscreen request errors retain windowed presentation and source', async ({ page }) => {
-  await page.goto('/canvas.html?deck=plateau');
+  await page.goto('/canvas.html?deck=uist-2026');
   const before = await getEditorSource(page);
   await page.getByRole('button', { name: 'Present', exact: true }).click();
   await page.evaluate(() => { Element.prototype.requestFullscreen = async () => { throw new DOMException('Denied', 'NotAllowedError'); }; });

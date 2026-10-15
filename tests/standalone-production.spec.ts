@@ -4,7 +4,7 @@ test('production canvas loads all packaged PLATEAU media and saves a reloadable 
   test.skip(!test.info().config.configFile?.endsWith('playwright.production.config.ts'), 'Production build check has its own server/config.');
   const failures: string[] = [];
   page.on('response', response => { if (response.status() >= 400 && new URL(response.url()).origin === new URL(page.url()).origin) failures.push(response.url()); });
-  await page.goto('/canvas.html?deck=plateau');
+  await page.goto('/canvas.html?deck=plateau-demo');
   await expect(page.getByRole('option', { name: /^Slide \d+$/ })).toHaveCount(20);
   for (const number of [1, 9, 10, 12, 14, 16, 18]) {
     await page.getByRole('option', { name: `Slide ${number}`, exact: true }).click();
