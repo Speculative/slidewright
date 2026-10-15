@@ -1,19 +1,14 @@
 // StandaloneHost — the Slidewright canvas Host implementation that
 // runs in a normal browser via Vite (not inside a VS Code webview).
 //
-// Source-of-truth lives in this host's internal state. Edits arrive
-// from two paths:
-//   - Vite HMR fires when decks/v0-reference/deck.sw changes on disk
-//     (so saving the file in any external editor refreshes the
-//     canvas without a page reload).
-//   - The standalone source pane (v0.1f) calls setSource on each
-//     keystroke, which flows back to the canvas via subscribe
-//     callbacks.
+// Built-in decks use revision-checked file synchronization in development.
+// Static builds and imported decks use browser drafts.
 //
 // The host is also the message bus between the canvas and the
 // editor pane — sendSelection (canvas → pane) and setCursor
 // (pane → canvas) wire up bidirectional selection sync.
 //
+import { SourceSync } from './source-sync.js';
 import plateauSource from '../decks/plateau-2026/deck.sw?raw';
 import deckSourceInitial from '../decks/v0-reference/deck.sw?raw';
 import headshotImg from '../decks/v0-reference/headshot.jpg';
@@ -55,7 +50,7 @@ const builtins = {
   reference: { source: deckSourceInitial, fileName: FILE_NAME },
   plateau: { source: plateauSource, fileName: 'decks/plateau-2026/deck.sw' },
 };
-interface Draft { source: string; fileName: string }
+interface Draft { source: string; fileName: string; pending?: boolean }
 function draftKey(deck: DeckChoice): string { return `slidewright:standalone:draft:v1:${deck}`; }
 function readDraft(deck: DeckChoice): Draft | null {
   try {
@@ -70,10 +65,16 @@ export class StandaloneHost implements Host {
   private cursorSubscribers = new Set<(offset: number) => void>();
   private selectionSubscribers = new Set<(range: SourceRange) => void>();
 
+  private unsaved = false;
+  private sync: SourceSync | null = null;
+  private connected = false;
+  private syncSubscribers = new Set<() => void>();
   private choice: DeckChoice = 'reference';
   private fixture = false;
   persistenceAvailable = true;
   private custom: Draft | null = null;
+  get serverBacked(): boolean { return import.meta.env.DEV && !this.fixture && (this.choice === 'reference' || this.choice === 'plateau'); }
+  get syncStatus() { return this.serverBacked ? this.sync?.status ?? 'connecting' : null; }
   get deckChoice(): DeckChoice { return this.choice; }
   get fileName(): string { return this.state.fileName; }
   get source(): string { return this.state.source; }
@@ -84,21 +85,42 @@ export class StandaloneHost implements Host {
     const fixture = query.get('fixture');
     this.fixture = !!fixture && !!fixtures[fixture];
     this.choice = query.get('deck') === 'plateau' ? 'plateau' : query.get('deck') === 'custom' && readDraft('custom') ? 'custom' : 'reference';
-    const initial = this.fixture ? { source: fixtures[fixture!]!, fileName: `tests/fixtures/${fixture}.sw` } : readDraft(this.choice) ?? builtins[this.choice === 'custom' ? 'reference' : this.choice];
+    const draft = readDraft(this.choice);
+    this.unsaved = !this.fixture && this.serverBacked && draft?.pending === true;
+    const initial = this.fixture ? { source: fixtures[fixture!]!, fileName: `tests/fixtures/${fixture}.sw` } : (this.serverBacked && !this.unsaved ? null : draft) ?? builtins[this.choice === 'custom' ? 'reference' : this.choice];
     this.state = { ...initial, assets: { headshotImg, ...plateauAssets } };
-    if (import.meta.hot) {
-      import.meta.hot.accept('../decks/v0-reference/deck.sw?raw', mod => {
-        if (!this.fixture && this.choice === 'reference' && mod) this.setSource(mod.default);
-      });
-      import.meta.hot.accept('../decks/plateau-2026/deck.sw?raw', mod => {
-        if (!this.fixture && this.choice === 'plateau' && mod) this.setSource(mod.default);
-      });
-    }
   }
+
+  connect(): () => void {
+    this.connected = true;
+    this.startSync();
+    return () => { this.connected = false; this.sync?.stop(); this.sync = null; };
+  }
+  private startSync(): void {
+    this.sync?.stop(); this.sync = null;
+    if (this.serverBacked && this.connected) {
+      this.sync = new SourceSync(this.choice, source => {
+        this.state = { ...this.state, source };
+        this.unsaved = false;
+        this.persist(); this.publish();
+      }, () => {
+        if (this.sync?.status === 'saved') { this.unsaved = false; this.persist(); }
+        this.publishSync();
+      });
+      this.sync.start(this.unsaved ? this.state.source : undefined);
+    }
+    this.publishSync();
+  }
+  private publishSync(): void { for (const callback of this.syncSubscribers) callback(); }
+  onSyncChange(callback: () => void): () => void {
+    this.syncSubscribers.add(callback);
+    return () => { this.syncSubscribers.delete(callback); };
+  }
+  reloadFromDisk(): void { this.sync?.reload(); }
 
   private persist(): void {
     if (this.fixture) return;
-    try { localStorage.setItem(draftKey(this.choice), JSON.stringify({ source: this.state.source, fileName: this.state.fileName })); this.persistenceAvailable = true; }
+    try { localStorage.setItem(draftKey(this.choice), JSON.stringify({ source: this.state.source, fileName: this.state.fileName, pending: this.serverBacked && this.unsaved })); this.persistenceAvailable = true; }
     catch { this.persistenceAvailable = false; }
     if (this.choice === 'custom') this.custom = { source: this.state.source, fileName: this.state.fileName };
   }
@@ -109,16 +131,19 @@ export class StandaloneHost implements Host {
     window.history.replaceState(null, '', url);
   }
   switchDeck(choice: DeckChoice): void {
-    const next = readDraft(choice) ?? (choice === 'custom' ? this.custom : builtins[choice]);
+    const useDisk = import.meta.env.DEV && (choice === 'reference' || choice === 'plateau');
+    const draft = readDraft(choice);
+    const pending = useDisk && draft?.pending === true;
+    const next = (useDisk && !pending ? null : draft) ?? (choice === 'custom' ? this.custom : builtins[choice]);
     if (!next) return;
-    this.fixture = false; this.choice = choice;
+    this.fixture = false; this.choice = choice; this.unsaved = pending;
     this.state = { ...this.state, ...next };
-    this.updateURL(); this.publish();
+    this.startSync(); this.updateURL(); this.publish();
   }
   openSource(source: string, fileName: string): void {
-    this.fixture = false; this.choice = 'custom';
+    this.fixture = false; this.choice = 'custom'; this.unsaved = false;
     this.state = { ...this.state, source, fileName };
-    this.persist(); this.updateURL(); this.publish();
+    this.startSync(); this.persist(); this.updateURL(); this.publish();
   }
   saveDraft(): boolean { this.persist(); this.publish(); return this.persistenceAvailable; }
 
@@ -149,7 +174,9 @@ export class StandaloneHost implements Host {
   setSource(source: string): void {
     if (source === this.state.source) return;
     this.state = { ...this.state, source };
+    this.unsaved = this.serverBacked;
     this.persist(); this.publish();
+    this.sync?.edit(source);
   }
 
   onSelection(callback: (range: SourceRange) => void): () => void {

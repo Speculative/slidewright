@@ -6,6 +6,7 @@
   "scripts": {
     "prepare": "git config core.hooksPath .githooks",
     "check:staged": "node scripts/check-staged-files.mjs",
+    "test:source-sync": "node --import tsx --test scripts/source-sync.test.ts",
     "test:commit-hook": "node --test scripts/check-staged-files.test.mjs",
     "dev": "vite",
     "build": "vite build",
@@ -20,7 +21,7 @@
     "test:media": "tsx slidewright/runtime/__test__/media.smoke.ts",
     "test:text-document": "tsx slidewright/runtime/__test__/text-document.smoke.ts",
     "test:rich-text": "tsx slidewright/canvas/__test__/rich-text.smoke.ts",
-    "test": "npm run typecheck && npm run test:parser && npm run test:loader && npm run test:ssr && npm run test:roundtrip && npm run test:syntax && npm run test:source-layout && npm run test:media && npm run test:text-document && npm run test:rich-text && npm run test:plateau-charts && npm run test:plateau-deck",
+    "test": "npm run typecheck && npm run test:source-sync && npm run test:parser && npm run test:loader && npm run test:ssr && npm run test:roundtrip && npm run test:syntax && npm run test:source-layout && npm run test:media && npm run test:text-document && npm run test:rich-text && npm run test:plateau-charts && npm run test:plateau-deck",
     "test:e2e": "playwright test --grep-invert @perf",
     "test:perf": "playwright test --grep @perf",
     "slidewright": "tsx slidewright/cli/validate.ts",

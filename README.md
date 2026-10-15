@@ -20,8 +20,23 @@ npm run preview             # serve the production build
 - `/canvas.html?fixture=<name>` — load `tests/fixtures/<name>.sw` for debugging.
 - `/` — read-only reference-deck presentation.
 
-The standalone editor saves drafts in browser storage. Download source to
-persist edits to a `.sw` file; browser edits do not overwrite repository files.
+With `npm run dev`, edits to the reference and PLATEAU decks save continuously
+back to their repository `.sw` files. The editor checks disk revisions every
+500 ms, including while idle. An external change stops writes and displays
+“Out of sync”; local text stays available to download. **Reload from disk**
+discards the local draft and reconnects to the current file. Saves compare the
+last acknowledged revision before writing. This is optimistic synchronization:
+independent processes writing in place can still race the filesystem calls.
+
+Static builds, imported files, and fixtures do not write
+repository files.
+Static builds and imports keep browser drafts; use **Download source** to export
+them. Server-backed decks normally load from disk. Pending unsaved edits are backed
+up in browser storage and recovered after reload or deck switching. A recovered
+draft differing from disk opens out of sync, ready to download; it never
+overwrites disk automatically. Only Reload from disk explicitly discards it.
+Browser storage failures show a warning. Uncommitted rich-text drafts (before
+Done/blur) are not backed up, and browser storage is not a version history.
 The hosts use bundled component registries; arbitrary deck-local TSX compilation
 is not yet implemented.
 

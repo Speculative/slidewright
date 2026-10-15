@@ -7,6 +7,14 @@ export function StandaloneControls({ host, presenting, onPresent, onPresenter, o
   const [message, setMessage] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
   useEffect(() => host.subscribe(() => refresh(value => value + 1)), [host]);
+  useEffect(() => host.onSyncChange(() => refresh(value => value + 1)), [host]);
+  const syncMessages = {
+    connecting: 'Connecting to source file…',
+    saved: 'Saved to source file',
+    saving: 'Saving to source file…',
+    conflict: 'Out of sync: the source file changed. Local edits are kept here but will not be written. Download a copy or reload from disk.',
+    error: 'Source file unavailable. Edits are kept here; retrying connection…',
+  };
   function download() {
     const url = URL.createObjectURL(new Blob([host.source], { type: 'text/plain;charset=utf-8' }));
     const anchor = document.createElement('a');
@@ -35,6 +43,7 @@ export function StandaloneControls({ host, presenting, onPresent, onPresenter, o
     <button type="button" onClick={download}>Download source</button>
     <button type="button" onClick={() => fileInput.current?.click()}>Open source</button>
     <input ref={fileInput} type="file" accept=".sw,text/plain" aria-label="Open deck file" hidden onChange={event => { const file = event.currentTarget.files?.[0]; if (file) void open(file); event.currentTarget.value = ''; }} />
-    <span role="status">{presenterError || message || (host.persistenceAvailable ? 'Committed edits save in this browser' : 'Browser storage unavailable; download a copy.')}</span>
+    {host.serverBacked && <button type="button" onClick={() => host.reloadFromDisk()}>Reload from disk</button>}
+    <span role="status">{!host.persistenceAvailable && 'Browser backup unavailable; download a copy before closing. '}{(host.syncStatus && host.syncStatus !== 'saved' ? syncMessages[host.syncStatus] : '') || presenterError || message || (host.syncStatus ? syncMessages[host.syncStatus] : '') || (host.persistenceAvailable ? 'Committed edits save in this browser' : 'Browser storage unavailable; download a copy.')}</span>
   </div>;
 }

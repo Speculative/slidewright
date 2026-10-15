@@ -2,8 +2,21 @@ import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { getEditorSource, setHostSource } from './editor-helpers';
 
-test('deck switching keeps independent drafts across reload and exports actual source', async ({ page }) => {
+// Built-in decks now save on the test server; restore its private copies so
+// another test never inherits an edit made by this file.
+test.afterEach(async ({ request }) => {
+  for (const [choice, directory] of [['reference', 'v0-reference'], ['plateau', 'plateau-2026']]) {
+    const endpoint = `/__slidewright/source?deck=${choice}`;
+    const disk = await (await request.get(endpoint)).json();
+    const source = await readFile(`decks/${directory}/deck.sw`, 'utf8');
+    if (disk.source !== source) expect((await request.put(endpoint, { data: { revision: disk.revision, source } })).ok()).toBe(true);
+  }
+});
+
+test('deck switching keeps server edits and imported browser drafts across reload and exports actual source', async ({ page }) => {
   await page.goto('/canvas.html?deck=plateau');
+  await expect(page.getByRole('status')).toHaveText('Saved to source file');
+  await expect(page.getByLabel('Deck', { exact: true }).locator('option:checked')).toHaveText('PLATEAU 2026');
   const source = await getEditorSource(page);
   const edited = source.replace('PLATEAU 2026', 'UIST draft');
   await setHostSource(page, edited);

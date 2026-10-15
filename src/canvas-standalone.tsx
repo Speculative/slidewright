@@ -65,7 +65,9 @@ function Standalone(): ReactElement {
   // with no subscribers. useEffect doesn't suffer from that —
   // it runs once per mounted component, after StrictMode settles.
   useEffect(() => {
+    const disconnect = host.connect();
     (window as unknown as { __slidewrightHost: StandaloneHost }).__slidewrightHost = host;
+    return disconnect;
   }, [host]);
 
   return (

@@ -35,9 +35,10 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
   webServer: {
-    command: `npm run dev -- --port ${PORT} --strictPort`,
+    command: `node scripts/e2e-server.mjs ${PORT}`,
     url: BASE_URL,
-    reuseExistingServer: !process.env.CI,
+    // Never reuse a server that could write to repository source files.
+    reuseExistingServer: false,
     timeout: 30_000,
   },
 });
