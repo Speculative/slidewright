@@ -229,7 +229,9 @@ function buildSelectableChain(
           // parent's span attrs are stamped on the placeholder
           // wrapper directly (no need to walk to a parent
           // component, since we may be inside one of its inner
-          // wrappers and the data is right here). Slot type lets
+          // wrappers and the data is right here). Empty slots can
+          // be insertion targets even when their owner has no
+          // canvas adapter. Slot type lets
           // the dblclick handler route by type.
           const pStart = el.getAttribute('data-sw-slot-parent-start');
           const pEnd = el.getAttribute('data-sw-slot-parent-end');
@@ -237,8 +239,7 @@ function buildSelectableChain(
           if (
             pStart &&
             pEnd &&
-            slotType &&
-            selectableSpans.has(`${pStart}-${pEnd}`)
+            slotType
           ) {
             chain.push({
               kind: 'empty-slot',

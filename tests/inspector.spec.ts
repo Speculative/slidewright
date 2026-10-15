@@ -165,8 +165,8 @@ test('property panel renders rows for the selected shape', async ({ page }) => {
     page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
   ).toBeVisible();
   await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
-  // single-box has x, y, width, height, fill — five rows.
-  await expect(page.locator('.sw-property-row')).toHaveCount(5);
+  // Five authored values plus borderWidth, borderColor, and radius defaults.
+  await expect(page.locator('.sw-property-row')).toHaveCount(8);
   await expect(page.locator('.sw-property-row').nth(0)).toContainText('x');
 });
 
@@ -515,18 +515,17 @@ test('un-omit picks a type-shaped default per slot', async ({ page }) => {
 });
 
 test('omit toggle is hidden on param and non-renderable-slot rows', async ({ page }) => {
-  // single-box: all rows (x, y, width, height, fill) are params.
+  // single-box: authored geometry/fill and default border/radius rows are params.
   // None should have the omit toggle.
   await page.goto('/canvas.html?fixture=single-box');
   await expect(
     page.locator('.sw-canvas-stage [data-sw-component="Box"]'),
   ).toBeVisible();
   await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
-  await expect(page.locator('.sw-property-row')).toHaveCount(5);
+  await expect(page.locator('.sw-property-row')).toHaveCount(8);
   await expect(page.locator('.sw-property-omit-toggle')).toHaveCount(0);
 
-  // TextBox exposes only its geometry params; content is authored in the
-  // renderable slot. So exactly one toggle should be present.
+  // TextBox exposes only geometry; content uses dedicated text controls.
   await page.goto('/canvas.html?fixture=single-textbox');
   await expect(
     page.locator('.sw-canvas-stage [data-sw-component="TextBox"]'),
@@ -537,14 +536,14 @@ test('omit toggle is hidden on param and non-renderable-slot rows', async ({ pag
   await expect(xRow.locator('.sw-property-omit-toggle')).toHaveCount(0);
 });
 
-test('multi-selection shows the multi-edit hint', async ({ page }) => {
+test('multi-selection keeps component properties scoped to one element', async ({ page }) => {
   await page.goto('/canvas.html?fixture=two-boxes');
   await expect(page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]')).toHaveCount(2);
   await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').nth(0).click();
   await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').nth(1).click({ modifiers: ['Shift'] });
   await expect(
     page.locator('.sw-properties-panel .sw-inspector-panel-empty'),
-  ).toContainText('multi-edit not supported');
+  ).toContainText('Select one element to edit its properties.');
 });
 
 test('slide-level VStack (no Freeform ancestor) is selectable + inspectable', async ({ page }) => {

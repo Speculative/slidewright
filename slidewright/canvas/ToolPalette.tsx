@@ -1,276 +1,116 @@
-// Slidewright canvas — tool palette.
-//
-// Compact floating UI in a corner of the canvas for switching
-// between modal gestures (Select / draw a Box / etc.). Modal-tool
-// state lives in App as `activeTool`; this component is purely
-// presentational + emits the user's tool choice.
-//
-// The entry list is registry-driven: the parent (App) walks the
-// component registry, filters to components that opt into the
-// 'modal' gesture via `meta.insertion`, and passes them in here.
-// 'select' is always the first entry, ungrouped. A search input
-// below it filters the rest by label / description (case-
-// insensitive substring); empty query renders everything. The
-// remaining entries are grouped by `category`:
-//
-//   - When ≥2 categories exist, each renders as a collapsible
-//     section with a header; collapsed state persists in
-//     localStorage so the user's layout survives reloads. A
-//     non-empty search query temporarily expands every section
-//     so matches aren't hidden behind a collapsed header.
-//   - When only 1 category exists, headers are hidden and the
-//     entries render as a flat list. Today's modal-only toolbar
-//     surfaces only `Shapes`, so this is the live shape. Step 6
-//     surfaces drag-mode categories (`Layouts`, `Slides`) and the
-//     headers light up automatically.
-//
-// Entries without a `category` fall into a synthetic `Other`
-// group so the bucket count is well-defined even for partly
-// classified registries.
+// Registry-driven insertion search. Tool state and placement live in App.
+import { useEffect, useRef, useState, type PointerEvent, type ReactElement } from 'react';
 
-import { useCallback, useMemo, useState } from 'react';
-import type * as React from 'react';
-import type { ReactElement } from 'react';
-
-// Identifier of the active tool. 'select' is the no-tool state;
-// any other string is a component name (registry key).
 export type Tool = string;
 export const SELECT_TOOL = 'select';
-
-// One entry in the tool palette beyond 'select' — derived from a
-// component's `slidewright` metadata at the call site.
 export interface ToolEntry {
-  // Component-registry key. Used as the tool identifier and as
-  // the lookup key when the create-gesture dispatches the
-  // component's insertion stub.
   id: string;
-  // Display name. Defaults to the component name.
   label: string;
-  // Tooltip / search-target text.
   description?: string;
-  // Section heading. Entries without one bucket into 'Other'.
   category?: string;
-  // Which gesture(s) this entry supports. Modal entries use
-  // click-to-select-tool; drag entries start a pointer drag on
-  // pointerdown that the parent's drop-target lifecycle
-  // consumes.
   gestures: ('drag' | 'modal')[];
 }
-
 interface Props {
   active: Tool;
+  placing?: boolean;
   tools: ToolEntry[];
-  // Click handler for modal entries. The clicked tool enters the
-  // modal-cursor state managed by the parent.
-  onSelect: (tool: Tool) => void;
-  // Pointerdown handler for drag-mode entries. The parent
-  // attaches document-level pointermove/pointerup listeners to
-  // run the drag lifecycle. Receives the pointer event so it can
-  // capture start coords + run a threshold check before committing
-  // to drag mode.
-  onDragStart?: (tool: Tool, event: React.PointerEvent) => void;
+  onSelect(tool: Tool): void;
+  onDragStart?(tool: Tool, event: PointerEvent): void;
 }
 
-const FALLBACK_CATEGORY = 'Other';
-const COLLAPSE_STORAGE_KEY = 'slidewright.canvas.toolPalette.collapsed';
-
-// Persist the set of collapsed categories. Stored as a JSON array
-// of category names — small, debuggable, and forward-compatible
-// with rename / removal (unknown names are ignored on read).
-function readCollapsedState(): Set<string> {
-  try {
-    const raw = localStorage.getItem(COLLAPSE_STORAGE_KEY);
-    if (!raw) return new Set();
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return new Set();
-    return new Set(parsed.filter((x): x is string => typeof x === 'string'));
-  } catch {
-    return new Set();
-  }
-}
-
-function writeCollapsedState(state: Set<string>): void {
-  try {
-    localStorage.setItem(
-      COLLAPSE_STORAGE_KEY,
-      JSON.stringify([...state]),
-    );
-  } catch {
-    // Quota errors aren't worth crashing the toolbar over.
-  }
-}
-
-interface Group {
-  category: string;
-  entries: ToolEntry[];
-}
-
-// Group entries by category, preserving insertion order both for
-// the groups themselves (first sight of each category wins) and
-// for entries within a group. Order is the deck author's
-// `registry.ts` import order — a deliberate placement they can
-// shuffle.
-function groupByCategory(tools: ToolEntry[]): Group[] {
-  const groups = new Map<string, ToolEntry[]>();
-  for (const t of tools) {
-    const cat = t.category ?? FALLBACK_CATEGORY;
-    let bucket = groups.get(cat);
-    if (!bucket) {
-      bucket = [];
-      groups.set(cat, bucket);
-    }
-    bucket.push(t);
-  }
-  return [...groups.entries()].map(([category, entries]) => ({
-    category,
-    entries,
-  }));
-}
-
-// Substring-match an entry against a normalized (lowercase,
-// trimmed) query. Matches against label + description so users
-// can search by either the visible name or the tooltip body.
-function entryMatchesQuery(entry: ToolEntry, query: string): boolean {
-  if (!query) return true;
-  if (entry.label.toLowerCase().includes(query)) return true;
-  if (entry.description?.toLowerCase().includes(query)) return true;
-  return false;
-}
-
-export function ToolPalette({
-  active,
-  tools,
-  onSelect,
-  onDragStart,
-}: Props): ReactElement {
-  const groups = useMemo(() => groupByCategory(tools), [tools]);
-  const [collapsed, setCollapsed] = useState<Set<string>>(readCollapsedState);
+export function ToolPalette({ active, placing, tools, onSelect, onDragStart }: Props): ReactElement {
+  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const toggleCategory = useCallback((category: string) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(category)) next.delete(category);
-      else next.add(category);
-      writeCollapsedState(next);
-      return next;
-    });
-  }, []);
+  const [index, setIndex] = useState(0);
+  const root = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const normalizedQuery = query.toLowerCase().trim();
+  const words = normalizedQuery.split(/\s+/);
+  function matchRank(tool: ToolEntry): number {
+    const label = tool.label.toLowerCase();
+    if (!normalizedQuery || label === normalizedQuery) return 0;
+    if (label.startsWith(normalizedQuery)) return 1;
+    if (label.includes(normalizedQuery)) return 2;
+    // Prefer names over incidental description/category matches. Multi-word
+    // queries rank entries with more matching words in their name first.
+    return 3 + words.filter(word => !label.includes(word)).length;
+  }
+  const matches = tools.filter(tool => words.every(word =>
+    `${tool.label} ${tool.description ?? ''} ${tool.category ?? 'Other'}`.toLowerCase().includes(word)))
+    .sort((a, b) => matchRank(a) - matchRank(b));
+  const current = Math.min(index, Math.max(0, matches.length - 1));
 
-  const normalizedQuery = query.trim().toLowerCase();
-  const isSearching = normalizedQuery.length > 0;
-  // Filter each group's entries against the query; drop empty
-  // groups so the user doesn't see a header pointing at nothing.
-  // No-op when the query is empty.
-  const visibleGroups = useMemo(() => {
-    if (!isSearching) return groups;
-    const out: Group[] = [];
-    for (const g of groups) {
-      const matching = g.entries.filter((e) =>
-        entryMatchesQuery(e, normalizedQuery),
-      );
-      if (matching.length > 0) {
-        out.push({ category: g.category, entries: matching });
+  function close(restoreFocus = true) {
+    setOpen(false);
+    input.current?.blur();
+    if (restoreFocus) returnFocus.current?.focus();
+  }
+  function confirm(tool: Tool) {
+    close(false);
+    setQuery('');
+    setIndex(0);
+    onSelect(tool);
+  }
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey ||
+          target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      if (event.key.toLowerCase() === 'i') {
+        event.preventDefault();
+        input.current?.focus();
       }
-    }
-    return out;
-  }, [groups, isSearching, normalizedQuery]);
+    };
+    const outside = (event: globalThis.PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('pointerup', outside);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', outside);
+      document.removeEventListener('pointerup', outside);
+    };
+  }, []);
+  useEffect(() => { if (placing) { setOpen(false); input.current?.blur(); } }, [placing]);
+  useEffect(() => {
+    root.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+  }, [current, query]);
 
-  // Headers only make sense when the user has more than one
-  // bucket to navigate between. With a single bucket the section
-  // chrome would be pure overhead.
-  const showHeaders = visibleGroups.length > 1;
-
-  return (
-    <div className="sw-tool-palette" role="toolbar" aria-label="Drawing tools">
-      <button
-        type="button"
-        className={'sw-tool' + (active === SELECT_TOOL ? ' active' : '')}
-        aria-pressed={active === SELECT_TOOL}
-        title="Select (V)"
-        aria-keyshortcuts="V"
-        onClick={() => onSelect(SELECT_TOOL)}
-      >
-        Select
-      </button>
-      <input
-        type="search"
-        className="sw-tool-search"
-        placeholder="Filter…"
-        aria-label="Filter tools"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-      />
-      {visibleGroups.map((g) => {
-        // Collapse state is suppressed while searching — matches
-        // shouldn't hide behind a header the user collapsed before
-        // they started typing.
-        const isCollapsed =
-          showHeaders && !isSearching && collapsed.has(g.category);
-        return (
-          <div key={g.category} className="sw-tool-section">
-            {showHeaders ? (
-              <button
-                type="button"
-                className={
-                  'sw-tool-section-header' +
-                  (isCollapsed ? ' collapsed' : '')
-                }
-                aria-expanded={!isCollapsed}
-                onClick={() => toggleCategory(g.category)}
-              >
-                <span className="sw-tool-section-chevron" aria-hidden>
-                  {isCollapsed ? '▸' : '▾'}
-                </span>
-                {g.category}
-              </button>
-            ) : null}
-            {!isCollapsed
-              ? g.entries.map((t) => {
-                  const supportsModal = t.gestures.includes('modal');
-                  const supportsDrag = t.gestures.includes('drag');
-                  return (
-                    <button
-                      key={t.id}
-                      type="button"
-                      className={
-                        'sw-tool' + (active === t.id ? ' active' : '')
-                      }
-                      aria-pressed={active === t.id}
-                      title={
-                        t.description
-                          ? `${t.label} — ${t.description}`
-                          : t.label
-                      }
-                      // Modal entries enter the tool on click; drag
-                      // entries spin up a document-level drag on
-                      // pointerdown. If a component opts into both,
-                      // pointerdown starts a drag (preferred since
-                      // it gives stronger feedback); the click
-                      // handler still fires if the pointer never
-                      // moves enough to commit to drag, falling
-                      // back to modal selection. Today's components
-                      // are exclusive, so this fallback is
-                      // forward-looking.
-                      onClick={
-                        supportsModal ? () => onSelect(t.id) : undefined
-                      }
-                      onPointerDown={
-                        supportsDrag && onDragStart
-                          ? (e) => onDragStart(t.id, e)
-                          : undefined
-                      }
-                    >
-                      {t.label}
-                    </button>
-                  );
-                })
-              : null}
-          </div>
-        );
-      })}
-      {isSearching && visibleGroups.length === 0 ? (
-        <div className="sw-tool-empty">No matches</div>
-      ) : null}
-    </div>
-  );
+  return <div ref={root} className="sw-tool-palette" role="toolbar" aria-label="Insertion tools">
+    <button type="button" className="sw-tool" aria-pressed={active === SELECT_TOOL}
+      onClick={() => { close(false); onSelect(SELECT_TOOL); }}>Select</button>
+    <input ref={input} type="search" className="sw-tool-search" placeholder="Insert element… (I)"
+      aria-label="Insert element" role="combobox" aria-autocomplete="list" aria-expanded={open}
+      aria-controls="sw-insert-results" aria-activedescendant={open && matches.length ? `sw-insert-${matches[current]!.id}` : undefined}
+      value={query} onClick={() => setOpen(true)} onFocus={event => {
+        returnFocus.current = event.relatedTarget instanceof HTMLElement ? event.relatedTarget : null;
+        setOpen(true);
+      }} onChange={event => { setQuery(event.target.value); setIndex(0); setOpen(true); }}
+      onKeyDown={event => {
+        event.stopPropagation();
+        if (event.key === 'Escape') { event.preventDefault(); close(); }
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          event.preventDefault(); setOpen(true);
+          setIndex((current + (event.key === 'ArrowDown' ? 1 : -1) + matches.length) % (matches.length || 1));
+        }
+        if (event.key === 'Enter') { event.preventDefault(); if (matches[current]) confirm(matches[current]!.id); }
+        if (event.key === 'Tab') setOpen(false);
+      }} />
+    <span className="sw-tool-status" role={active === SELECT_TOOL ? undefined : 'status'}>{active === SELECT_TOOL ? 'Select elements to edit properties' : `Draw ${active} · Esc to cancel`}</span>
+    {open && <div className="sw-command-results" id="sw-insert-results" role="listbox" aria-label="Elements">
+      {matches.map((tool, i) => <div key={tool.id}>
+        {(i === 0 || tool.category !== matches[i - 1]?.category) && <div className="sw-tool-section-header">{tool.category ?? 'Other'}</div>}
+        <button type="button" id={`sw-insert-${tool.id}`} role="option" aria-selected={current === i}
+          className="sw-tool" title={tool.description} onMouseEnter={() => setIndex(i)}
+          onClick={() => confirm(tool.id)} onPointerDown={event => {
+            if (tool.gestures.includes('drag') && onDragStart) onDragStart(tool.id, event);
+          }}>{tool.label}</button>
+      </div>)}
+      {!matches.length && <div className="sw-tool-empty" role="status">No matching elements</div>}
+      <div className="sw-command-help">↑↓ Choose · Enter Insert · Esc Close</div>
+    </div>}
+  </div>;
 }

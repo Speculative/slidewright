@@ -80,6 +80,7 @@ test('inspector changes media source and fit through the DSL', async ({ page }) 
 for (const name of ['Image', 'Video']) {
   test(`toolbar draws an editable ${name} placeholder`, async ({ page }) => {
     await page.goto('/canvas.html?fixture=empty-freeform');
+    await page.getByRole('combobox', { name: 'Insert element' }).click();
     await page.locator('.sw-tool', { hasText: new RegExp(`^${name}$`) }).click();
     const freeform = await page.locator('.sw-canvas-stage [data-sw-component="Freeform"] > div').boundingBox();
     const canvas = await page.locator('.sw-canvas-stage .presentation-canvas').boundingBox();

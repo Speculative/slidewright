@@ -1,9 +1,7 @@
 // Slidewright canvas — inspector panels (hierarchy + properties).
 //
-// Lives in App's bottom strip alongside the optional bottomExtra
-// slot (the standalone fills it with EditorPane). Three-column
-// layout mirrors browser DevTools: DOM tree | computed styles |
-// source.
+// Hierarchy lives in the bottom dock alongside optional source/notes.
+// Properties lives in the right sidebar, alongside authoring controls.
 //
 // Hierarchy: read-only tree of the active slide's shapes, with
 // two-way selection sync to the canvas.
@@ -434,7 +432,7 @@ export function PropertiesPanel({
     return (
       <PanelFrame header="Properties">
         <div className="sw-inspector-panel-empty">
-          ({multiCount} selected — multi-edit not supported yet)
+          Select one element to edit its properties.
         </div>
       </PanelFrame>
     );

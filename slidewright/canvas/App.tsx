@@ -101,6 +101,7 @@ import {
   type EmptySlotInfo,
   type SlotInfo,
 } from './InspectorPanels.js';
+import { AlignmentControls } from './AlignmentControls.js';
 import { ToolPalette, SELECT_TOOL, type Tool, type ToolEntry } from './ToolPalette.js';
 import {
   acceptsTargetSlot,
@@ -148,8 +149,7 @@ const STRIP_WIDTH_DEFAULT = 280;
 const STRIP_WIDTH_MIN = 200;
 const STRIP_WIDTH_MAX = 600;
 
-// Bottom strip — vertical extent of [hierarchy | properties |
-// bottomExtra]. Resizing drags the boundary between canvas and strip.
+// Bottom dock height. Resizing drags the boundary between canvas and dock.
 const BOTTOM_HEIGHT_KEY = 'slidewright.canvas.bottomStripHeight';
 const BOTTOM_HEIGHT_DEFAULT = 280;
 const BOTTOM_HEIGHT_MIN = 80;
@@ -162,7 +162,7 @@ const HIERARCHY_WIDTH_MAX = 600;
 
 const PROPERTIES_WIDTH_KEY = 'slidewright.canvas.propertiesWidth';
 const PROPERTIES_WIDTH_DEFAULT = 300;
-const PROPERTIES_WIDTH_MIN = 160;
+const PROPERTIES_WIDTH_MIN = 260;
 const PROPERTIES_WIDTH_MAX = 600;
 
 function readStoredSize(
@@ -778,7 +778,7 @@ function getAdapter(componentName: string): ShapeAdapter | null {
   return (loaded.canvas as ShapeAdapter | undefined) ?? null;
 }
 
-// Toolbar entries for modal-gesture insertions. Derived once from
+// Search entries for insertion commands. Derived once from
 // the static registry — the entry list is stable for the
 // session. Stable order = registry order = deck author's
 // `index.tsx` import order, which is a deliberate placement they
@@ -812,10 +812,8 @@ export function App({
 }: {
   host: Host;
   onActiveSlideChange?(index: number): void;
-  // Optional slot rendered as the rightmost column of the bottom
-  // strip, alongside the inspector. The standalone passes its
-  // EditorPane here; the VS Code webview leaves it empty (VS Code's
-  // own editor is the source surface).
+  // Optional source/notes pane alongside hierarchy in the bottom dock.
+  // VS Code uses its native editor and leaves this slot empty.
   bottomExtra?:
     | ReactElement
     | ((projection: EditorPaneProjection) => ReactElement | null)
@@ -858,6 +856,10 @@ export function App({
       PROPERTIES_WIDTH_MAX,
     ),
   );
+  const [propertiesOpen, setPropertiesOpen] = useState(true);
+  const [bottomOpen, setBottomOpen] = useState(true);
+  const [hierarchyOpen, setHierarchyOpen] = useState(true);
+  const [sourceOpen, setSourceOpen] = useState(true);
   const [editing, setEditing] = useState<TextEditTarget | null>(null);
   const [richEditing, setRichEditing] = useState<TextEditorSnapshot | null>(null);
   const [textFormatting, setTextFormatting] = useState<TextFormattingState | null>(null);
@@ -1857,6 +1859,28 @@ export function App({
     };
   }, [createPreview, host]);
 
+  const chooseInsertTool = (tool: Tool) => {
+    setToolDrag(null);
+    const entry = components[tool];
+    const insertion = entry?.meta.insertion;
+    if (!insertion || insertion.gestures.includes('modal')) {
+      setActiveTool(tool);
+      return;
+    }
+    setActiveTool(SELECT_TOOL);
+    const target = selected.length === 1 ? selected[0] : null;
+    if (target?.kind === 'empty-slot' && entry.meta.produces && acceptsTargetSlot(entry.meta.produces, target.slotType)) {
+      const result = commitSourceEdit(sourceRef.current, '<insert>', ast => {
+        const parent = findComponentAtSpan(ast, target.parentSpan.start, target.parentSpan.end);
+        const node = insertion.stub({ gesture: 'drag', targetSlotType: target.slotType });
+        return parent && node && materializeSlotFill(parent, target.slotName, target.slotType, node) ? {} : null;
+      });
+      if (result) { commitToHost(result.newSource); return; }
+    }
+    setToolDrag({ tool, committed: true, pointerStartX: 0, pointerStartY: 0,
+      pointerCurrentX: 0, pointerCurrentY: 0, target: null, invalidHover: false });
+  };
+
   // ─── Tool-drag lifecycle (drag from toolbar onto a slot) ─────────
   //
   // Initialized by ToolPalette's pointerdown on a drag-mode entry.
@@ -1928,14 +1952,15 @@ export function App({
       setToolDrag(null);
     };
 
-    const onUp = () => {
+    const onUp = (event: PointerEvent) => {
       if (cancelled) {
         setToolDrag(null);
         return;
       }
       setToolDrag((prev) => {
-        if (!prev || !prev.committed || !prev.target) return null;
-        const target = prev.target;
+        if (!prev || !prev.committed) return null;
+        const target = hitTestDropTarget(event.clientX, event.clientY, produces).target;
+        if (!target) return null;
         const result = commitSourceEdit(
           sourceRef.current,
           '<tool-drag>',
@@ -2475,152 +2500,152 @@ export function App({
         {state.fileName.split('/').pop()} · slide {activeIdx + 1} of {total}
       </div>
       <DiagnosticsPanel diagnostics={errors} />
-      <div className="sw-canvas-body">
-        <SlideStrip
-          slides={state.slides}
-          activeIdx={activeIdx}
-          selection={slideSelection}
-          onSelect={stripSelect}
-          onAddSlide={handleAddSlide}
-          onReorder={handleReorderSlides}
-          width={stripWidth}
+      <div className="sw-authoring-bar">
+        <ToolPalette
+          active={activeTool}
+          placing={!!toolDrag?.committed}
+          tools={toolEntries}
+          onSelect={chooseInsertTool}
+          onDragStart={handleToolDragStart}
         />
-        <ResizeHandle
-          size={stripWidth}
-          setSize={setStripWidth}
-          min={STRIP_WIDTH_MIN}
-          max={STRIP_WIDTH_MAX}
-        />
-        {preparedSlide ? (
-          <div className="sw-canvas-stage">
-            <ToolPalette
-              active={activeTool}
-              tools={toolEntries}
-              onSelect={setActiveTool}
-              onDragStart={handleToolDragStart}
-            />
-            {(richEditing || boxShape?.comp.name === 'TextBox') && <div className="sw-text-session-actions" onKeyDown={event => event.stopPropagation()}
-              onBlur={event => { const next = event.relatedTarget; if (!(next instanceof Element) || !next.closest('.sw-text-session-actions, .sw-rich-text-editor')) richSessionRef.current?.finish('commit'); }}>
-              <BoxSettings onApply={applyBoxSetting} current={{ ...boxShape?.params, ...boxDraft }} />
-              {richEditing && <>
-              <FormattingToolbar session={richSessionRef} state={textFormatting} />
-              <span>Editing text</span>
-              <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => richSessionRef.current?.finish('commit')}>Done</button>
-              <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => richSessionRef.current?.finish('cancel')}>Cancel</button>
-              </>}
-            </div>}
-            <TextDocumentSessionContext.Provider value={richEditing ? {
-              span: { start: richEditing.component.span.start.offset, end: richEditing.component.span.end.offset },
-              defaults: { ...boxDraft, ...(typeof boxDraft.color === 'string' ? { color: richEditing.colorTokens[boxDraft.color] ?? boxDraft.color } : {}) },
-              editor: <RichTextEditor snapshot={richEditing} registry={components}
-                onFormatting={setTextFormatting}
-                onReady={handle => { richSessionRef.current = handle; if (!handle) setTextFormatting(null); }}
-                onFinish={(intent, value, changed) => finishRichEditing(richEditing, intent, value, changed)} />,
-            } : null}>
-            <GestureProvider deltas={gestureDeltas}>
-              <ScaledCanvas
-                selectableSpans={selectableSpans}
-                currentSelection={selected}
-                onSelectRange={(range: SourceRange) => host.sendSelection(range)}
-                onTextEdit={(target) => setEditing(target)}
-                onTextDocumentEdit={startRichEditing}
-                onEmptyTextSlotEdit={startEmptyTextSlotEdit}
-                onDragStart={(target) =>
-                  startBodyDrag(target, selected, state.shapes, setGestureMeta, setGestureLive)
-                }
-                onCreateStart={(target) =>
-                  startCreate(target, activeTool, setCreatePreview)
-                }
-                onMarqueeStart={(target) => {
-                  setMarquee({
-                    freeformDiv: target.freeformDiv,
-                    pointerStartX: target.pointerStartX,
-                    pointerStartY: target.pointerStartY,
-                    scale: target.scale,
-                    designStartX: target.designStartX,
-                    designStartY: target.designStartY,
-                    designCurrentX: target.designStartX,
-                    designCurrentY: target.designStartY,
-                    shift: target.shift,
-                  });
-                }}
-                onSelectShape={(target, modifiers) =>
-                  applySelectionClick(target, modifiers, setSelected)
-                }
-                onChildDragStart={(target) => {
-                  // Look up the parent component's adapter. If it's
-                  // a LayoutAdapter with interceptChildDrag, ask it
-                  // to take ownership of the drag. Returns true iff
-                  // it accepted (init non-null) — ScaledCanvas then
-                  // skips body-drag.
-                  const parentData = state.shapes.get(spanKey(target.parentSpan));
-                  if (!parentData) return false;
-                  const adapter = parentData.canvas;
-                  if (!isLayoutAdapter(adapter)) return false;
-                  if (!adapter.interceptChildDrag) return false;
-                  const init = adapter.interceptChildDrag({
-                    childSpan: target.childSpan,
-                    parentSpan: target.parentSpan,
-                    parentEl: target.parentEl,
-                    event: target.event,
-                    scale: target.scale,
-                  });
-                  if (init == null) return false;
-                  startGesture(
-                    { kind: 'opaque', span: target.parentSpan, init },
-                    target.event,
-                  );
-                  return true;
-                }}
-                activeTool={activeTool}
-              >
-                {preparedSlide}
-              </ScaledCanvas>
-              {/* Key on activeIdx so DOM-tied hook state (cached
-                portal target, ResizeObserver subscriptions, layout
-                snapshots) resets on slide navigation. The standalone
-                canvas only mounts the active slide; without a remount,
-                observers stay subscribed to the previous slide's now-
-                detached DOM and never re-attach on nav-back. */}
-              <SelectionLayer
-                key={`selection-${activeIdx}`}
-                selected={richEditing ? [] : selected}
-                shapes={state.shapes}
-                gestureDeltas={gestureDeltas}
-                renderHandles={activeTool === SELECT_TOOL && !gestureMeta}
-                startGesture={startGesture}
-              />
-              <GestureOverlayLayer
-                key={`gesture-${activeIdx}`}
-                activeSpans={gestureMeta?.spans ?? EMPTY_SPANS}
-                shapes={state.shapes}
-                gestureDeltas={gestureDeltas}
-              />
-              <MarqueePreviewOverlay marquee={marquee} />
-              <CreatePreviewOverlay createPreview={createPreview} />
-              <ToolDragOverlay toolDrag={toolDrag} />
-            </GestureProvider>
-            </TextDocumentSessionContext.Provider>
-          </div>
-        ) : null}
+        <button type="button" aria-pressed={bottomOpen} onClick={() => setBottomOpen(value => !value)}>Bottom dock</button>
+        <button type="button" aria-pressed={propertiesOpen} onClick={() => setPropertiesOpen(value => !value)}>Properties</button>
       </div>
-      {renderedBottomExtra ? (
-        <>
-          <ResizeHandle
+      <div className="sw-authoring-workspace">
+        <div className="sw-main-workspace">
+          <div className="sw-canvas-body">
+            <SlideStrip
+              slides={state.slides}
+              activeIdx={activeIdx}
+              selection={slideSelection}
+              onSelect={stripSelect}
+              onAddSlide={handleAddSlide}
+              onReorder={handleReorderSlides}
+              width={stripWidth}
+            />
+            <ResizeHandle
+              size={stripWidth}
+              setSize={setStripWidth}
+              min={STRIP_WIDTH_MIN}
+              max={STRIP_WIDTH_MAX}
+            />
+            {preparedSlide ? (
+              <div className="sw-canvas-stage" onPointerDownCapture={event => { if (toolDrag) event.stopPropagation(); }}>
+                {toolDrag?.committed && <div className="sw-placement-hint" role="status">Click a compatible slot or gap to insert {toolDrag.tool} · Esc to cancel</div>}
+                <TextDocumentSessionContext.Provider value={richEditing ? {
+                  span: { start: richEditing.component.span.start.offset, end: richEditing.component.span.end.offset },
+                  defaults: { ...boxDraft, ...(typeof boxDraft.color === 'string' ? { color: richEditing.colorTokens[boxDraft.color] ?? boxDraft.color } : {}) },
+                  editor: <RichTextEditor snapshot={richEditing} registry={components}
+                    onFormatting={setTextFormatting}
+                    onReady={handle => { richSessionRef.current = handle; if (!handle) setTextFormatting(null); }}
+                    onFinish={(intent, value, changed) => finishRichEditing(richEditing, intent, value, changed)} />,
+                } : null}>
+                <GestureProvider deltas={gestureDeltas}>
+                  <ScaledCanvas
+                    selectableSpans={selectableSpans}
+                    currentSelection={selected}
+                    onSelectRange={(range: SourceRange) => host.sendSelection(range)}
+                    onTextEdit={(target) => setEditing(target)}
+                    onTextDocumentEdit={startRichEditing}
+                    onEmptyTextSlotEdit={startEmptyTextSlotEdit}
+                    onDragStart={(target) =>
+                      startBodyDrag(target, selected, state.shapes, setGestureMeta, setGestureLive)
+                    }
+                    onCreateStart={(target) =>
+                      startCreate(target, activeTool, setCreatePreview)
+                    }
+                    onMarqueeStart={(target) => {
+                      setMarquee({
+                        freeformDiv: target.freeformDiv,
+                        pointerStartX: target.pointerStartX,
+                        pointerStartY: target.pointerStartY,
+                        scale: target.scale,
+                        designStartX: target.designStartX,
+                        designStartY: target.designStartY,
+                        designCurrentX: target.designStartX,
+                        designCurrentY: target.designStartY,
+                        shift: target.shift,
+                      });
+                    }}
+                    onSelectShape={(target, modifiers) =>
+                      applySelectionClick(target, modifiers, setSelected)
+                    }
+                    onChildDragStart={(target) => {
+                      // Look up the parent component's adapter. If it's
+                      // a LayoutAdapter with interceptChildDrag, ask it
+                      // to take ownership of the drag. Returns true iff
+                      // it accepted (init non-null) — ScaledCanvas then
+                      // skips body-drag.
+                      const parentData = state.shapes.get(spanKey(target.parentSpan));
+                      if (!parentData) return false;
+                      const adapter = parentData.canvas;
+                      if (!isLayoutAdapter(adapter)) return false;
+                      if (!adapter.interceptChildDrag) return false;
+                      const init = adapter.interceptChildDrag({
+                        childSpan: target.childSpan,
+                        parentSpan: target.parentSpan,
+                        parentEl: target.parentEl,
+                        event: target.event,
+                        scale: target.scale,
+                      });
+                      if (init == null) return false;
+                      startGesture(
+                        { kind: 'opaque', span: target.parentSpan, init },
+                        target.event,
+                      );
+                      return true;
+                    }}
+                    activeTool={activeTool}
+                  >
+                    {preparedSlide}
+                  </ScaledCanvas>
+                  {/* Key on activeIdx so DOM-tied hook state (cached
+                    portal target, ResizeObserver subscriptions, layout
+                    snapshots) resets on slide navigation. The standalone
+                    canvas only mounts the active slide; without a remount,
+                    observers stay subscribed to the previous slide's now-
+                    detached DOM and never re-attach on nav-back. */}
+                  <SelectionLayer
+                    key={`selection-${activeIdx}`}
+                    selected={richEditing ? [] : selected}
+                    shapes={state.shapes}
+                    gestureDeltas={gestureDeltas}
+                    renderHandles={activeTool === SELECT_TOOL && !gestureMeta}
+                    startGesture={startGesture}
+                  />
+                  <GestureOverlayLayer
+                    key={`gesture-${activeIdx}`}
+                    activeSpans={gestureMeta?.spans ?? EMPTY_SPANS}
+                    shapes={state.shapes}
+                    gestureDeltas={gestureDeltas}
+                  />
+                  <MarqueePreviewOverlay marquee={marquee} />
+                  <CreatePreviewOverlay createPreview={createPreview} />
+                  <ToolDragOverlay toolDrag={toolDrag} />
+                </GestureProvider>
+                </TextDocumentSessionContext.Provider>
+              </div>
+            ) : null}
+          </div>
+          {bottomOpen && <ResizeHandle
             axis="y"
             invert
             size={bottomHeight}
             setSize={setBottomHeight}
             min={BOTTOM_HEIGHT_MIN}
             max={BOTTOM_HEIGHT_MAX}
-          />
+          />}
           <div
             className="sw-canvas-bottom-strip"
-            style={{ height: `${bottomHeight}px` }}
+            style={{ height: `${bottomHeight}px`, display: bottomOpen ? undefined : 'none' }}
           >
+            <div className="sw-dock-toggles">
+              <button type="button" aria-pressed={hierarchyOpen} onClick={() => setHierarchyOpen(value => !value)}>Hierarchy</button>
+              {renderedBottomExtra && <button type="button" aria-pressed={sourceOpen} onClick={() => setSourceOpen(value => !value)}>Source / Notes</button>}
+            </div>
             <div
               className="sw-bottom-col"
-              style={{ width: `${hierarchyWidth}px` }}
+              style={{ width: sourceOpen && renderedBottomExtra ? hierarchyWidth : '100%', display: hierarchyOpen ? undefined : 'none' }}
             >
               <HierarchyPanel
                 shapes={state.shapes}
@@ -2633,92 +2658,96 @@ export function App({
                 onJumpToSource={(range) => host.sendSelection(range)}
               />
             </div>
-            <ResizeHandle
+            {hierarchyOpen && sourceOpen && renderedBottomExtra && <ResizeHandle
               axis="x"
               size={hierarchyWidth}
               setSize={setHierarchyWidth}
               min={HIERARCHY_WIDTH_MIN}
               max={HIERARCHY_WIDTH_MAX}
-            />
-            <div
-              className="sw-bottom-col"
-              style={{ width: `${propertiesWidth}px` }}
-            >
-              <PropertiesPanel
-                componentShape={selectedShape}
-                slotInfo={slotInfo}
-                emptySlotInfo={emptySlotInfo}
-                activeSlide={activeSlide}
-                multiCount={selected.length}
-                source={state.source}
-                onCommit={(newSource, newSelections) =>
-                  commitToHost(newSource, newSelections)
-                }
-                onScrubBegin={beginScrub}
-                onScrubPreview={applyScrubPreview}
-                onScrubEnd={endScrub}
-                onMaterializeTextSlot={materializeTextSlot}
-                onSelectComponent={(range) =>
-                  setSelected([componentTarget(range)])
-                }
-                onRemoveListItem={(range) => {
-                  const preSource = sourceRef.current;
-                  const result = commitSourceEdit(
-                    preSource,
-                    '<remove-list-item>',
-                    (ast) =>
-                      removeListItemAtSpan(ast, range, 'any-kind')
-                        ? {}
-                        : null,
-                  );
-                  if (!result) return;
-                  // Preserve any selected component(s) by shifting
-                  // their spans relative to the edit. Inspector
-                  // changes should keep the parent selected — the
-                  // user is still working on it.
-                  const delta = result.newSource.length - preSource.length;
-                  const preserved: SourceRange[] = [];
-                  for (const t of selected) {
-                    if (t.kind !== 'component') continue;
-                    const s = t.span;
-                    if (s.end <= range.start) {
-                      preserved.push({ start: s.start, end: s.end });
-                    } else if (s.start <= range.start && s.end >= range.end) {
-                      preserved.push({
-                        start: s.start,
-                        end: s.end + delta,
-                      });
-                    } else if (s.start >= range.end) {
-                      preserved.push({
-                        start: s.start + delta,
-                        end: s.end + delta,
-                      });
-                    }
-                    // selection straddling the edit gets dropped
-                  }
-                  commitToHost(
-                    result.newSource,
-                    preserved.length > 0 ? preserved : undefined,
-                  );
-                }}
-                shapes={state.shapes}
-                colorTokens={state.colorTokens}
-                slideColors={slideColors}
-              />
-            </div>
-            <ResizeHandle
-              axis="x"
-              size={propertiesWidth}
-              setSize={setPropertiesWidth}
-              min={PROPERTIES_WIDTH_MIN}
-              max={PROPERTIES_WIDTH_MAX}
-            />
-            <div className="sw-bottom-col sw-bottom-col-flex">
+            />}
+            {renderedBottomExtra && <div className="sw-bottom-col sw-bottom-col-flex" style={{ display: sourceOpen ? undefined : 'none' }}>
               {renderedBottomExtra}
-            </div>
+            </div>}
           </div>
-        </>
-      ) : null}
+        </div>
+        {propertiesOpen && <>
+          <ResizeHandle axis="x" invert size={propertiesWidth} setSize={setPropertiesWidth} min={PROPERTIES_WIDTH_MIN} max={PROPERTIES_WIDTH_MAX} />
+          <aside className="sw-properties-sidebar" aria-label="Element properties" style={{ width: propertiesWidth }}>
+            <AlignmentControls selected={selected} shapes={state.shapes} disabled={!!richEditing} onCommit={commitToHost} source={state.source} />
+            <PropertiesPanel
+              componentShape={selectedShape}
+              slotInfo={slotInfo}
+              emptySlotInfo={emptySlotInfo}
+              activeSlide={activeSlide}
+              multiCount={selected.length}
+              source={state.source}
+              onCommit={(newSource, newSelections) =>
+                commitToHost(newSource, newSelections)
+              }
+              onScrubBegin={beginScrub}
+              onScrubPreview={applyScrubPreview}
+              onScrubEnd={endScrub}
+              onMaterializeTextSlot={materializeTextSlot}
+              onSelectComponent={(range) =>
+                setSelected([componentTarget(range)])
+              }
+              onRemoveListItem={(range) => {
+                const preSource = sourceRef.current;
+                const result = commitSourceEdit(
+                  preSource,
+                  '<remove-list-item>',
+                  (ast) =>
+                    removeListItemAtSpan(ast, range, 'any-kind')
+                      ? {}
+                      : null,
+                );
+                if (!result) return;
+                // Preserve any selected component(s) by shifting
+                // their spans relative to the edit. Inspector
+                // changes should keep the parent selected — the
+                // user is still working on it.
+                const delta = result.newSource.length - preSource.length;
+                const preserved: SourceRange[] = [];
+                for (const t of selected) {
+                  if (t.kind !== 'component') continue;
+                  const s = t.span;
+                  if (s.end <= range.start) {
+                    preserved.push({ start: s.start, end: s.end });
+                  } else if (s.start <= range.start && s.end >= range.end) {
+                    preserved.push({
+                      start: s.start,
+                      end: s.end + delta,
+                    });
+                  } else if (s.start >= range.end) {
+                    preserved.push({
+                      start: s.start + delta,
+                      end: s.end + delta,
+                    });
+                  }
+                  // selection straddling the edit gets dropped
+                }
+                commitToHost(
+                  result.newSource,
+                  preserved.length > 0 ? preserved : undefined,
+                );
+              }}
+              shapes={state.shapes}
+              colorTokens={state.colorTokens}
+              slideColors={slideColors}
+            />
+            {(richEditing || boxShape?.comp.name === 'TextBox') && <div className="sw-text-session-actions" onKeyDown={event => event.stopPropagation()}
+              onBlur={event => { const next = event.relatedTarget; if (!(next instanceof Element) || !next.closest('.sw-text-session-actions, .sw-rich-text-editor')) richSessionRef.current?.finish('commit'); }}>
+              <BoxSettings onApply={applyBoxSetting} current={{ ...boxShape?.params, ...boxDraft }} />
+              {richEditing && <>
+              <FormattingToolbar session={richSessionRef} state={textFormatting} />
+              <span>Editing text</span>
+              <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => richSessionRef.current?.finish('commit')}>Done</button>
+              <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => richSessionRef.current?.finish('cancel')}>Cancel</button>
+              </>}
+            </div>}
+          </aside>
+        </>}
+      </div>
     </DeckMetaContext.Provider>
   );
 }

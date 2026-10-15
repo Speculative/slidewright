@@ -204,6 +204,7 @@ test('Arrow endpoint-2 handle moves only the tip', async ({ page }) => {
 
 test('Box tool draws a new Box from drag rectangle', async ({ page }) => {
   await page.goto('/canvas.html?fixture=empty-freeform');
+  await page.getByRole('combobox', { name: 'Insert element' }).click();
   await page.locator('.sw-tool', { hasText: /^Box$/ }).click();
   // Drag from (300, 200) to (700, 500) in design space — should
   // append `Box { x: 300 y: 200 width: 400 height: 300 ... }`.
@@ -217,6 +218,7 @@ test('Box tool draws a new Box from drag rectangle', async ({ page }) => {
 
 test('Arrow tool draws a new Arrow from drag', async ({ page }) => {
   await page.goto('/canvas.html?fixture=empty-freeform');
+  await page.getByRole('combobox', { name: 'Insert element' }).click();
   await page.locator('.sw-tool', { hasText: /^Arrow$/ }).click();
   await dragDesignPoints(page, 200, 200, 600, 500);
   const source = await getSource(page);
@@ -432,6 +434,7 @@ test('Esc during drag-to-move cancels without committing', async ({ page }) => {
 
 test('Esc during create-rect cancels without adding a shape', async ({ page }) => {
   await page.goto('/canvas.html?fixture=empty-freeform');
+  await page.getByRole('combobox', { name: 'Insert element' }).click();
   await page.locator('.sw-tool', { hasText: /^Box$/ }).click();
   const before = await getSource(page);
   const freeform = page

@@ -232,9 +232,6 @@ html, body, #root {
 
 /* ── Tool palette (v0.2.f) ──────────────────────────────────────── */
 
-/* The stage wraps ScaledCanvas + ToolPalette so the palette can be
- * positioned absolutely over the canvas without escaping the flex
- * layout. */
 .sw-canvas-stage {
   position: relative;
   flex: 1 1 auto;
@@ -244,42 +241,62 @@ html, body, #root {
   min-height: 0;
 }
 
-.sw-tool-palette {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  z-index: 10;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.25);
-  border-radius: 4px;
-  padding: 4px;
-  box-sizing: border-box;
-  max-height: calc(100% - 24px);
-  overflow-y: auto;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
-}
-
-.sw-tool-palette > * {
-  flex-shrink: 0;
-}
-
-.sw-text-session-actions {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 15;
+.sw-authoring-bar {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px;
-  background: white;
-  border: 1px solid #aaa;
-  border-radius: 4px;
-  font-size: 12px;
+  padding: 8px 12px;
+  flex: 0 0 auto;
+  border-bottom: 1px solid #ddd;
+  background: #fafafa;
+  font: 12px system-ui, sans-serif;
+  z-index: 20;
 }
+.sw-authoring-bar button, .sw-properties-sidebar button, .sw-dock-toggles button {
+  font: inherit;
+  border: 1px solid #d5d7dc;
+  background: white;
+  border-radius: 4px;
+  padding: 5px 8px;
+  color: #252a33;
+  cursor: pointer;
+}
+.sw-authoring-bar button:hover, .sw-properties-sidebar button:hover:not(:disabled) { background: #edf2fa; }
+.sw-properties-sidebar button:disabled { opacity: .4; cursor: default; }
+.sw-authoring-bar button[aria-pressed="true"], .sw-dock-toggles button[aria-pressed="true"] { background: #e8eef9; border-color: #b4c6e5; }
+.sw-tool-palette { display: flex; align-items: center; gap: 8px; position: relative; flex: 1; min-width: 0; }
+.sw-tool-status { color: #616875; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sw-command-results {
+  position: absolute; top: calc(100% + 8px); left: 0;
+  width: min(440px, 80vw); max-height: min(480px, 65vh); overflow-y: auto;
+  background: white; border: 1px solid #d5d7dc; border-radius: 8px;
+  padding: 8px; box-shadow: 0 8px 28px #0002;
+}
+.sw-command-results .sw-tool { display: block; width: 100%; }
+.sw-command-results .sw-tool[aria-selected="true"] { background: #e8eef9; }
+.sw-command-help { color: #687080; font-size: 11px; padding: 10px 6px 2px; }
+.sw-authoring-workspace { display: flex; flex: 1 1 auto; min-height: 0; min-width: 0; }
+.sw-main-workspace { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; min-width: 0; }
+.sw-properties-sidebar {
+  flex: 0 0 auto; min-width: 260px; max-width: 600px;
+  min-height: 0; overflow: auto; background: #fafafa;
+  font: 12px system-ui, sans-serif;
+}
+.sw-properties-sidebar > .sw-inspector-panel { height: auto; min-height: 100px; }
+.sw-properties-sidebar .sw-inspector-panel-body { flex: 0 0 auto; overflow: visible; }
+.sw-text-session-actions {
+  display: flex; flex-direction: column; align-items: stretch; gap: 10px;
+  padding: 12px; border-bottom: 1px solid #ddd; font-size: 12px;
+}
+.sw-sidebar-heading { font-weight: 600; margin-bottom: 10px; }
+.sw-alignment { padding: 12px; border-bottom: 1px solid #ddd; }
+.sw-alignment label { display: flex; justify-content: space-between; align-items: center; color: #616875; }
+.sw-alignment select { font: inherit; padding: 3px; }
+.sw-alignment-buttons { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin: 10px 0 8px; }
+.sw-properties-sidebar .sw-alignment-buttons button { padding: 4px 0; display: grid; place-items: center; }
+.sw-distribute-buttons { display: grid; gap: 4px; }
+.sw-alignment p { color: #687080; font-size: 11px; line-height: 1.5; margin-bottom: 0; }
+.sw-placement-hint { position: absolute; top: 8px; left: 16px; z-index: 10; background: #fff; padding: 6px; font: 12px system-ui; pointer-events: none; }
 
 .sw-rich-text-editor .ProseMirror p { margin: 0; }
 .sw-rich-text-editor .ProseMirror { white-space: inherit; overflow-wrap: inherit; }
@@ -297,16 +314,7 @@ html, body, #root {
   transition: background 60ms ease, border-color 60ms ease;
 }
 
-/* Category section in the tool palette. Groups entries that share
- * a `category` field on the component's `slidewright.insertion`
- * metadata. Section header is hidden when only one category is
- * present — see ToolPalette.tsx / showHeaders. */
-.sw-tool-section {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
+/* Registry categories label command results. */
 .sw-tool-section-header {
   font: inherit;
   font-size: 11px;
@@ -319,22 +327,10 @@ html, body, #root {
   border-radius: 3px;
   padding: 4px 6px;
   margin-top: 2px;
-  cursor: pointer;
   text-align: left;
   display: flex;
   align-items: center;
   gap: 4px;
-}
-
-.sw-tool-section-header:hover {
-  background: rgba(0, 0, 0, 0.04);
-}
-
-.sw-tool-section-chevron {
-  display: inline-block;
-  width: 10px;
-  font-size: 10px;
-  color: rgba(0, 0, 0, 0.45);
 }
 
 .sw-tool-search {
@@ -344,8 +340,10 @@ html, body, #root {
   border: 1px solid rgba(0, 0, 0, 0.2);
   border-radius: 3px;
   padding: 3px 8px;
-  margin-top: 2px;
+  margin-top: 0;
   color: #111;
+  min-width: 100px;
+  width: 230px;
   outline: none;
   transition: border-color 60ms ease;
 }
@@ -474,20 +472,11 @@ html, body, #root {
   cursor: move;
 }
 
-/* ── Bottom strip ─────────────────────────────────────────────────
- *
- * Three-column layout: [hierarchy | properties | bottomExtra]. The
- * bottomExtra slot is filled by the standalone (its EditorPane);
- * VS Code leaves it empty, in which case the strip itself doesn't
- * render. Height comes from the parent's inline style (driven by
- * the canvas-vs-strip ResizeHandle); each column is its own flex
- * item so width changes don't interact with editor scroll.
- *
- * Bottom-mounted (rather than side-mounted) since the canvas's 16:9
- * aspect makes a horizontal split leave vertical empty space on the
- * canvas side. Keynote / PowerPoint use the bottom strip for
- * speaker notes for the same reason. */
+/* Bottom dock: independently hideable hierarchy and source/notes panes. */
 .sw-canvas-bottom-strip {
+  position: relative;
+  padding-top: 32px;
+  box-sizing: border-box;
   flex: 0 0 auto;
   display: flex;
   flex-direction: row;
@@ -1176,9 +1165,9 @@ input.sw-property-value:disabled {
   color: #999;
 }
 
-.sw-text-session-actions { flex-wrap: wrap; max-width: min(540px, calc(100% - 120px)); }
+
 .sw-text-formatting { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: 100%; }
-.sw-text-formatting-buttons { display: flex; gap: 6px; width: 100%; }
+.sw-text-formatting-buttons { flex-wrap: wrap; display: flex; gap: 6px; width: 100%; }
 .sw-text-formatting input { width: 150px; }
 
 .sw-text-formatting button[aria-pressed="true"] { background: #dbeafe; border-color: #6b8fd4; }
@@ -1205,3 +1194,6 @@ input.sw-property-value:disabled {
 
 .sw-standalone:fullscreen .presentation { background: #000; }
 .sw-standalone:fullscreen .presentation-canvas { outline: none !important; }
+
+.sw-dock-toggles { position: absolute; top: 0; left: 0; right: 0; height: 32px; display: flex; gap: 6px; align-items: center; padding: 0 8px; border-bottom: 1px solid #ddd; font: 11px system-ui; }
+.sw-presenting .sw-authoring-bar, .sw-presenting .sw-properties-sidebar { display: none; }

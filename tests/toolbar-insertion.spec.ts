@@ -47,6 +47,7 @@ async function dragToolToTarget(
   toolLabel: string,
   target: Locator,
 ): Promise<void> {
+  await page.getByRole('combobox', { name: 'Insert element' }).click();
   const tool = page.locator('.sw-tool', { hasText: new RegExp(`^${toolLabel}$`) });
   const tb = await tool.boundingBox();
   if (!tb) throw new Error(`toolbar entry "${toolLabel}" not visible`);
@@ -78,6 +79,7 @@ async function dragToolToPoint(
   x: number,
   y: number,
 ): Promise<void> {
+  await page.getByRole('combobox', { name: 'Insert element' }).click();
   const tool = page.locator('.sw-tool', { hasText: new RegExp(`^${toolLabel}$`) });
   const tb = await tool.boundingBox();
   if (!tb) throw new Error(`toolbar entry "${toolLabel}" not visible`);
@@ -95,6 +97,7 @@ async function dragToolToPoint(
 
 test('toolbar surfaces all registered components grouped by category', async ({ page }) => {
   await page.goto('/canvas.html?fixture=empty-freeform');
+  await page.getByRole('combobox', { name: 'Insert element' }).click();
   // Section headers appear when ≥2 categories are present. Each of
   // the three section headers must be visible.
   for (const cat of ['Shapes', 'Layouts', 'Slides']) {
@@ -120,10 +123,11 @@ test('toolbar surfaces all registered components grouped by category', async ({ 
   }
 });
 
-test('expanded toolbar scrolls within the stage and leaves the inspector usable', async ({ page }) => {
+test('insertion results scroll and leave the docked inspector usable', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto('/canvas.html?fixture=single-box');
-  const palette = page.locator('.sw-tool-palette');
+  await page.getByRole('combobox', { name: 'Insert element' }).click();
+  const palette = page.locator('.sw-command-results');
   await expect(palette).toHaveCSS('overflow-y', 'auto');
   await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   const key = page.locator('.sw-property-row', { hasText: /^x/ }).first().locator('.sw-property-key');
@@ -138,8 +142,9 @@ test('expanded toolbar scrolls within the stage and leaves the inspector usable'
   await page.mouse.move(x + 50, y, { steps: 10 });
   await page.mouse.up();
   await expect.poll(() => getSource(page)).toMatch(/x:\s*450/);
-  await palette.getByRole('button', { name: 'Video', exact: true }).click();
-  await expect(palette.getByRole('button', { name: 'Video', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('combobox', { name: 'Insert element' }).fill('Video');
+  await palette.getByRole('option', { name: 'Video', exact: true }).click();
+  await expect(page.locator('.sw-tool-status')).toContainText('Draw Video');
 });
 
 test('filter input narrows the visible entries', async ({ page }) => {
@@ -260,6 +265,7 @@ test('click on a drag-only entry without movement makes no edit', async ({ page 
   // Plain click on VStack — pointerdown then pointerup at the same
   // coords. Below the 4px threshold, so the gesture should never
   // commit to drag mode and no AST splice should occur.
+  await page.getByRole('combobox', { name: 'Insert element' }).click();
   await page.locator('.sw-tool', { hasText: /^VStack$/ }).click();
   await letReactCatchUp(page);
   const afterSrc = await getSource(page);
@@ -278,6 +284,7 @@ test('Esc during tool-drag cancels without inserting', async ({ page }) => {
   if (!pb) throw new Error('placeholder not visible');
   // Start a drag from the VStack tool, move to the placeholder,
   // press Escape, then release.
+  await page.getByRole('combobox', { name: 'Insert element' }).click();
   const tool = page.locator('.sw-tool', { hasText: /^VStack$/ });
   const tb = await tool.boundingBox();
   if (!tb) throw new Error('VStack tool not visible');
@@ -296,6 +303,7 @@ test('Esc during tool-drag cancels without inserting', async ({ page }) => {
 
 test('modal Box tool still draws a rect on Freeform after refactor', async ({ page }) => {
   await page.goto('/canvas.html?fixture=empty-freeform');
+  await page.getByRole('combobox', { name: 'Insert element' }).click();
   await page.locator('.sw-tool', { hasText: /^Box$/ }).click();
   // Use the freeform area — copy from gestures.spec.ts's
   // dragDesignPoints helper (canvas scale, not freeform scale).
