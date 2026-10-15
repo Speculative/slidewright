@@ -9,6 +9,22 @@ npm run dev      # http://localhost:5173
 npm run build    # static output in dist/
 ```
 
+## Repository assets and commit checks
+
+Video files are local assets and are ignored by Git. See
+`decks/plateau-2026/README.md` for the PLATEAU media setup.
+
+`npm install` / `npm ci` installs the versioned pre-commit hook through the
+`prepare` script. For an existing checkout, run `npm run prepare` once.
+The hook rejects added or modified staged files over 1 MiB, including files
+added with `git add -f`. It checks all file types, so large binary files cannot
+slip through by changing their extension. Existing unchanged tracked assets
+are unaffected. Run `npm run check:staged` to check manually and
+`npm run test:commit-hook` to test the hook.
+
+Git ignore rules cannot enforce a size limit. The hook is local protection;
+Git's `--no-verify` option can bypass it, and clones need the install step.
+
 ## Layout
 
 - `index.html` — Vite entry. Loads fonts and mounts React into `#app`.

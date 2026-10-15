@@ -15,3 +15,10 @@ playwright-report/
 /.ostraka/
 # Local reference decks, source projects, and media.
 /inspiration/
+# Keep presentation videos local; small tracked test fixtures remain tracked.
+*.mp4
+*.mov
+*.webm
+*.mkv
+*.m4v
+*.avi

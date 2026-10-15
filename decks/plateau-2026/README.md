@@ -2,6 +2,19 @@
 
 Open `/canvas.html?deck=plateau` through `npm run dev`.
 
+The five presentation videos are local assets, excluded from Git. Before
+building or running the PLATEAU tests in a new checkout, copy `agg_filter.mp4`,
+`computed.mp4`, `stack_trace.mp4`, `stepping.mp4`, and `streams.mp4` into
+`decks/plateau-2026/assets/`. If you have the original talk under `inspiration/`,
+run this from the repository root:
+
+```sh
+cp inspiration/talk/static/{agg_filter,computed,stack_trace,stepping,streams}.mp4 decks/plateau-2026/assets/
+```
+
+These files remain on disk in the existing working checkout. Keep a separate
+copy when moving to another machine; a Git clone does not contain the videos.
+
 `deck.sw` contains the 20 slides from the actual presentation, including
 speaker notes. Original PLATEAU wording is preserved as the editing baseline.
 The source is canonical structured text. Headings, prose, code examples,
