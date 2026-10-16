@@ -439,15 +439,38 @@ export function appendShapeToFreeform(
 }
 
 // Walks the AST and removes any Component whose source span exactly
-// matches `target` from any list it appears in. Returns true if a
-// removal happened. Used by the Delete-key handler — the selected
-// span identifies which child of which Freeform-children list to
-// drop.
+// matches `target` from an explicit list or implicit children.
+// Returns true if a removal happened. Scalar slot values are left
+// intact: clearing a slot is a separate operation from removing a child.
 export function removeShapeAtSpan(
   ast: SourceFile,
   target: SourceRange,
 ): boolean {
-  return removeListItemAtSpan(ast, target, 'component-only');
+  if (removeListItemAtSpan(ast, target, 'component-only')) return true;
+
+  const visit = (node: Node | Value): boolean => {
+    switch (node.kind) {
+      case 'source_file':
+        return node.items.some(visit);
+      case 'component': {
+        const index = node.implicitChildren.findIndex(child =>
+          child.span.start.offset === target.start &&
+          child.span.end.offset === target.end);
+        if (index !== -1) {
+          node.implicitChildren.splice(index, 1);
+          return true;
+        }
+        return node.fills.some(visit) || node.implicitChildren.some(visit);
+      }
+      case 'slot_fill':
+        return visit(node.value);
+      case 'list':
+        return node.items.some(visit);
+      default:
+        return false;
+    }
+  };
+  return visit(ast);
 }
 
 // Walk the AST looking for a list whose items contain a node with
