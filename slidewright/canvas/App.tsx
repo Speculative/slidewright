@@ -13,6 +13,8 @@
 // into the active Freeform. Imperative DOM mutation during drag is
 // gone.
 
+import { removeEmptyFreeformTextBox } from './rich-text/empty-document.js';
+import { measureLayoutSnapshot } from './layout-measurement.js';
 import {
   cloneElement,
   useCallback,
@@ -352,7 +354,7 @@ interface CreatePreview {
   // Preview overlay shape — cached at gesture-start from the
   // component's `meta.insertion.modalPreview` so the overlay
   // renderer doesn't need to re-consult the registry every frame.
-  previewShape: 'rect' | 'line';
+  previewShape: 'rect' | 'line' | 'point';
   // Freeform's positioned div (the portal target — selection
   // visuals and create preview both portal in here).
   freeformDiv: HTMLElement;
@@ -864,6 +866,7 @@ export function App({
     ),
   );
   const [editing, setEditing] = useState<TextEditTarget | null>(null);
+  const externalTextCancellationRef = useRef(false);
   const [richEditing, setRichEditing] = useState<TextEditorSnapshot | null>(null);
   const [textFormatting, setTextFormatting] = useState<TextFormattingState | null>(null);
   const [boxDraft, setBoxDraft] = useState<TextBoxDefaults>({});
@@ -992,19 +995,27 @@ export function App({
     boxDraftRef.current = {}; setBoxDraft({});
     richSessionRef.current = null;
     setRichEditing(null);
-    if (intent !== 'commit' || (!changed && !Object.keys(defaults).length) || sourceRef.current !== snapshot.source) return;
+    if (externalTextCancellationRef.current || sourceRef.current !== snapshot.source) return;
+    let removed = false;
     let selectionPaths: NonNullable<ReturnType<typeof pathToComponent>>[] = [];
     const result = commitSourceEdit(snapshot.source, '<text-session>', ast => {
       const comp = findComponentAtSpan(ast, snapshot.component.span.start.offset, snapshot.component.span.end.offset);
       if (!comp) return null;
-      // Committing a departing draft must preserve the current canvas choice,
-      // including an empty selection, rather than reselecting the edited box.
-      selectionPaths = selectedRef.current.flatMap(target => {
+      // Retain the selected node identities across deletion, which shifts
+      // structural paths for any following siblings.
+      const selectedComponents = selectedRef.current.flatMap(target => {
         if (target.kind !== 'component') return [];
-        const selectedComp = findComponentAtSpan(ast, target.span.start, target.span.end);
-        const path = selectedComp ? pathToComponent(ast, selectedComp) : null;
+        const node = findComponentAtSpan(ast, target.span.start, target.span.end);
+        return node ? [node] : [];
+      });
+      const content = intent === 'commit' ? value ?? snapshot.content : snapshot.content;
+      removed = removeEmptyFreeformTextBox(ast, comp, content);
+      selectionPaths = selectedComponents.flatMap(node => {
+        const path = pathToComponent(ast, node);
         return path ? [path] : [];
       });
+      if (removed) return {};
+      if (intent !== 'commit' || (!changed && !Object.keys(defaults).length)) return null;
       if (value) {
         const fill = comp.fills.find(f => f.name === 'content');
         if (fill) fill.value = value; else comp.fills.push(slotFill('content', value));
@@ -1022,6 +1033,10 @@ export function App({
       const comp = componentByPath(nextAst, path);
       return comp ? [{ start: comp.span.start.offset, end: comp.span.end.offset }] : [];
     });
+    if (removed && restored.length === 0) {
+      pendingSelectionRef.current = [];
+      setSelected([]);
+    }
     commitToHost(result.newSource, restored);
   }, [commitToHost]);
 
@@ -1209,11 +1224,15 @@ export function App({
     return host.subscribe(({ source, fileName, assets }) => {
       // Source authority is synchronous: a pending blur/IME callback must
       // never commit a draft over an external replacement.
+      sourceRef.current = source;
       if (!internalSourceChangeRef.current) {
-        richSessionRef.current?.finish('cancel');
+        // External reloads can carry the same source (for example, assets
+        // changing). Cancelling their draft must never create a source edit.
+        externalTextCancellationRef.current = true;
+        try { richSessionRef.current?.finish('cancel'); }
+        finally { externalTextCancellationRef.current = false; }
         setRichEditing(null);
       }
-      sourceRef.current = source;
       const scope = {
         bindings: { ...staticTokens, ...assets },
       };
@@ -1851,14 +1870,12 @@ export function App({
       const result = commitSourceEdit(sourceRef.current, '<create>', (ast) => {
         const freeform = findComponentAtSpan(ast, containerSpan.start, containerSpan.end);
         if (freeform?.name !== 'Freeform') return null;
-        // Minimum-drag threshold — clicks without meaningful drag
-        // don't commit anything. Uniform across components since
-        // both rect and line previews are degenerate below ~5px.
+        // Drawn shapes require a meaningful drag; point placement accepts a click.
         const dx = designCurrentX - designStartX;
         const dy = designCurrentY - designStartY;
-        if (Math.hypot(dx, dy) < 5) return null;
         const insertion = components[tool]?.meta.insertion;
-        if (!insertion) return null;
+        if (!insertion || insertion.modalPlacement !== 'point' && Math.hypot(dx, dy) < 5) return null;
+        const point = insertion.modalPlacement === 'point';
         const left = Math.min(designStartX, designCurrentX);
         const top = Math.min(designStartY, designCurrentY);
         const width = Math.abs(designCurrentX - designStartX);
@@ -1868,7 +1885,7 @@ export function App({
           // Draw into the Freeform under the pointer, in the same
           // coordinate system used by the preview.
           targetSlotType: 'array<block>',
-          rect: { x: left, y: top, width, height },
+          rect: { x: point ? designStartX : left, y: point ? designStartY : top, width, height },
           dragStart: { x: designStartX, y: designStartY },
           dragEnd: { x: designCurrentX, y: designCurrentY },
         });
@@ -1881,6 +1898,10 @@ export function App({
       if (result) {
         commitToHost(result.newSource, result.newSelections);
         setActiveTool(SELECT_TOOL);
+        const span = result.newSelections[0];
+        if (components[tool]?.meta.insertion?.modalPlacement === 'point' && span) {
+          startRichEditing({ span, clientX: e.clientX, clientY: e.clientY });
+        }
       }
       setCreatePreview(null);
     };
@@ -2136,7 +2157,7 @@ export function App({
           const wrapper = document.querySelector(`.sw-canvas-stage [data-sw-span-start="${data.comp.span.start.offset}"][data-sw-span-end="${data.comp.span.end.offset}"]`);
           if (!wrapper || findPortalAncestor(wrapper) !== marquee.freeformDiv) continue;
           const adapter = data.canvas as ShapeAdapter;
-          const b = adapter.calculateBounds(data.params);
+          const b = adapter.measureBounds ? measureLayoutSnapshot({ start: data.comp.span.start.offset, end: data.comp.span.end.offset })?.layout : adapter.calculateBounds(data.params);
           if (!b) continue;
           if (
             b.left < right &&
@@ -2507,8 +2528,12 @@ export function App({
   const boxShape = selectedShape?.comp.name === 'TextBox' ? selectedShape : singleTarget && (singleTarget.kind === 'slot' || singleTarget.kind === 'empty-slot')
     ? findShapeForRange(state.shapes, singleTarget.parentSpan) : null;
   const applyBoxSetting = (field: TextBoxDefault, setting: string | number | boolean) => {
+    const span = richEditing ? { start: richEditing.component.span.start.offset, end: richEditing.component.span.end.offset }
+      : boxShape ? { start: boxShape.comp.span.start.offset, end: boxShape.comp.span.end.offset } : null;
+    const bounds = field === 'sizing' && span ? measureLayoutSnapshot(span)?.layout : null;
+    const dimensions = bounds ? { width: Math.round(bounds.width), height: Math.round(bounds.height) } : {};
     if (richEditing) {
-      boxDraftRef.current = { ...boxDraftRef.current, [field]: setting };
+      boxDraftRef.current = { ...boxDraftRef.current, ...dimensions, [field]: setting };
       setBoxDraft(boxDraftRef.current);
       return;
     }
@@ -2518,6 +2543,10 @@ export function App({
       const comp = findComponentAtSpan(ast, boxShape.comp.span.start.offset, boxShape.comp.span.end.offset);
       if (!comp) return null;
       path = pathToComponent(ast, comp);
+      for (const [name, value] of Object.entries(dimensions)) {
+        const fill = comp.fills.find(fill => fill.name === name);
+        if (fill) fill.value = numberLit(value); else comp.fills.push(slotFill(name, numberLit(value)));
+      }
       const next = typeof setting === 'boolean' ? booleanLit(setting) : typeof setting === 'number' ? numberLit(setting) : field === 'color' && setting in state.colorTokens ? nameRef(setting) : stringLit(setting);
       const fill = comp.fills.find(fill => fill.name === field);
       if (fill) fill.value = next; else comp.fills.push(slotFill(field, next));
@@ -2598,7 +2627,7 @@ export function App({
                   event.preventDefault(); event.stopPropagation();
                   if (!build.advance(1)) setActiveIdx(i => Math.min(total - 1, i + 1));
                 }}>
-                {activeTool !== SELECT_TOOL && !toolDrag?.committed && <div className="sw-placement-hint sw-tool-status" role="status">Draw {activeTool} · Esc to cancel</div>}
+                {activeTool !== SELECT_TOOL && !toolDrag?.committed && <div className="sw-placement-hint sw-tool-status" role="status">{components[activeTool]?.meta.insertion?.modalPlacement === 'point' ? 'Click to place' : 'Draw'} {activeTool} · Esc to cancel</div>}
                 {toolDrag?.committed && <div className="sw-placement-hint" role="status">Click a compatible slot or gap to insert {toolDrag.tool} · Esc to cancel</div>}
                 <TextDocumentSessionContext.Provider value={richEditing ? {
                   span: { start: richEditing.component.span.start.offset, end: richEditing.component.span.end.offset },
@@ -3013,7 +3042,7 @@ function startCreate(
   if (!insertion) return;
   setCreatePreview({
     tool: activeTool,
-    previewShape: insertion.modalPreview ?? 'rect',
+    previewShape: insertion.modalPlacement === 'point' ? 'point' : insertion.modalPreview ?? 'rect',
     freeformDiv: target.containerEl,
     containerSpan: target.containerSpan,
     pointerStartX: target.pointerStartX,
@@ -3106,7 +3135,7 @@ function CreatePreviewOverlay({
 }: {
   createPreview: CreatePreview | null;
 }): ReactNode {
-  if (!createPreview) return null;
+  if (!createPreview || createPreview.previewShape === 'point') return null;
   if (createPreview.previewShape === 'line') {
     return createPortal(
       <svg

@@ -1,3 +1,4 @@
+import { measureLayoutSnapshot } from './layout-measurement.js';
 import {
   AlignHorizontalJustifyStart, AlignHorizontalJustifyCenter, AlignHorizontalJustifyEnd,
   AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd,
@@ -33,7 +34,7 @@ function resolveSelection(selected: readonly SelectionTarget[], shapes: Readonly
     const data = shapes.get(spanKey(target.span));
     if (!data || !data.canvas || isLayoutAdapter(data.canvas)) return null;
     const adapter = data.canvas as ShapeAdapter;
-    const bounds = adapter.calculateBounds(data.params);
+    const bounds = adapter.measureBounds ? measureLayoutSnapshot({ start: data.comp.span.start.offset, end: data.comp.span.end.offset })?.layout : adapter.calculateBounds(data.params);
     if (!bounds || !Object.values(bounds).every(Number.isFinite)) return null;
     const wrapper = document.querySelector(`.sw-canvas-stage [data-sw-span-start="${target.span.start}"][data-sw-span-end="${target.span.end}"]`);
     const parent = wrapper?.parentElement?.closest('[data-sw-component]');

@@ -303,6 +303,18 @@ must remain understandable without relying on the icon alone.
 
 ## Structured text editing
 
+TextBox sizing is source-backed through `sizing: "auto-width"`, `"auto-height"`,
+or `"fixed"`. Auto width fits the content; auto height wraps at `width` and grows
+vertically; fixed uses both `width` and `height`. New boxes default to auto width
+and are placed with a click into a focused, empty text editor. Dismissing an
+empty TextBox deletes it only when it is a direct child of Freeform; nested
+boxes remain. Without an explicit mode, authored width and height
+preserve legacy fixed sizing, width alone implies auto height, and no width
+implies auto width. The Text sizing control preserves the rendered dimensions
+when switching modes. Horizontal resizing of an automatic box chooses auto
+height; corner or vertical resizing chooses fixed size. Shrink-to-fit applies
+only to fixed boxes.
+
 ### Text-document grammar
 
 `TextBox.content` uses `text-document`, distinct from general inline `text`. Its

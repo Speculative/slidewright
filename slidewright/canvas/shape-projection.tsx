@@ -13,7 +13,8 @@
 // gesture delta). React handles re-rendering automatically. No
 // imperative DOM mutation during gestures.
 
-import { createElement, useContext, type ReactElement } from 'react';
+import { measureLayoutSnapshot } from './layout-measurement.js';
+import { createElement, useContext, useRef, type ReactElement } from 'react';
 
 import type { WrapShape, WrapShapeInput } from '../runtime/loader.js';
 import type { ComponentRenderProps } from '../runtime/contract.js';
@@ -35,9 +36,18 @@ function ShapeProjection(input: WrapShapeInput): ReactElement {
     start: comp.span.start.offset,
     end: comp.span.end.offset,
   });
+  // Freeze intrinsic size once so repeated preview renders do not compound
+  // a transform against their own previous DOM dimensions.
+  const originalSize = useRef<{ width: number; height: number } | null>(null);
+  if (!delta) originalSize.current = null;
+  if (delta && (adapter as ShapeAdapter | undefined)?.measureBounds && !originalSize.current) {
+    const bounds = measureLayoutSnapshot({ start: comp.span.start.offset, end: comp.span.end.offset })?.layout;
+    if (bounds) originalSize.current = bounds;
+  }
+  const gestureParams = originalSize.current ? { ...params, __measuredWidth: originalSize.current.width, __measuredHeight: originalSize.current.height } : params;
   const adjustedParams =
     adapter?.applyGesture && delta
-      ? adapter.applyGesture(params, delta)
+      ? adapter.applyGesture(gestureParams, delta)
       : params;
   return createElement(
     loaded.meta.produces === 'text' ? 'span' : 'div',

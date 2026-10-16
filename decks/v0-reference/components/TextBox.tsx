@@ -6,10 +6,8 @@
 // text document of Paragraph and List blocks, with source-backed
 // inline strings and styled runs.
 //
-// Canvas behavior identical to Box (translate + 8-handle resize)
-// — both share the rect-adapter helper. New text boxes default to
-// a "Text" placeholder so the editable span has visible content
-// for the user to double-click.
+// Width/height authored without a sizing mode retain legacy fixed sizing.
+// New boxes grow to their content until the author chooses a constrained mode.
 
 import {
   useLayoutEffect,
@@ -30,7 +28,7 @@ import {
   stringLit,
   paragraphDocument,
 } from '../../../slidewright/runtime/ast-builders.js';
-import { makeRectAdapter } from '../../../slidewright/canvas/rect-adapter.js';
+import { makeTextBoxAdapter, textBoxSizing } from '../../../slidewright/canvas/textbox-adapter.js';
 import { TextDocumentEditorContext } from '../../../slidewright/canvas/text-document-context.js';
 
 export const slidewright: ComponentMeta = {
@@ -42,8 +40,9 @@ export const slidewright: ComponentMeta = {
   params: {
     x: { type: 'number', default: 0 },
     y: { type: 'number', default: 0 },
-    width: { type: 'number', default: 320 },
-    height: { type: 'number', default: 120 },
+    width: { type: 'number' },
+    height: { type: 'number' },
+    sizing: { type: 'string' },
     font: { type: 'font-token', default: 'body' },
     fontSize: { type: 'number', default: 32 },
     fontWeight: { type: 'string', default: '400' },
@@ -59,26 +58,22 @@ export const slidewright: ComponentMeta = {
   description: 'Absolutely-positioned text region.',
   insertion: {
     gestures: ['modal'],
+    modalPlacement: 'point',
     stub: (ctx) => {
       if (!ctx.rect) return null;
       if (!acceptsTargetSlot('block', ctx.targetSlotType)) return null;
-      const { x, y, width, height } = ctx.rect;
-      // Seed `content: "Text"` so the rendered region has something
-      // for the user to double-click into edit mode on. Empty
-      // content would render an invisible region (no glyphs to
-      // hit).
+      const { x, y } = ctx.rect;
       return makeComponent('TextBox', [
         slotFill('x', numberLit(Math.round(x))),
         slotFill('y', numberLit(Math.round(y))),
-        slotFill('width', numberLit(Math.round(width))),
-        slotFill('height', numberLit(Math.round(height))),
+        slotFill('sizing', stringLit('auto-width')),
         slotFill('font', stringLit('body')),
         slotFill('fontSize', numberLit(32)),
         slotFill('fontWeight', stringLit('400')),
         slotFill('lineHeight', numberLit(1.25)),
         slotFill('letterSpacing', numberLit(0)),
         slotFill('align', stringLit('left')),
-        slotFill('content', paragraphDocument('Text')),
+        slotFill('content', paragraphDocument('')),
       ]);
     },
   },
@@ -90,6 +85,9 @@ export default function TextBox({ slots, params }: ComponentRenderProps) {
   const y = (params.y as number | undefined) ?? 0;
   const width = (params.width as number | undefined) ?? 320;
   const height = (params.height as number | undefined) ?? 120;
+  const sizing = textBoxSizing(params);
+  const fixedWidth = sizing !== 'auto-width';
+  const fixedHeight = sizing === 'fixed';
   const requestedFontSize = (params.fontSize as number | undefined) ?? 32;
   const font = (params.font as string | undefined) ?? 'body';
   const fontWeight = (params.fontWeight as string | undefined) ?? '400';
@@ -109,7 +107,7 @@ export default function TextBox({ slots, params }: ComponentRenderProps) {
   // policy, so turning it off restores that exact source value.
   useLayoutEffect(() => {
     const inner = innerRef.current;
-    if (!inner || !shrinkToFit) {
+    if (!inner || !shrinkToFit || !fixedHeight) {
       setFontSize(requestedFontSize);
       return;
     }
@@ -135,7 +133,7 @@ export default function TextBox({ slots, params }: ComponentRenderProps) {
       resize.disconnect();
       mutations.disconnect();
     };
-  }, [requestedFontSize, shrinkToFit, width, height, wrap]);
+  }, [requestedFontSize, shrinkToFit, width, height, wrap, fixedHeight]);
 
   const fontFamily = ['body', 'display', 'mono'].includes(font)
     ? `var(--font-${font})`
@@ -146,8 +144,9 @@ export default function TextBox({ slots, params }: ComponentRenderProps) {
         position: 'absolute',
         left: `${x}px`,
         top: `${y}px`,
-        width: `${width}px`,
-        height: `${height}px`,
+        width: fixedWidth ? `${width}px` : 'max-content',
+        minWidth: fixedWidth ? undefined : '16px',
+        height: fixedHeight ? `${height}px` : 'auto',
         boxSizing: 'border-box',
         color: color,
         overflow: 'hidden',
@@ -158,7 +157,8 @@ export default function TextBox({ slots, params }: ComponentRenderProps) {
         data-sw-textbox-content="true"
         style={{
           width: '100%',
-          height: '100%',
+          height: fixedHeight ? '100%' : 'auto',
+          minHeight: fixedHeight ? undefined : `${requestedFontSize * lineHeight + 16}px`,
           padding: '8px',
           boxSizing: 'border-box',
           overflow: 'hidden',
@@ -178,4 +178,4 @@ export default function TextBox({ slots, params }: ComponentRenderProps) {
   );
 }
 
-export const canvas = makeRectAdapter({ width: 320, height: 120 });
+export const canvas = makeTextBoxAdapter();

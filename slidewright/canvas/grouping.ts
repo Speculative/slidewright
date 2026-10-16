@@ -1,3 +1,4 @@
+import { measureLayoutSnapshot } from './layout-measurement.js';
 import type { Component, SourceFile, Value } from '../runtime/ast.js';
 import type { ShapeData } from '../runtime/loader.js';
 import { listLit, makeComponent, numberLit, slotFill } from '../runtime/ast-builders.js';
@@ -30,7 +31,7 @@ function shape(shapes: ReadonlyMap<string, ShapeData>, node: Component) {
   const data = shapes.get(spanKey({ start: node.span.start.offset, end: node.span.end.offset }));
   if (!data || !data.canvas || isLayoutAdapter(data.canvas)) return null;
   const adapter = data.canvas as ShapeAdapter;
-  const bounds = adapter.calculateBounds(data.params);
+  const bounds = adapter.measureBounds ? measureLayoutSnapshot({ start: node.span.start.offset, end: node.span.end.offset })?.layout : adapter.calculateBounds(data.params);
   return bounds && Object.values(bounds).every(Number.isFinite) ? { data, adapter, bounds } : null;
 }
 

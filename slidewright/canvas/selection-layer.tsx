@@ -210,12 +210,15 @@ export function SelectionLayer({
     }
     const adapter = data.canvas as ShapeAdapter;
     const delta = gestureDeltas.get(key);
-    const params = delta ? adapter.applyGesture(data.params, delta) : data.params;
+    const measured = layoutBounds.get(key);
+    const baseParams = adapter.measureBounds && measured
+      ? { ...data.params, __measuredWidth: measured.width, __measuredHeight: measured.height } : data.params;
+    const params = delta ? adapter.applyGesture(baseParams, delta) : baseParams;
     const localBounds = adapter.calculateBounds(params);
     const wrapper = document.querySelector(`.sw-canvas-stage [data-sw-span-start="${span.start}"][data-sw-span-end="${span.end}"]`);
     const referenceFrame = wrapper && findPortalAncestor(wrapper);
     if (referenceFrame !== portalTarget) sharedShapeFrame = false;
-    const bounds = localBounds && referenceFrame && portalTarget && boundsInPortal(localBounds, referenceFrame, portalTarget);
+    const bounds = adapter.measureBounds && measured && delta && delta.kind !== 'translate' ? measured : localBounds && referenceFrame && portalTarget && boundsInPortal(localBounds, referenceFrame, portalTarget);
     if (!bounds) continue;
     items.push({ kind: 'shape', span, key, adapter, params, bounds });
   }
@@ -452,7 +455,7 @@ function useMeasuredLayoutBounds(
         const span = target.span;
         const key = spanKey(span);
         const data = shapes.get(key);
-        if (!data || !isLayoutAdapter(data.canvas)) continue;
+        if (!data || (!isLayoutAdapter(data.canvas) && !(data.canvas as ShapeAdapter | undefined)?.measureBounds)) continue;
         const snap = measureLayoutSnapshot(span);
         const bounds = snap && boundsInPortal(snap.layout, snap.referenceFrame, portalTarget);
         if (bounds) next.set(key, bounds);
@@ -471,7 +474,7 @@ function useMeasuredLayoutBounds(
       const span = target.span;
       const key = spanKey(span);
       const data = shapes.get(key);
-      if (!data || !isLayoutAdapter(data.canvas)) continue;
+      if (!data || (!isLayoutAdapter(data.canvas) && !(data.canvas as ShapeAdapter | undefined)?.measureBounds)) continue;
       const wrapper = document.querySelector(
         `.sw-canvas-stage [data-sw-span-start="${span.start}"][data-sw-span-end="${span.end}"]`,
       );

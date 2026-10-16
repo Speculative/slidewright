@@ -173,6 +173,8 @@ export interface ComponentInsertion {
   // unspecified. Ignored for components that don't opt into the
   // modal gesture.
   modalPreview?: 'rect' | 'line';
+  // Point placement accepts a click and uses its landing position.
+  modalPlacement?: 'point' | 'draw';
 }
 
 // Whether a slot was filled, missing entirely, or explicitly
