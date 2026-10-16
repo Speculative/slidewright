@@ -1,11 +1,49 @@
-import { useState, type RefObject } from 'react';
+import { Bold, Italic, Underline, Strikethrough, RemoveFormatting } from 'lucide-react';
+import type { SlideColor } from '../InspectorPanels.js';
+import { commitOnTextBlur } from './focus.js';
+import { FloatingToolbar } from './FloatingToolbar.js';
+import { useEffect, useState, type RefObject } from 'react';
 import type { TextFormattingState, FormattingValue } from './feedback.js';
 import type { ParagraphField, ListStyle } from './commands.js';
 import type { TextSessionHandle, TextStyleField } from './Editor.js';
 
+// DOM selection can be cleared without a ProseMirror transaction. Input focus,
+// however, temporarily owns the native selection while the draft range survives.
+function useFloatingSelection() {
+  const [selected, setSelected] = useState(false);
+  useEffect(() => {
+    let dismissal: ReturnType<typeof setTimeout> | undefined;
+    const sync = () => {
+      if (document.activeElement?.closest('[data-sw-text-formatting], .sw-text-session-actions')) return;
+      const selection = window.getSelection();
+      const editor = document.querySelector('.sw-rich-text-editor');
+      setSelected(!!selection && !selection.isCollapsed && selection.rangeCount > 0 &&
+        !!editor?.contains(selection.anchorNode) && !!editor.contains(selection.focusNode));
+    };
+    const outside = (event: PointerEvent) => {
+      if (!(event.target instanceof Element) || !event.target.closest('.sw-rich-text-editor, .sw-floating-text-toolbar, .sw-text-color-popover')) {
+        // Let a focused field blur/apply before removing its toolbar.
+        clearTimeout(dismissal);
+        dismissal = setTimeout(() => setSelected(false), 0);
+      }
+    };
+    sync();
+    document.addEventListener('selectionchange', sync);
+    document.addEventListener('pointerdown', outside, true);
+    return () => {
+      clearTimeout(dismissal);
+      document.removeEventListener('selectionchange', sync);
+      document.removeEventListener('pointerdown', outside, true);
+    };
+  }, []);
+  return selected;
+}
+
 // Controls keep the editor's draft selection while inputs own DOM focus.
 // Applying a value changes authored marks, never the surrounding source.
-export function FormattingToolbar({ session, state }: { session: RefObject<TextSessionHandle | null>; state: TextFormattingState | null }) {
+export function FormattingToolbar({ session, state, colorTokens, slideColors }: { session: RefObject<TextSessionHandle | null>; state: TextFormattingState | null; colorTokens: Record<string, string>; slideColors: SlideColor[] }) {
+  const selected = useFloatingSelection();
+  const floating = selected && !!state && !state.caret;
   const [field, setField] = useState<TextStyleField>('size');
   const [value, setValue] = useState('');
   const [listStyle, setListStyle] = useState<ListStyle>('disc');
@@ -26,26 +64,29 @@ export function FormattingToolbar({ session, state }: { session: RefObject<TextS
   }
   function apply() {
     if (!value.trim()) { session.current?.format(field, null); return; }
-    const next = field === 'size' || field === 'letterSpacing' ? Number(value) : value;
-    if (typeof next === 'number' && (!Number.isFinite(next) || field === 'size' && next <= 0)) return;
+    const next = field === 'size' || field === 'letterSpacing' || field === 'strokeWidth' ? Number(value) : value;
+    if (typeof next === 'number' && (!Number.isFinite(next) || (field === 'size' && next <= 0 || field === 'strokeWidth' && next < 0))) return;
     session.current?.format(field, next);
   }
+  const buttons = <div className="sw-text-formatting-buttons">
+      {([['weight', 'Bold', Bold, 'Ctrl/Cmd+B'], ['italic', 'Italic', Italic, 'Ctrl/Cmd+I'],
+        ['underline', 'Underline', Underline, 'Ctrl/Cmd+U'], ['strikethrough', 'Strikethrough', Strikethrough, 'Ctrl/Cmd+Shift+X']] as const).map(([name, label, Icon, shortcut]) => <button key={name} type="button" className="sw-icon-button" aria-label={label} title={`${label} (${shortcut})`}
+        aria-pressed={pressed(name)} onPointerDown={event => { if (!(document.activeElement instanceof HTMLInputElement)) event.preventDefault(); }} onClick={() => session.current?.toggle(name)}>
+        <Icon size={18} aria-hidden="true" focusable="false" />
+      </button>)}
+      <button type="button" className="sw-icon-button" aria-label="Clear formatting" title="Clear formatting" onPointerDown={event => { if (!(document.activeElement instanceof HTMLInputElement)) event.preventDefault(); }} onClick={() => session.current?.clearFormatting()}><RemoveFormatting size={18} aria-hidden="true" focusable="false" /></button>
+    </div>;
   return <div className="sw-text-formatting" data-sw-text-formatting role="group" aria-label="Text formatting"
     onBlur={event => {
-      const next = event.relatedTarget;
-      if (!(next instanceof Element) || !next.closest('.sw-text-session-actions, .sw-rich-text-editor')) session.current?.finish('commit');
+      commitOnTextBlur(event.relatedTarget, () => session.current?.finish('commit'));
     }}>
     <span aria-label="Formatting target">{state?.caret ? 'Typing at caret' : 'Selected range'}</span>
-    <div className="sw-text-formatting-buttons">
-      {(['weight', 'italic', 'underline', 'strikethrough'] as const).map((name, index) => <button key={name} type="button"
-        aria-pressed={pressed(name)} onPointerDown={event => event.preventDefault()} onClick={() => session.current?.toggle(name)}>
-        {['Bold', 'Italic', 'Underline', 'Strikethrough'][index]}
-      </button>)}
-      <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => session.current?.clearFormatting()}>Clear formatting</button>
-    </div>
+    <div style={{ visibility: floating ? 'hidden' : undefined }} aria-hidden={floating || undefined} inert={floating}>{buttons}</div>
+    {floating && <FloatingToolbar session={session} state={state} colorTokens={colorTokens} slideColors={slideColors}>{buttons}</FloatingToolbar>}
     <label>Style <select aria-label="Text style" value={field} onChange={event => { setField(event.target.value as TextStyleField); setValue(''); }}>
       <option value="size">Font size</option><option value="font">Font family</option>
       <option value="weight">Font weight</option><option value="color">Color</option>
+      <option value="strokeWidth">Stroke width</option><option value="strokeColor">Stroke color</option>
       <option value="letterSpacing">Letter spacing</option><option value="href">Link URL</option>
     </select></label>
     <output aria-label="Current text style">{describe(state?.inline[field])}</output>

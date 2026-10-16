@@ -38,6 +38,7 @@ import { slotFill } from '../runtime/ast-builders.js';
 import { RichTextEditor, type TextEditorSnapshot, type TextSessionHandle } from './rich-text/Editor.js';
 import { BoxSettings, type TextBoxDefault, type TextBoxDefaults } from './rich-text/BoxSettings.js';
 import type { TextFormattingState } from './rich-text/feedback.js';
+import { commitOnTextBlur } from './rich-text/focus.js';
 import { FormattingToolbar } from './rich-text/FormattingToolbar.js';
 import { TextDocumentSessionContext } from './text-document-context.js';
 import { components, staticTokens } from '../../decks/v0-reference/registry.js';
@@ -883,6 +884,8 @@ export function App({
   // Selection is always an array. Single-select is length === 1.
   // Multi-select is bounded to one layout context (one Freeform).
   const [selected, setSelected] = useState<SelectionTarget[]>([]);
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
 
   // Selection-preservation across host.setSource. Spans shift after
   // every emit; gestures stash the post-emit selection here before
@@ -986,11 +989,18 @@ export function App({
     richSessionRef.current = null;
     setRichEditing(null);
     if (intent !== 'commit' || (!changed && !Object.keys(defaults).length) || sourceRef.current !== snapshot.source) return;
-    let path: ReturnType<typeof pathToComponent> = null;
+    let selectionPaths: NonNullable<ReturnType<typeof pathToComponent>>[] = [];
     const result = commitSourceEdit(snapshot.source, '<text-session>', ast => {
       const comp = findComponentAtSpan(ast, snapshot.component.span.start.offset, snapshot.component.span.end.offset);
       if (!comp) return null;
-      path = pathToComponent(ast, comp);
+      // Committing a departing draft must preserve the current canvas choice,
+      // including an empty selection, rather than reselecting the edited box.
+      selectionPaths = selectedRef.current.flatMap(target => {
+        if (target.kind !== 'component') return [];
+        const selectedComp = findComponentAtSpan(ast, target.span.start, target.span.end);
+        const path = selectedComp ? pathToComponent(ast, selectedComp) : null;
+        return path ? [path] : [];
+      });
       if (value) {
         const fill = comp.fills.find(f => f.name === 'content');
         if (fill) fill.value = value; else comp.fills.push(slotFill('content', value));
@@ -1003,8 +1013,12 @@ export function App({
       return {};
     });
     if (!result) return;
-    const restored = path ? componentByPath(parse(result.newSource, '<text-selection>').ast, path) : null;
-    commitToHost(result.newSource, restored ? [{ start: restored.span.start.offset, end: restored.span.end.offset }] : undefined);
+    const nextAst = parse(result.newSource, '<text-selection>').ast;
+    const restored = selectionPaths.flatMap(path => {
+      const comp = componentByPath(nextAst, path);
+      return comp ? [{ start: comp.span.start.offset, end: comp.span.end.offset }] : [];
+    });
+    commitToHost(result.newSource, restored);
   }, [commitToHost]);
 
   useEffect(() => {
@@ -1013,6 +1027,14 @@ export function App({
       setRichEditing(null);
     }
   }, [activeIdx, richEditing]);
+
+  useEffect(() => {
+    if (!richEditing || richEditing.slideIdx !== activeIdx) return;
+    const span = richEditing.component.span;
+    const ownsSelection = selected.some(target => target.kind === 'component' &&
+      target.span.start === span.start.offset && target.span.end === span.end.offset);
+    if (!ownsSelection) richSessionRef.current?.finish('commit');
+  }, [selected, richEditing, activeIdx]);
 
   // Scrub session: a single drag on the inspector's numeric key
   // emits a stream of source previews on pointermove and one
@@ -2756,12 +2778,12 @@ export function App({
             slideColors={slideColors}
           />
           {(richEditing || boxShape?.comp.name === 'TextBox') && <div className="sw-text-session-actions" onKeyDown={event => event.stopPropagation()}
-            onBlur={event => { const next = event.relatedTarget; if (!(next instanceof Element) || !next.closest('.sw-text-session-actions, .sw-rich-text-editor')) richSessionRef.current?.finish('commit'); }}>
+            onBlur={event => commitOnTextBlur(event.relatedTarget, () => richSessionRef.current?.finish('commit'))}>
             <BoxSettings onApply={applyBoxSetting} current={{ ...boxShape?.params, ...boxDraft }} />
             {richEditing && <>
-            <FormattingToolbar session={richSessionRef} state={textFormatting} />
+            <FormattingToolbar session={richSessionRef} state={textFormatting} colorTokens={state.colorTokens} slideColors={slideColors} />
             <span>Editing text</span>
-            <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => richSessionRef.current?.finish('commit')}>Done</button>
+            <button type="button" onPointerDown={event => { if (!(document.activeElement instanceof HTMLInputElement)) event.preventDefault(); }} onClick={() => richSessionRef.current?.finish('commit')}>Done</button>
             <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => richSessionRef.current?.finish('cancel')}>Cancel</button>
             </>}
           </div>}

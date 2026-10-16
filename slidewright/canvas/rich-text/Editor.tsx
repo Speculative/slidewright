@@ -9,6 +9,7 @@ import { history, closeHistory } from 'prosemirror-history';
 import type { Component, Value } from '../../runtime/ast.js';
 import type { ComponentRegistry, OwnedInlineEditorMount } from '../../runtime/contract.js';
 import type { Scope } from '../../runtime/scope.js';
+import { readColorValueCss } from '../ColorControls.js';
 import { renderEditorInline } from '../../runtime/loader.js';
 import { STYLE_FIELDS, TextProjection } from './projection.js';
 import { richTextKeys, setTextStyle, clearTextStyles, setParagraphStyle, type ParagraphField, setListStyle, changeListDepth, type ListStyle } from './commands.js';
@@ -32,9 +33,13 @@ export type TextStyleField = typeof STYLE_FIELDS[number];
 export interface TextSessionHandle {
   finish(intent: 'commit' | 'cancel'): void;
   range(): TextRange | null;
+  selectionBounds(): { left: number; right: number; top: number; bottom: number } | null;
   format(field: TextStyleField, value: string | number | boolean | null): void;
   toggle(field: 'weight' | 'italic' | 'underline' | 'strikethrough'): void;
   clearFormatting(): void;
+  formatColor(field: 'color' | 'strokeColor', value: Value | null): void;
+  selectionColor(field: 'color' | 'strokeColor'): string;
+  colorGesture(phase: 'begin' | 'commit' | 'cancel'): void;
   list(style: ListStyle, start: number): boolean;
   listDepth(direction: -1 | 1): boolean;
   paragraph(field: ParagraphField, value: string | number | null): void;
@@ -70,12 +75,18 @@ export function RichTextEditor({ snapshot, registry, onReady, onFinish, onFormat
       let pending: 'commit' | null = null;
       let compositionTimer: ReturnType<typeof setTimeout> | null = null;
       let view: EditorView;
+      let syncingSelection = false;
+      const clearOwnedSelection = () => {
+        const selection = window.getSelection();
+        if (selection && (mount.contains(selection.anchorNode) || mount.contains(selection.focusNode))) selection.removeAllRanges();
+      };
       const finish = (intent: 'commit' | 'cancel') => {
         if (closed) return;
         if (intent === 'commit' && (composing || view.composing)) { pending = 'commit'; return; }
         closed = true;
         const changed = semanticDocument(view.state.doc) !== semanticDocument(projection.doc);
         const value = intent === 'commit' && changed ? projection.lower(view.state.doc) : undefined;
+        clearOwnedSelection();
         callbacks.current.onFinish(intent, value, changed && value !== snapshot.content);
       };
       const nodeViews: Record<string, (node: PMNode, view: EditorView, getPos: () => number | undefined) => NodeView> = {};
@@ -155,7 +166,28 @@ export function RichTextEditor({ snapshot, registry, onReady, onFinish, onFormat
       view = new EditorView(mount, {
         state: EditorState.create({ doc: projection.doc, plugins: [history(), leafIdentityPlugin(), keymap(keys)] }), nodeViews,
         attributes: { role: 'textbox', 'aria-label': 'Edit text', 'aria-multiline': 'true' },
-        dispatchTransaction(tr) { if (!closed) { view.updateState(view.state.applyTransaction(tr).state); callbacks.current.onFormatting?.(formattingState(view.state)); } },
+        dispatchTransaction(tr) {
+          if (closed) return;
+          const native = window.getSelection();
+          const focused = document.activeElement;
+          // ProseMirror intentionally leaves DOM selection alone when blurred.
+          // Formatting can replace the selected text's mark wrappers, leaving
+          // that live browser range expanded or collapsed on the old wrapper.
+          const restore = tr.docChanged && !syncingSelection && !view.hasFocus() && native &&
+            view.dom.contains(native.anchorNode) && view.dom.contains(native.focusNode);
+          view.updateState(view.state.applyTransaction(tr).state);
+          if (restore) {
+            syncingSelection = true;
+            try {
+              const { anchor, head } = view.state.selection;
+              const start = view.domAtPos(anchor), end = view.domAtPos(head);
+              native.setBaseAndExtent(start.node, start.offset, end.node, end.offset);
+              // Some browsers focus contenteditable when its selection moves.
+              if (focused instanceof HTMLElement && focused.isConnected && document.activeElement !== focused) focused.focus({ preventScroll: true });
+            } finally { syncingSelection = false; }
+          }
+          callbacks.current.onFormatting?.(formattingState(view.state));
+        },
         handleDOMEvents: {
           blur(_view, event) {
             const next = (event as FocusEvent).relatedTarget;
@@ -178,11 +210,45 @@ export function RichTextEditor({ snapshot, registry, onReady, onFinish, onFormat
       if (caret) view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(caret.pos))));
       view.focus();
       callbacks.current.onFormatting?.(formattingState(view.state));
+      let colorGesture: { before: EditorState; group: number } | null = null;
+      let nextColorGroup = Date.now();
       const format = (field: TextStyleField, value: string | number | boolean | null) => {
         if (closed) return;
         setTextStyle(field, value)(view.state, tr => view.dispatch(tr));
       };
       callbacks.current.onReady({ finish,
+        selectionColor(field) {
+          if (closed) return '';
+          const node = view.domAtPos(view.state.selection.from).node;
+          const element = node instanceof Element ? node : node.parentElement;
+          if (!element) return '';
+          return getComputedStyle(element).getPropertyValue(field === 'color' ? 'color' : '-webkit-text-stroke-color');
+        },
+        formatColor(field, value) {
+          if (closed) return;
+          const css = value === null ? null : readColorValueCss(value, snapshot.colorTokens);
+          if (value !== null && css === null) return;
+          setTextStyle(field, css, { ...(value ? { authored: value } : {}), ...(colorGesture ? { historyGroup: colorGesture.group } : {}) })(view.state, tr => view.dispatch(tr));
+        },
+        colorGesture(phase) {
+          if (closed) return;
+          if (phase === 'begin') {
+            colorGesture = { before: view.state, group: ++nextColorGroup };
+            view.dispatch(closeHistory(view.state.tr));
+          } else {
+            if (phase === 'cancel' && colorGesture) {
+              view.updateState(colorGesture.before);
+              callbacks.current.onFormatting?.(formattingState(view.state));
+            } else view.dispatch(closeHistory(view.state.tr));
+            colorGesture = null;
+          }
+        },
+        selectionBounds() {
+          if (closed) return null;
+          const { from, to } = view.state.selection;
+          const start = view.coordsAtPos(from), end = view.coordsAtPos(to);
+          return { left: Math.min(start.left, end.left), right: Math.max(start.right, end.right), top: Math.min(start.top, end.top), bottom: Math.max(start.bottom, end.bottom) };
+        },
         range: () => textRange(view.state.doc, view.state.selection.anchor, view.state.selection.head),
         format,
         list(style, start) { return !closed && setListStyle(style, start)(view.state, tr => view.dispatch(tr), view); },
@@ -198,6 +264,7 @@ export function RichTextEditor({ snapshot, registry, onReady, onFinish, onFormat
       return () => {
         closed = true;
         if (compositionTimer) clearTimeout(compositionTimer);
+        clearOwnedSelection();
         view.destroy();
         callbacks.current.onReady(null);
       };

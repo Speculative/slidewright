@@ -287,6 +287,8 @@ export const BUILTIN_META: Record<string, ComponentMeta> = {
       size: { type: 'number' },
       weight: { type: 'string' },
       letterSpacing: { type: 'number' },
+      strokeWidth: { type: 'number' },
+      strokeColor: { type: 'color-token' },
       italic: { type: 'boolean' },
       underline: { type: 'boolean' },
       strikethrough: { type: 'boolean' },

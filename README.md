@@ -60,8 +60,8 @@ the standalone host; desktop VS Code still needs a smoke check before release.
 
 ## Repository map
 
-- [SLIDEWRIGHT.md](SLIDEWRIGHT.md) — design commitments, rationale, and
-  implementation notes. Ostraka items hold work discussions and outstanding
+- [SLIDEWRIGHT.md](SLIDEWRIGHT.md) — durable architecture, component contracts, and
+  design rationale. Ostraka items hold work discussions and outstanding
   tasks; the Ostraka project brief holds concise durable agent context.
 - `decks/v0-reference/` — reference `deck.sw`, shared `registry.ts`, and
   component modules. Modules export React rendering, `slidewright` metadata,

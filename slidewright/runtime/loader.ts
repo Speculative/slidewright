@@ -797,6 +797,8 @@ function renderSpanAsNode(comp: Component, ctx: LoadCtx): ReactNode {
   const size = readNumber(fills.get('size'), ctx);
   const weight = readNameOrString(fills.get('weight'), ctx);
   const letterSpacing = readNumber(fills.get('letterSpacing'), ctx);
+  const strokeWidth = readNumber(fills.get('strokeWidth'), ctx);
+  const strokeColor = readColorValue(fills.get('strokeColor'), ctx);
   const italic = readBoolean(fills.get('italic'), ctx);
   const underline = readBoolean(fills.get('underline'), ctx);
   const strikethrough = readBoolean(fills.get('strikethrough'), ctx);
@@ -808,6 +810,8 @@ function renderSpanAsNode(comp: Component, ctx: LoadCtx): ReactNode {
   if (size !== undefined) style.fontSize = `${size}px`;
   if (weight) style.fontWeight = weight;
   if (letterSpacing !== undefined) style.letterSpacing = `${letterSpacing}px`;
+  if (strokeWidth !== undefined) style.WebkitTextStrokeWidth = `${strokeWidth}px`;
+  if (strokeColor) style.WebkitTextStrokeColor = strokeColor;
   if (italic) style.fontStyle = 'italic';
   const decorations = [
     underline ? 'underline' : '',
@@ -830,6 +834,8 @@ function renderSpanAsNode(comp: Component, ctx: LoadCtx): ReactNode {
         size,
         weight,
         letterSpacing,
+        strokeWidth,
+        strokeColor,
         italic,
         underline,
         strikethrough,

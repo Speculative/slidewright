@@ -285,7 +285,7 @@ html, body, #root {
 .sw-alignment select { font: inherit; padding: 3px; }
 .sw-alignment-buttons { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin: 10px 0 8px; }
 .sw-properties-sidebar .sw-alignment-buttons button { padding: 4px 0; display: grid; place-items: center; }
-.sw-distribute-buttons { display: grid; gap: 4px; }
+.sw-distribute-buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
 .sw-alignment p { color: #687080; font-size: 11px; line-height: 1.5; margin-bottom: 0; }
 .sw-placement-hint { position: absolute; top: 8px; left: 16px; z-index: 10; background: #fff; padding: 6px; font: 12px system-ui; pointer-events: none; }
 
@@ -1185,3 +1185,28 @@ input.sw-property-value:disabled {
 .sw-standalone:fullscreen .presentation-canvas { outline: none !important; }
 
 .sw-presenting .sw-properties-sidebar { display: none; }
+
+.sw-floating-text-toolbar.sw-text-session-actions {
+  position: fixed; z-index: 1000; box-sizing: border-box;
+  width: max-content; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow: auto;
+  padding: 8px; gap: 8px; border: 1px solid #cbd0d9; border-radius: 9px;
+  background: #fff; color: #202530; box-shadow: 0 5px 22px #0003;
+  font: 12px system-ui, sans-serif;
+}
+.sw-floating-text-fields { display: flex; flex-wrap: wrap; gap: 6px; }
+.sw-floating-text-fields label { display: flex; flex-direction: column; gap: 3px; font-size: 10px; color: #596170; }
+.sw-floating-text-toolbar input { box-sizing: border-box; width: 85px; padding: 5px; border: 1px solid #cbd0d9; border-radius: 4px; font: 12px system-ui, sans-serif; color: #202530; }
+.sw-floating-text-toolbar input[aria-label="Font family"] { width: 130px; }
+.sw-floating-text-toolbar .sw-text-formatting-buttons { display: flex; flex-wrap: wrap; gap: 4px; }
+.sw-floating-text-toolbar button { padding: 5px 8px; background: #f6f7f9; border: 1px solid #cbd0d9; border-radius: 4px; color: #202530; font: inherit; cursor: pointer; }
+.sw-floating-text-toolbar button[aria-pressed="true"] { background: #dbeafe; border-color: #6b8fd4; }
+.sw-floating-text-toolbar button[aria-pressed="mixed"] { background: #fff2ce; border-color: #be9529; }
+.sw-text-style-input { display: flex; gap: 3px; }
+.sw-floating-style-field { display: flex; flex-direction: column; gap: 3px; font-size: 10px; color: #596170; }
+.sw-floating-text-toolbar button.sw-text-color-preview { width: 26px; height: 26px; padding: 2px; border: 1px solid #9aa2b0; background: repeating-conic-gradient(#ddd 0 25%, #fff 0 50%) 0 / 8px 8px; }
+.sw-text-color-popover.sw-text-session-actions { box-sizing: border-box; max-height: calc(100vh - 16px); overflow: auto; z-index: 1001; font: 12px system-ui, sans-serif; }
+.sw-text-color-popover .sw-color-picker:focus { outline: none; }
+
+.sw-icon-button { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; min-height: 30px; }
+.sw-icon-button svg { flex: none; }
+.sw-icon-button:focus-visible { outline: 2px solid #6b8fd4; outline-offset: 2px; }

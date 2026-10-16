@@ -5,6 +5,7 @@ import { baseKeymap, chainCommands, deleteSelection, joinBackward, joinForward, 
 import { closeHistory, undo, redo } from 'prosemirror-history';
 import { splitListItem, sinkListItem, liftListItem } from 'prosemirror-schema-list';
 import { STYLE_FIELDS } from './projection.js';
+import type { Value } from '../../runtime/ast.js';
 import type { PARAGRAPH_FIELDS } from '../../runtime/contract.js';
 
 export type ListStyle = 'disc' | 'circle' | 'square' | 'decimal' | 'lower-alpha' | 'upper-alpha' | 'lower-roman' | 'upper-roman';
@@ -68,14 +69,16 @@ export function setParagraphStyle(field: ParagraphField, value: string | number 
   };
 }
 
-export function setTextStyle(field: typeof STYLE_FIELDS[number], value: string | number | boolean | null): Command {
+export function setTextStyle(field: typeof STYLE_FIELDS[number], value: string | number | boolean | null, options: { authored?: Value; historyGroup?: number } = {}): Command {
   return (state, dispatch) => {
     const type = state.schema.marks[field]!;
     const { from, to, empty } = state.selection;
     if (dispatch) {
-      const tr = closeHistory(state.tr);
-      if (empty) value === null ? tr.removeStoredMark(type) : tr.addStoredMark(type.create({ value }));
-      else value === null ? tr.removeMark(from, to, type) : tr.addMark(from, to, type.create({ value }));
+      // Mark steps have empty position maps, so time alone cannot group them.
+      // The private history adapter uses a composition group for one color drag.
+      const tr = options.historyGroup === undefined ? closeHistory(state.tr) : state.tr.setMeta('composition', options.historyGroup);
+      if (empty) value === null ? tr.removeStoredMark(type) : tr.addStoredMark(type.create({ value, authored: options.authored ?? null }));
+      else value === null ? tr.removeMark(from, to, type) : tr.addMark(from, to, type.create({ value, authored: options.authored ?? null }));
       dispatch(tr);
     }
     return true;

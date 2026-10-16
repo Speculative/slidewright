@@ -1,3 +1,8 @@
+import {
+  AlignHorizontalJustifyStart, AlignHorizontalJustifyCenter, AlignHorizontalJustifyEnd,
+  AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd,
+  AlignHorizontalSpaceBetween, AlignVerticalSpaceBetween, type LucideIcon,
+} from 'lucide-react';
 import { useLayoutEffect, useState } from 'react';
 import type { ShapeData } from '../runtime/loader.js';
 import { numberLit, slotFill } from '../runtime/ast-builders.js';
@@ -10,6 +15,11 @@ import { isLayoutAdapter } from './layout-adapter.js';
 import { spanKey } from './gesture-context.js';
 
 type Command = 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom' | 'horizontal' | 'vertical';
+const COMMAND_ICONS: Record<Command, LucideIcon> = {
+  left: AlignHorizontalJustifyStart, center: AlignHorizontalJustifyCenter, right: AlignHorizontalJustifyEnd,
+  top: AlignVerticalJustifyStart, middle: AlignVerticalJustifyCenter, bottom: AlignVerticalJustifyEnd,
+  horizontal: AlignHorizontalSpaceBetween, vertical: AlignVerticalSpaceBetween,
+};
 interface Item { span: SourceRange; data: ShapeData; adapter: ShapeAdapter; bounds: Bounds }
 interface Context { items: Item[]; container: HTMLElement }
 
@@ -138,23 +148,20 @@ export function AlignmentControls({ selected, shapes, source, disabled, onCommit
     <div className="sw-alignment-buttons">
       {(['left', 'center', 'right', 'top', 'middle', 'bottom'] as const).map(command => {
         const label = command === 'center' ? 'Align horizontal center' : command === 'middle' ? 'Align vertical center' : `Align ${command}`;
-        return <button key={command} type="button" title={label} aria-label={label} disabled={unavailable} onClick={() => apply(command)}>
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-            {['left', 'center', 'right'].includes(command) ? <>
-              <path d={`M${command === 'left' ? 3 : command === 'right' ? 17 : 10} 2v16`} stroke="currentColor" fill="none" />
-              <rect x={5} y="5" width="10" height="3" />
-              <rect x={command === 'left' ? 5 : command === 'right' ? 9 : 7} y="12" width="6" height="3" />
-            </> : <g transform="rotate(90 10 10)">
-              <path d={`M${command === 'top' ? 3 : command === 'bottom' ? 17 : 10} 2v16`} stroke="currentColor" fill="none" />
-              <rect x={5} y="5" width="10" height="3" />
-              <rect x={command === 'top' ? 5 : command === 'bottom' ? 9 : 7} y="12" width="6" height="3" />
-            </g>}
-          </svg>
+        const Icon = COMMAND_ICONS[command];
+        return <button className="sw-icon-button" key={command} type="button" title={label} aria-label={label} disabled={unavailable} onClick={() => apply(command)}>
+          <Icon size={20} aria-hidden="true" focusable="false" />
         </button>;
       })}
     </div>
-    <div className="sw-distribute-buttons">{(['horizontal', 'vertical'] as const).map(command =>
-      <button type="button" key={command} disabled={unavailable || (context?.items.length ?? 0) < 3} onClick={() => apply(command)}>Distribute {command} space</button>)}</div>
+    <div className="sw-distribute-buttons">{(['horizontal', 'vertical'] as const).map(command => {
+      const label = `Distribute ${command} space`;
+      const Icon = COMMAND_ICONS[command];
+      return <button type="button" className="sw-icon-button" key={command} aria-label={label} title={label}
+        disabled={unavailable || (context?.items.length ?? 0) < 3} onClick={() => apply(command)}>
+        <Icon size={20} aria-hidden="true" focusable="false" />
+      </button>;
+    })}</div>
     {!context && selected.length > 0 && <p>Select freely positioned siblings to arrange. Use layout properties for stack children.</p>}
     {message && <p role="status">{message}</p>}
   </section>;

@@ -474,3 +474,291 @@ test('a selected custom element retains its outline while editing a literal slot
   await page.keyboard.press('Escape');
   await expect(stage.getByText('Single child.', { exact: true })).toBeVisible();
 });
+
+test('floating toolbar follows selection and persists font, stroke, and paragraph styles', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-textbox');
+  const before = await getEditorSource(page);
+  await page.locator('.sw-canvas-stage').getByText('Hello', { exact: true }).dblclick();
+  const editor = page.getByRole('textbox', { name: 'Edit text' });
+  await expect(editor).toBeVisible();
+  await selectRichText(page, 'Hello', 0, 'Hello', 5);
+  const toolbar = page.getByRole('toolbar', { name: 'Selection formatting' });
+  await expect(toolbar).toBeVisible();
+  const bounds = await toolbar.boundingBox();
+  const textBounds = await editor.boundingBox();
+  expect(bounds!.y + bounds!.height).toBeLessThan(textBounds!.y);
+  for (const [label, value] of [['Font family', 'Georgia'], ['Font size', '42'], ['Foreground color', '#123456'], ['Stroke width', '1.5'], ['Stroke color', '#ff0000'], ['Line height', '1.8'], ['Letter spacing', '2']]) {
+    await toolbar.getByLabel(label, { exact: true }).fill(value);
+    await page.keyboard.press('Enter');
+  }
+  await expect(editor.getByText('Hello', { exact: true })).toHaveCSS('-webkit-text-stroke-width', '1.5px');
+  await expect(editor.getByText('Hello', { exact: true })).toHaveCSS('line-height', '75.6px');
+  expect(await getEditorSource(page)).toBe(before);
+  await toolbar.getByRole('button', { name: 'Underline', exact: true }).click();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  const source = await getEditorSource(page);
+  expect(source).toContain('strokeWidth: 1.5');
+  expect(source).toContain('strokeColor: "#ff0000"');
+  expect(source).toContain('font: "Georgia"');
+  expect(source).toContain('lineHeight: 1.8');
+  await expect(page.locator('.sw-canvas-stage').getByText('Hello', { exact: true })).toHaveCSS('-webkit-text-stroke-color', 'rgb(255, 0, 0)');
+  await page.locator('.sw-canvas-stage').getByText('Hello', { exact: true }).dblclick();
+  await expect(editor).toBeVisible();
+  await selectRichText(page, 'Hello', 0, 'Hello', 5);
+  await expect(toolbar.getByLabel('Stroke width', { exact: true })).toHaveValue('1.5');
+  await toolbar.getByRole('button', { name: 'Clear formatting', exact: true }).click();
+  await expect(editor.getByText('Hello', { exact: true })).toHaveCSS('-webkit-text-stroke-width', '0px');
+  await page.keyboard.press('Escape');
+  expect(await getEditorSource(page)).toBe(source);
+});
+
+test('floating fields apply on Done and stay inside a resized viewport', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-textbox');
+  await page.locator('.sw-canvas-stage').getByText('Hello', { exact: true }).dblclick();
+  const editor = page.getByRole('textbox', { name: 'Edit text' });
+  await expect(editor).toBeVisible();
+  await selectRichText(page, 'Hello', 0, 'Hello', 5);
+  const toolbar = page.getByRole('toolbar', { name: 'Selection formatting' });
+  await toolbar.getByLabel('Font size', { exact: true }).fill('48');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  expect(await getEditorSource(page)).toContain('size: 48');
+  await page.locator('.sw-canvas-stage').getByText('Hello', { exact: true }).dblclick();
+  await expect(editor).toBeVisible();
+  await selectRichText(page, 'Hello', 0, 'Hello', 5);
+  await page.setViewportSize({ width: 700, height: 650 });
+  await expect.poll(async () => {
+    const bounds = await toolbar.boundingBox();
+    return !!bounds && bounds.x >= 8 && bounds.y >= 8 && bounds.x + bounds.width <= 692 && bounds.y + bounds.height <= 642;
+  }).toBe(true);
+  await toolbar.getByLabel('Font size', { exact: true }).focus();
+  await page.keyboard.press('Escape');
+  await expect(editor).toHaveCount(0);
+});
+
+test('custom text color picker retains ranges, authors tokens and OKLCH, and closes independently', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=slide-grade-text');
+  const before = await getEditorSource(page);
+  await page.locator('.sw-canvas-stage').getByText('style', { exact: true }).dblclick();
+  const editor = page.getByRole('textbox', { name: 'Edit text' });
+  await expect(editor).toBeVisible();
+  await selectRichText(page, 'Mixed ', 0, 'style', 5);
+  const toolbar = page.getByRole('toolbar', { name: 'Selection formatting' });
+  await expect(toolbar.locator('input[type="color"]')).toHaveCount(0);
+  await toolbar.getByRole('button', { name: 'Foreground color picker', exact: true }).click();
+  const picker = page.getByRole('dialog', { name: 'Foreground color picker', exact: true });
+  await expect(picker).toBeVisible();
+  await picker.getByRole('button', { name: 'purple', exact: true }).click();
+  await expect(toolbar.getByLabel('Foreground color', { exact: true })).toHaveValue('purple');
+  await picker.getByLabel('Lightness', { exact: true }).focus();
+  await picker.getByLabel('Hue', { exact: true }).focus();
+  await expect(toolbar.getByLabel('Foreground color', { exact: true })).toHaveValue('purple');
+  await picker.getByLabel('Lightness', { exact: true }).fill('0.42');
+  await page.keyboard.press('Enter');
+  await expect(editor).toBeVisible();
+  await expect(toolbar.getByLabel('Foreground color', { exact: true })).toHaveValue(/^oklch\(0.42 /);
+  await page.keyboard.press('Escape');
+  await expect(picker).toHaveCount(0);
+  await expect(editor).toBeVisible();
+  expect(await getEditorSource(page)).toBe(before);
+  await toolbar.getByRole('button', { name: 'Stroke color picker', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Stroke color picker', exact: true }).getByRole('button', { name: 'purple', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  const source = await getEditorSource(page);
+  expect(source).toContain('color: oklch(0.42 ');
+  expect(source).toContain('strokeColor: purple');
+  expect(source).not.toContain('strokeColor: "purple"');
+  expect(source).toContain('"First bullet"');
+  await page.locator('.sw-canvas-stage').getByText('style', { exact: true }).dblclick();
+  await expect(editor).toBeVisible();
+  await selectRichText(page, 'style', 0, 'style', 5);
+  await toolbar.getByRole('button', { name: 'Foreground color picker', exact: true }).click();
+  await expect(picker.getByLabel('Lightness', { exact: true })).toHaveValue('0.42');
+  await page.setViewportSize({ width: 700, height: 650 });
+  await expect.poll(async () => {
+    const bounds = await picker.boundingBox();
+    return !!bounds && bounds.x >= 4 && bounds.y >= 4 && bounds.x + bounds.width <= 696 && bounds.y + bounds.height <= 646;
+  }).toBe(true);
+  await picker.getByLabel('Lightness', { exact: true }).fill('0.8');
+  await page.keyboard.press('Escape');
+  await expect(picker).toHaveCount(0);
+  await expect(toolbar.getByLabel('Foreground color', { exact: true })).toHaveValue(/^oklch\(0.42 /);
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(await getEditorSource(page)).toBe(source);
+});
+
+test('text color drags preview continuously, undo together, and restore on pointer cancellation', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-textbox');
+  const before = await getEditorSource(page);
+  await page.locator('.sw-canvas-stage').getByText('Hello', { exact: true }).dblclick();
+  const editor = page.getByRole('textbox', { name: 'Edit text' });
+  await expect(editor).toBeVisible();
+  await selectRichText(page, 'Hello', 0, 'Hello', 5);
+  const toolbar = page.getByRole('toolbar', { name: 'Selection formatting' });
+  await toolbar.getByRole('button', { name: 'Foreground color picker', exact: true }).click();
+  const picker = page.getByRole('dialog', { name: 'Foreground color picker', exact: true });
+  const plane = picker.locator('.sw-color-picker-plane');
+  await expect(plane).toBeVisible();
+  const box = (await plane.boundingBox())!;
+  await page.mouse.move(box.x + 20, box.y + 40);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 140, box.y + 90, { steps: 8 });
+  await page.mouse.up();
+  await expect(editor).toBeVisible();
+  await expect(toolbar.getByLabel('Foreground color', { exact: true })).toHaveValue(/^oklch\(/);
+  expect(await getEditorSource(page)).toBe(before);
+  await page.keyboard.press('Escape');
+  await editor.focus();
+  await page.keyboard.press('ControlOrMeta+Z');
+  await expect(toolbar.getByLabel('Foreground color', { exact: true })).toHaveValue('');
+  await page.keyboard.press('ControlOrMeta+Shift+Z');
+  const finalColor = await toolbar.getByLabel('Foreground color', { exact: true }).inputValue();
+  expect(finalColor).toMatch(/^oklch\(/);
+  await toolbar.getByRole('button', { name: 'Foreground color picker', exact: true }).click();
+  await plane.dispatchEvent('pointerdown', { button: 0, clientX: box.x + 200, clientY: box.y + 20 });
+  await plane.dispatchEvent('pointercancel');
+  await expect(toolbar.getByLabel('Foreground color', { exact: true })).toHaveValue(finalColor);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(await getEditorSource(page)).toBe(before);
+});
+
+test('floating toolbar dismisses on a caret, cleared DOM selection, and outside pointer presses', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-textbox');
+  const before = await getEditorSource(page);
+  await page.locator('.sw-canvas-stage').getByText('Hello', { exact: true }).dblclick();
+  const editor = page.getByRole('textbox', { name: 'Edit text' });
+  await expect(editor).toBeVisible();
+  const toolbar = page.getByRole('toolbar', { name: 'Selection formatting' });
+  await selectRichText(page, 'Hello', 2);
+  await expect(toolbar).toHaveCount(0);
+  await selectRichText(page, 'Hello', 0, 'Hello', 5);
+  await expect(toolbar).toBeVisible();
+  await toolbar.getByLabel('Font size', { exact: true }).focus();
+  await expect(toolbar).toBeVisible();
+  await selectRichText(page, 'Hello', 2);
+  await expect(toolbar).toHaveCount(0);
+  await expect(editor).toBeVisible();
+  await selectRichText(page, 'Hello', 0, 'Hello', 5);
+  await expect(toolbar).toBeVisible();
+  await page.evaluate(() => {
+    window.getSelection()?.removeAllRanges();
+    document.dispatchEvent(new Event('selectionchange'));
+  });
+  await expect(toolbar).toHaveCount(0);
+  await expect(editor).toBeVisible();
+  await selectRichText(page, 'Hello', 0, 'Hello', 5);
+  await expect(toolbar).toBeVisible();
+  await toolbar.getByRole('button', { name: 'Foreground color picker', exact: true }).click();
+  const picker = page.getByRole('dialog', { name: 'Foreground color picker', exact: true });
+  await expect(picker).toBeVisible();
+  // A non-focusable outside target need not blur the editor to dismiss the toolbar.
+  await page.locator('.sw-main-workspace').dispatchEvent('pointerdown', { button: 0 });
+  await expect(toolbar).toHaveCount(0);
+  await expect(picker).toHaveCount(0);
+  await expect(editor).toBeVisible();
+  await selectRichText(page, 'Hello', 0, 'Hello', 5);
+  await expect(toolbar).toBeVisible();
+  await page.locator('.sw-canvas-stage').click({ position: { x: 5, y: 5 } });
+  await expect(toolbar).toHaveCount(0);
+  expect(await getEditorSource(page)).toBe(before);
+});
+
+for (const changed of [false, true]) {
+  test(`deselecting a TextBox clears its text selection${changed ? ' and commits its draft without reselecting it' : ''}`, async ({ page }) => {
+    await page.goto('/canvas.html?fixture=single-textbox');
+    const before = await getEditorSource(page);
+    await page.locator('.sw-canvas-stage').getByText('Hello', { exact: true }).dblclick();
+    const editor = page.getByRole('textbox', { name: 'Edit text' });
+    await expect(editor).toBeVisible();
+    if (changed) {
+      await selectRichText(page, 'Hello', 0, 'Hello', 5);
+      await page.keyboard.type('Updated');
+    }
+    const text = changed ? 'Updated' : 'Hello';
+    await selectRichText(page, text, 0, text, text.length);
+    await expect(page.getByRole('toolbar', { name: 'Selection formatting' })).toBeVisible();
+    // Exercise canvas Escape without a preceding contenteditable blur.
+    await page.locator('.sw-canvas-stage').dispatchEvent('keydown', { key: 'Escape' });
+    await expect(page.locator('.sw-selection-outline')).toHaveCount(0);
+    await expect(editor).toHaveCount(0);
+    await expect(page.getByRole('toolbar', { name: 'Selection formatting' })).toHaveCount(0);
+    expect(await page.evaluate(() => window.getSelection()?.toString())).toBe('');
+    if (changed) {
+      await expect.poll(() => getEditorSource(page)).toContain('"Updated"');
+      await page.keyboard.press('ControlOrMeta+Z');
+      await expect.poll(() => getEditorSource(page)).toBe(before);
+    } else expect(await getEditorSource(page)).toBe(before);
+  });
+}
+
+test('selecting another canvas component closes the old text session and retains the new selection', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=slide-grade-text');
+  await page.locator('.sw-canvas-stage').getByText('style', { exact: true }).dblclick();
+  const editor = page.getByRole('textbox', { name: 'Edit text' });
+  await expect(editor).toBeVisible();
+  await page.keyboard.press('ControlOrMeta+A');
+  await page.keyboard.type('Updated');
+  await selectRichText(page, 'Updated', 0, 'Updated', 7);
+  // Dispatch the hierarchy click without DOM focus moving: canvas ownership
+  // changes must finish the session independently of contenteditable blur.
+  await page.locator('.sw-hierarchy-node').filter({ hasText: 'TextBox' }).nth(1).dispatchEvent('click');
+  await expect(editor).toHaveCount(0);
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
+  await expect(page.locator('.sw-hierarchy-node.selected')).toContainText('TextBox');
+  await expect(page.locator('.sw-hierarchy-node').filter({ hasText: 'TextBox' }).nth(1)).toHaveClass(/selected/);
+  expect(await page.evaluate(() => window.getSelection()?.toString())).toBe('');
+  await expect.poll(() => getEditorSource(page)).toContain('"Updated"');
+});
+
+for (const backwards of [false, true]) {
+  test(`recoloring part of an existing Span preserves the ${backwards ? 'backward' : 'forward'} native selection`, async ({ page }) => {
+    await page.goto('/canvas.html?fixture=slide-grade-text');
+    await page.locator('.sw-canvas-stage').getByText('style', { exact: true }).dblclick();
+    const editor = page.getByRole('textbox', { name: 'Edit text' });
+    await expect(editor).toBeVisible();
+    await selectRichText(page, 'style', 1, 'style', 4);
+    if (backwards) await page.evaluate(() => {
+      const selection = window.getSelection()!;
+      selection.setBaseAndExtent(selection.focusNode!, selection.focusOffset, selection.anchorNode!, selection.anchorOffset);
+      document.dispatchEvent(new Event('selectionchange'));
+    });
+    const selection = () => page.evaluate(() => {
+      const selection = window.getSelection()!;
+      const root = document.querySelector('.ProseMirror')!;
+      const offset = (node: Node | null, end: number) => {
+        const range = document.createRange(); range.setStart(root, 0); range.setEnd(node!, end);
+        return range.toString().length;
+      };
+      return { text: selection.toString(), anchor: offset(selection.anchorNode, selection.anchorOffset), focus: offset(selection.focusNode, selection.focusOffset) };
+    });
+    const original = await selection();
+    expect(original.text).toBe('tyl');
+    const toolbar = page.getByRole('toolbar', { name: 'Selection formatting' });
+    await toolbar.getByRole('button', { name: 'Foreground color picker', exact: true }).click();
+    const picker = page.getByRole('dialog', { name: 'Foreground color picker', exact: true });
+    await picker.getByRole('button', { name: 'purple', exact: true }).click();
+    expect(await selection()).toEqual(original);
+    const lightness = picker.getByLabel('Lightness', { exact: true });
+    await lightness.fill('0.42');
+    await expect(lightness).toBeFocused();
+    await lightness.press('Enter');
+    await expect(editor.getByText('tyl', { exact: true })).toHaveCSS('color', /^oklch\(0.42 /);
+    await expect(editor.getByText('s', { exact: true })).toHaveCSS('color', 'rgb(0, 0, 255)');
+    await expect(editor.getByText('e', { exact: true })).toHaveCSS('color', 'rgb(0, 0, 255)');
+    await page.keyboard.press('Escape');
+    await editor.focus();
+    await expect.poll(selection).toEqual(original);
+    const color = toolbar.getByLabel('Foreground color', { exact: true });
+    await color.fill('#123456');
+    await color.press('Enter');
+    await expect(color).toBeFocused();
+    await editor.focus();
+    await expect.poll(selection).toEqual(original);
+    await page.keyboard.press('ControlOrMeta+Z');
+    expect(await selection()).toEqual(original);
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    expect(await getEditorSource(page)).toContain('color: oklch(0.42 ');
+  });
+}

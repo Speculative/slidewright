@@ -1,3 +1,4 @@
+import { Group, Ungroup } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { ShapeData } from '../runtime/loader.js';
 import type { SelectionTarget } from './selection-target.js';
@@ -43,8 +44,8 @@ export function GroupingControls({ source, selected, shapes, disabled, onCommit 
   if (!selected.some(target => target.kind === 'component')) return null;
   return <section className="sw-alignment" aria-label="Grouping">
     <div className="sw-distribute-buttons">
-      <button type="button" disabled={disabled || !availability.group} title="Group (Ctrl/Cmd+G)" onClick={() => apply(false)}>Group</button>
-      <button type="button" disabled={disabled || !availability.ungroup} title="Ungroup (Ctrl/Cmd+Shift+G)" onClick={() => apply(true)}>Ungroup</button>
+      <button type="button" className="sw-icon-button" aria-label="Group" disabled={disabled || !availability.group} title="Group (Ctrl/Cmd+G)" onClick={() => apply(false)}><Group size={20} aria-hidden="true" focusable="false" /></button>
+      <button type="button" className="sw-icon-button" aria-label="Ungroup" disabled={disabled || !availability.ungroup} title="Ungroup (Ctrl/Cmd+Shift+G)" onClick={() => apply(true)}><Ungroup size={20} aria-hidden="true" focusable="false" /></button>
     </div>
     {message && <p role="status">{message}</p>}
   </section>;

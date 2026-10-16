@@ -10,7 +10,7 @@ import { parse } from '../../runtime/parser.js';
 import { emit } from '../../runtime/emitter.js';
 import type { TextOrigin, TextValuePath } from './bindings.js';
 
-export const STYLE_FIELDS = ['color', 'font', 'size', 'weight', 'letterSpacing', 'italic', 'underline', 'strikethrough', 'href'] as const;
+export const STYLE_FIELDS = ['strokeWidth', 'strokeColor', 'color', 'font', 'size', 'weight', 'letterSpacing', 'italic', 'underline', 'strikethrough', 'href'] as const;
 type StyleField = typeof STYLE_FIELDS[number];
 type StyleValue = { value: string | number | boolean; authored: Value | null };
 type Styles = Partial<Record<StyleField, StyleValue>>;
@@ -44,6 +44,8 @@ function signature(styles: Styles): string {
 }
 function styleDOM(name: StyleField, value: string | number | boolean): Record<string, string> {
   switch (name) {
+    case 'strokeWidth': return { style: `-webkit-text-stroke-width:${value}px` };
+    case 'strokeColor': return { style: `-webkit-text-stroke-color:${value}` };
     case 'color': return { style: `color:${value}` };
     case 'font': return { style: `font-family:${['body', 'display', 'mono'].includes(String(value)) ? `var(--font-${value})` : value}` };
     case 'size': return { style: `font-size:${value}px` };
@@ -143,7 +145,7 @@ export class TextProjection {
       };
     }
     const marks: Record<string, MarkSpec> = {};
-    const cssNames: Record<StyleField, string> = { color: 'color', font: 'font-family', size: 'font-size', weight: 'font-weight', letterSpacing: 'letter-spacing', italic: 'font-style', underline: 'text-decoration-line', strikethrough: 'text-decoration-line', href: '' };
+    const cssNames: Record<StyleField, string> = { strokeWidth: '-webkit-text-stroke-width', strokeColor: '-webkit-text-stroke-color', color: 'color', font: 'font-family', size: 'font-size', weight: 'font-weight', letterSpacing: 'letter-spacing', italic: 'font-style', underline: 'text-decoration-line', strikethrough: 'text-decoration-line', href: '' };
     for (const name of STYLE_FIELDS) {
       marks[name] = {
         attrs: { value: {}, authored: { default: null } },
@@ -154,7 +156,7 @@ export class TextProjection {
             if (name === 'italic') return value === 'italic' ? { value: true } : false;
             if (name === 'underline') return String(value).includes('underline') ? { value: true } : false;
             if (name === 'strikethrough') return String(value).includes('line-through') ? { value: true } : false;
-            return { value: name === 'size' || name === 'letterSpacing' ? parseFloat(String(value)) : value };
+            return { value: name === 'size' || name === 'letterSpacing' || name === 'strokeWidth' ? parseFloat(String(value)) : value };
           } }],
       };
       const tags = name === 'weight' ? ['strong', 'b'] : name === 'italic' ? ['em', 'i'] : name === 'underline' ? ['u'] : name === 'strikethrough' ? ['s', 'strike', 'del'] : [];
@@ -187,8 +189,8 @@ export class TextProjection {
       const value = fillValue(comp, name);
       if (!value) continue;
       let resolved = scalar(value, '');
-      if (name === 'color' && value.kind === 'color_oklch') resolved = `oklch(${value.l} ${value.c} ${value.h})`;
-      if (name === 'color' && value.kind === 'name_ref') resolved = this.input.colorTokens?.[value.name] ?? `var(--${value.name})`;
+      if ((name === 'color' || name === 'strokeColor') && value.kind === 'color_oklch') resolved = `oklch(${value.l} ${value.c} ${value.h})`;
+      if ((name === 'color' || name === 'strokeColor') && value.kind === 'name_ref') resolved = this.input.colorTokens?.[value.name] ?? `var(--${value.name})`;
       styles[name] = { value: resolved, authored: value };
     }
     return styles;

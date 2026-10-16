@@ -255,3 +255,19 @@ assert.equal(formattingState(feedbackState).inline.weight.value, '700');
 feedbackState = apply(feedbackState, setTextStyle('italic', true));
 assert.equal(formattingState(feedbackState).inline.italic.value, true);
 assert.equal(formattingState(feedbackState).caret, true);
+
+// Stroke shares the inline provenance/lowering path, including authored tokens.
+const outlined = compile('[Paragraph { content: [Span { content: "outline" strokeWidth: 2 strokeColor: accent }] }]');
+const outlinedProjection = new TextProjection({ content: outlined.value, registry, colorTokens: { accent: '#ff0000' } });
+assert.equal(outlinedProjection.lower(outlinedProjection.doc), outlined.value);
+let outlinedState = EditorState.create({ doc: outlinedProjection.doc });
+outlinedState = outlinedState.apply(outlinedState.tr.setSelection(TextSelection.create(outlinedState.doc, 1, 8)));
+assert.equal(formattingState(outlinedState).inline.strokeColor.value, 'accent');
+assert.equal(outlinedState.doc.firstChild!.firstChild!.marks.find(mark => mark.type.name === 'strokeColor')!.attrs.value, '#ff0000');
+outlinedState = apply(outlinedState, setTextStyle('strokeWidth', 3));
+const outlinedSource = text(outlinedProjection.lower(outlinedState.doc));
+assert.ok(outlinedSource.includes('strokeWidth: 3'));
+assert.ok(outlinedSource.includes('strokeColor: accent'));
+outlinedState = apply(outlinedState, clearTextStyles);
+assert.ok(!text(outlinedProjection.lower(outlinedState.doc)).includes('strokeWidth:'));
+assert.ok(!text(outlinedProjection.lower(outlinedState.doc)).includes('strokeColor:'));

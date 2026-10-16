@@ -1,0 +1,85 @@
+import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import type { SlideColor } from '../InspectorPanels.js';
+import { commitOnTextBlur } from './focus.js';
+import { TextColorPicker } from './TextColorPicker.js';
+import { createPortal } from 'react-dom';
+import type { TextSessionHandle, TextStyleField } from './Editor.js';
+import type { FormattingValue, TextFormattingState } from './feedback.js';
+
+function StyleInput({ label, current, numeric, min, list, colorControl, apply }: {
+  label: string; current?: FormattingValue; numeric?: boolean; min?: number; list?: string; colorControl?: ReactNode;
+  apply(value: string | number | null): void;
+}) {
+  const authored = current?.value == null || current.mixed ? '' : String(current.value);
+  const [value, setValue] = useState(authored);
+  useLayoutEffect(() => setValue(authored), [authored]);
+  const commit = () => {
+    if (value === authored) return;
+    const next = value.trim() === '' ? null : numeric ? Number(value) : value;
+    if (typeof next === 'number' && (!Number.isFinite(next) || min !== undefined && next < min)) {
+      setValue(authored); return;
+    }
+    apply(next);
+  };
+  return <div className="sw-floating-style-field"><span>{label}</span><span className="sw-text-style-input"><input aria-label={label} type={numeric ? 'number' : 'text'}
+    min={min} step={numeric ? 'any' : undefined} list={list}
+    value={value} placeholder={current?.mixed ? 'Mixed' : 'Inherited'}
+    title="Enter to apply; empty restores inherited style"
+    onChange={event => setValue(event.target.value)} onBlur={commit}
+    onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); commit(); } }} />{colorControl}</span></div>;
+}
+
+export function FloatingToolbar({ session, state, children, colorTokens, slideColors }: {
+  session: RefObject<TextSessionHandle | null>; state: TextFormattingState | null; children: ReactNode; colorTokens: Record<string, string>; slideColors: SlideColor[];
+}) {
+  const toolbar = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const place = () => {
+      const bounds = session.current?.selectionBounds();
+      const element = toolbar.current;
+      if (!bounds || !element) return;
+      const rect = element.getBoundingClientRect();
+      const left = Math.max(8, Math.min((bounds.left + bounds.right - rect.width) / 2, window.innerWidth - rect.width - 8));
+      const above = bounds.top - rect.height - 10;
+      const top = Math.max(8, Math.min(above >= 8 ? above : bounds.bottom + 10, window.innerHeight - rect.height - 8));
+      setPosition(prior => prior?.left === left && prior.top === top ? prior : { left, top });
+    };
+    place();
+    const frame = requestAnimationFrame(place);
+    const observer = new ResizeObserver(place);
+    if (toolbar.current) observer.observe(toolbar.current);
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => { cancelAnimationFrame(frame); observer.disconnect(); window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true); };
+  }, [session, state]);
+  const inline = (field: TextStyleField, label: string, numeric = false, min?: number, list?: string) =>
+    <StyleInput key={field} label={label} current={state?.inline[field]} numeric={numeric} min={min} list={list} colorControl={(field === 'color' || field === 'strokeColor') && <TextColorPicker field={field} label={label} current={state?.inline[field]} session={session} colorTokens={colorTokens} slideColors={slideColors} />}
+      apply={value => session.current?.format(field, value)} />;
+  return createPortal(<div ref={toolbar} className="sw-floating-text-toolbar sw-text-session-actions" data-sw-text-formatting
+    role="toolbar" aria-label="Selection formatting" style={{ left: position?.left ?? 8, top: position?.top ?? 8, visibility: position ? 'visible' : 'hidden' }}
+    onPointerDown={event => event.stopPropagation()}
+    onKeyDown={event => {
+      event.stopPropagation();
+      if (event.key === 'Escape') { event.preventDefault(); session.current?.finish('cancel'); }
+      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); session.current?.finish('commit'); }
+    }}
+    onBlur={event => {
+      commitOnTextBlur(event.relatedTarget, () => session.current?.finish('commit'));
+    }}>
+    <div className="sw-floating-text-fields">
+      {inline('font', 'Font family', false, undefined, 'sw-text-fonts')}
+      <datalist id="sw-text-fonts">
+        {['body', 'display', 'mono', 'Lato', 'Monaspace Neon', 'Arial', 'Georgia', 'Times New Roman', 'Verdana'].map(font => <option key={font} value={font} />)}
+      </datalist>
+      {inline('size', 'Font size', true, 1)}
+      {inline('color', 'Foreground color')}
+      {inline('strokeWidth', 'Stroke width', true, 0)}
+      {inline('strokeColor', 'Stroke color')}
+      <StyleInput label="Line height" current={state?.paragraph.lineHeight} numeric min={0.01}
+        apply={value => session.current?.paragraph('lineHeight', value)} />
+      {inline('letterSpacing', 'Letter spacing', true)}
+    </div>
+    {children}
+  </div>, document.body);
+}

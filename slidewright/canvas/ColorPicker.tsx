@@ -106,7 +106,7 @@ export function ColorPicker({
   );
 
   return (
-    <div className="sw-color-picker">
+    <div className="sw-color-picker" tabIndex={-1}>
       <LCPlane
         l={l}
         c={c}
@@ -253,7 +253,7 @@ function LCPlane({
     // number-field input) so its focus ring doesn't visually persist
     // during the drag, AND so any pending draft text commits via
     // the input's onBlur before our scrub updates the value.
-    blurActive();
+    focusPicker(e.currentTarget);
     const startEl = e.currentTarget;
     onScrubBegin();
     const initial = pickFromEvent(e);
@@ -345,7 +345,7 @@ function HueSlider({
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
     if (e.button !== 0) return;
     e.preventDefault();
-    blurActive();
+    focusPicker(e.currentTarget);
     onScrubBegin();
     let lastH = hueFromEvent(e);
     setLch({ l, c, h: lastH });
@@ -409,10 +409,10 @@ function NumberField({
   onScrub: (getValue: () => number) => ScrubSession;
 }): ReactElement {
   const [draft, setDraft] = useState(fmt(value));
-  const focusedRef = useRef(false);
+  const cancelBlur = useRef(false);
   const formatted = fmt(value);
   useEffect(() => {
-    if (!focusedRef.current) setDraft(formatted);
+    setDraft(formatted);
   }, [formatted]);
 
   const onLabelPointerDown = (e: ReactPointerEvent<HTMLSpanElement>): void => {
@@ -420,7 +420,7 @@ function NumberField({
     e.preventDefault();
     // Same as plane/slider — drop focus from any stale input so
     // its draft commits and its focus ring goes away.
-    blurActive();
+    focusPicker(e.currentTarget);
     const startVal = value;
     let accum = 0;
     document.body.classList.add('sw-scrubbing');
@@ -480,15 +480,14 @@ function NumberField({
       </span>
       <input
         type="text"
+        aria-label={label === 'L' ? 'Lightness' : label === 'C' ? 'Chroma' : 'Hue'}
         inputMode="decimal"
         value={draft}
         spellCheck={false}
-        onFocus={() => {
-          focusedRef.current = true;
-        }}
         onChange={(e) => setDraft(e.currentTarget.value)}
         onBlur={() => {
-          focusedRef.current = false;
+          if (cancelBlur.current) { cancelBlur.current = false; return; }
+          if (draft === fmt(value)) return;
           const n = parseFloat(draft);
           if (!Number.isFinite(n)) {
             setDraft(fmt(value));
@@ -497,10 +496,11 @@ function NumberField({
           commit(n);
         }}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') e.currentTarget.blur();
+          if (e.key === 'Enter') { e.preventDefault(); focusPicker(e.currentTarget); }
           else if (e.key === 'Escape') {
             setDraft(fmt(value));
-            e.currentTarget.blur();
+            cancelBlur.current = true;
+            focusPicker(e.currentTarget);
           }
         }}
       />
@@ -764,9 +764,10 @@ function srgbToOklch(rgb255: readonly [number, number, number]): {
   return { l: L, c: C, h: H };
 }
 
-function blurActive(): void {
-  const a = document.activeElement;
-  if (a && a instanceof HTMLElement) a.blur();
+function focusPicker(target: HTMLElement): void {
+  // Keep focus inside the authoring surface while pending number fields blur.
+  // A bare blur would send focus to body and commit an active text session.
+  target.closest<HTMLElement>('.sw-color-picker')?.focus({ preventScroll: true });
 }
 
 function clamp(x: number, lo: number, hi: number): number {
