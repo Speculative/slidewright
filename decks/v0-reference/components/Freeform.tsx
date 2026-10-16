@@ -50,8 +50,9 @@ export const canvas: LayoutAdapter = {
   chainMode: 'transparent',
 };
 
-export default function Freeform({ slots }: ComponentRenderProps) {
-  const children = (slots.children as ReactNode[] | undefined) ?? [];
+export default function Freeform({ slots, slotsState }: ComponentRenderProps) {
+  // Empty Freeforms are blank canvases; suppress the loader's slot placeholder.
+  const children = slotsState.children === 'filled' ? slots.children as ReactNode : null;
   return (
     <div
       style={{
