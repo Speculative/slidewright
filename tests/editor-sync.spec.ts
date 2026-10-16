@@ -303,6 +303,44 @@ test('clicking a thumbnail in the slide strip changes the active slide', async (
   expect(await getActiveSlideOneBased(page)).toBe(2);
 });
 
+for (const mode of ['notes', 'deck', 'slide'] as const) {
+  test(`${mode} tab stays selected when navigating between slides`, async ({ page }) => {
+    await page.goto('/canvas.html?fixture=two-slides');
+    const source = (await getSource(page))
+      .replace('notes: ""', 'notes: "First slide notes"')
+      .replace('      notes: ""\n', '');
+    await setSource(page, source);
+    await page.locator(`[data-editor-mode="${mode}"]`).click();
+    const pane = page.locator('.sw-editor-pane');
+    await page.locator('.sw-thumb').nth(1).click();
+    await expect.poll(() => getActiveSlideOneBased(page)).toBe(2);
+    await expect(pane).toHaveAttribute('data-mode', mode);
+    if (mode === 'notes') {
+      await expect.poll(() => getSource(page)).toBe('');
+      await page.locator('.cm-content').focus();
+      await page.keyboard.type('Second slide notes');
+      await expect.poll(() => getSource(page)).toBe('Second slide notes');
+    } else if (mode === 'slide') {
+      await expect.poll(() => getSource(page)).toContain('label: "Second"');
+      expect(await getSource(page)).not.toContain('label: "First"');
+    } else {
+      expect(await getSource(page)).toBe(source);
+    }
+
+    await page.locator('.sw-thumb').nth(0).click();
+    await expect.poll(() => getActiveSlideOneBased(page)).toBe(1);
+    await expect(pane).toHaveAttribute('data-mode', mode);
+    if (mode === 'notes') await expect.poll(() => getSource(page)).toBe('First slide notes');
+    if (mode === 'slide') await expect.poll(() => getSource(page)).toContain('label: "First"');
+    // Keyboard navigation uses the same selected projection.
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(() => getActiveSlideOneBased(page)).toBe(2);
+    await expect(pane).toHaveAttribute('data-mode', mode);
+    if (mode === 'notes') await expect.poll(() => getSource(page)).toBe('Second slide notes');
+    if (mode === 'slide') await expect.poll(() => getSource(page)).toContain('label: "Second"');
+  });
+}
+
 // ─── External-edit reconciliation ────────────────────────────────
 
 test('external param edit preserves selection on the same shape', async ({ page }) => {

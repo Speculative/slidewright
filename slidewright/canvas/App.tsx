@@ -2654,7 +2654,14 @@ export function App({
           value: notesValue.value,
           multiline: notesValue.multiline,
         }
-      : null;
+      : !notesFill && activeSlide
+        ? {
+            sourceRange: { start: activeSlide.end - 1, end: activeSlide.end - 1 },
+            value: '',
+            multiline: false,
+            insertField: true,
+          }
+        : null;
     return {
       activeSlide,
       activeSlideIndex: activeSlide ? activeIdx : 0,

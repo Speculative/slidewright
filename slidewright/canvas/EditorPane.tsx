@@ -133,6 +133,17 @@ function sourceFromDocument(
     );
   }
   if (!projection.notes) return source;
+  if (projection.notes.insertField) {
+    if (!document) return source;
+    const lineStart = source.lastIndexOf('\n', projection.globalStart - 1) + 1;
+    const indentation = /^[ \t]*/.exec(source.slice(lineStart, projection.globalStart))?.[0] ?? '';
+    const before = source.slice(0, projection.globalStart).replace(/[ \t]+$/, '');
+    return (
+      before + (before.endsWith('\n') ? '' : '\n') +
+      `${indentation}  notes: ${JSON.stringify(document)}\n${indentation}` +
+      source.slice(projection.globalEnd)
+    );
+  }
   const encoded = encodeNotesValue(document, source, projection.notes);
   return (
     source.slice(0, projection.globalStart) +

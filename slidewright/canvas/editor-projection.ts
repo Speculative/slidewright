@@ -15,6 +15,9 @@ export interface NotesProjection {
   sourceRange: SourceRange;
   value: string;
   multiline: boolean;
+  // An absent field projects an empty document at the slide's closing
+  // brace. The first edit inserts a notes field at this position.
+  insertField?: boolean;
 }
 
 export interface EditorPaneProjection {

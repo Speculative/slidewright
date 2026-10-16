@@ -90,6 +90,40 @@ test('notes wrap as prose and edits round-trip to the deck', async ({ page }) =>
   await expect(page.locator('.cm-line').filter({ hasText: 'notes:' })).toHaveCount(1);
 });
 
+for (const inline of [false, true]) {
+  test(`notes can be added to a slide without a notes field (${inline ? 'inline' : 'multiline'})`, async ({ page }) => {
+    await page.goto('/canvas.html?fixture=single-box');
+    const withoutNotes = inline
+      ? source.replace(/    Slide \{[\s\S]*?\n    \}/, '    Slide { label: "Empty", content: Freeform { children: [] } }')
+      : source.replace(`      notes: ${JSON.stringify(prose)}\n`, '');
+    await setHostSource(page, withoutNotes);
+    const notesTab = page.locator('[data-editor-mode="notes"]');
+    await expect(notesTab).toBeEnabled();
+    await notesTab.click();
+    await expect(page.locator('.sw-editor-pane')).toHaveAttribute('data-mode', 'notes');
+    await expect.poll(() => getEditorSource(page)).toBe('');
+    await page.locator('[data-editor-mode="deck"]').click();
+    expect(await getEditorSource(page)).toBe(withoutNotes);
+
+    await notesTab.click();
+    await page.locator('.cm-content').focus();
+    const text = 'Speaker "notes" \\ details\nSecond line';
+    await page.keyboard.insertText(text);
+    await expect.poll(() => getEditorSource(page)).toBe(text);
+    // A later keystroke must update the new literal, rather than insert
+    // another field using the original empty projection.
+    await page.keyboard.type('!');
+    await expect.poll(() => getEditorSource(page)).toBe(text + '!');
+    await page.locator('[data-editor-mode="deck"]').click();
+    const updated = await getEditorSource(page);
+    expect(updated.match(/notes:/g)).toHaveLength(1);
+    expect(updated).toContain('label:');
+    await expect(page.locator('.sw-canvas-stage [data-sw-component="Freeform"]')).toBeVisible();
+    await notesTab.click();
+    await expect.poll(() => getEditorSource(page)).toBe(text + '!');
+  });
+}
+
 for (const mode of ['deck', 'notes'] as const) {
   for (const backwards of [false, true]) {
     test(`${mode}: ${backwards ? 'backward' : 'forward'} mouse selection across a wrap paints both ends and edits the selected text`, async ({ page }) => {
