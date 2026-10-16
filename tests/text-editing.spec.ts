@@ -5,6 +5,58 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/canvas.html?fixture=slide-grade-text');
 });
 
+for (const { marker, tag, style } of [
+  { marker: '* ', tag: 'ul', style: 'disc' },
+  { marker: '1. ', tag: 'ol', style: 'decimal' },
+  { marker: '3.', tag: 'ol', style: 'decimal' },
+]) {
+  test(`typing ${marker.trim()} creates a list, continues, and exits on empty Enter`, async ({ page }) => {
+    await page.goto('/canvas.html?fixture=single-textbox');
+    await page.locator('.sw-canvas-stage').getByText('Hello', { exact: true }).dblclick();
+    await selectRichText(page, 'Hello', 0, 'Hello', 5);
+    await page.keyboard.press('Backspace');
+    const editor = page.getByRole('textbox', { name: 'Edit text' });
+    await page.keyboard.type(marker);
+    await expect(editor.locator(`:scope > ${tag} > li`)).toHaveCount(1);
+    await page.keyboard.type('First');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('Second');
+    await expect(editor.locator(`:scope > ${tag} > li`)).toHaveText(['First', 'Second']);
+    await page.keyboard.press('Enter');
+    await expect(editor.locator(`:scope > ${tag} > li`)).toHaveCount(3);
+    await page.keyboard.press('Enter');
+    await expect(editor.locator(`:scope > ${tag} > li`)).toHaveCount(2);
+    await expect(editor.locator(':scope > p')).toHaveCount(1);
+    // Removing the empty paragraph after exiting the list must return to
+    // the preceding item, rather than wrap the paragraph in a new bullet.
+    await page.keyboard.press('Backspace');
+    await expect(editor.locator(`:scope > ${tag} > li`)).toHaveText(['First', 'Second']);
+    await expect(editor.locator(':scope > p')).toHaveCount(0);
+    await page.keyboard.type('!');
+    await expect(editor.locator(`:scope > ${tag} > li`)).toHaveText(['First', 'Second!']);
+    await page.keyboard.press('ControlOrMeta+Z');
+    await page.keyboard.press('ControlOrMeta+Z');
+    await expect(editor.locator(`:scope > ${tag} > li`)).toHaveText(['First', 'Second']);
+    await expect(editor.locator(':scope > p')).toHaveCount(1);
+    await page.keyboard.type('After');
+    await page.keyboard.press('ControlOrMeta+Enter');
+    await expect.poll(() => getEditorSource(page)).toContain('ListItem {');
+    const list = page.locator(`.sw-canvas-stage ${tag}[data-sw-component="List"]`);
+    await expect(list).toHaveCSS('list-style-type', style);
+    const source = await getEditorSource(page);
+    expect(source).toContain('ListItem {');
+    expect(source).toContain('"First"');
+    expect(source).toContain('"Second"');
+    expect(source).toContain('"After"');
+    if (marker === '3.') {
+      await expect(list).toHaveAttribute('start', '3');
+      expect(source).toContain('start: 3');
+    }
+    expect(source).not.toContain(`"${marker}`);
+    await expect(list.locator(':scope > li')).toHaveText(['First', 'Second']);
+  });
+}
+
 test('TextBox renders slide typography, wrapping, mixed runs, and numbered bullets', async ({ page }) => {
   const content = page.locator('.sw-canvas-stage [data-sw-textbox-content="true"]').first();
   await expect(content).toHaveCSS('font-family', /Arvo|Georgia/);

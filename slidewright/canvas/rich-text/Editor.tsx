@@ -13,6 +13,7 @@ import { readColorValueCss } from '../ColorControls.js';
 import { renderEditorInline } from '../../runtime/loader.js';
 import { STYLE_FIELDS, TextProjection } from './projection.js';
 import { richTextKeys, setTextStyle, setTextStyles, clearTextStyles, setParagraphStyle, type ParagraphField, setListStyle, changeListDepth, type ListStyle } from './commands.js';
+import { listInputPlugin } from './input.js';
 import type { TextPreset } from './presets.js';
 import { formattingState, type TextFormattingState } from './feedback.js';
 import { leafIdentityPlugin, textRange } from './selection.js';
@@ -166,7 +167,7 @@ export function RichTextEditor({ snapshot, registry, onReady, onFinish, onFormat
       keys['Mod-Enter'] = () => { finish('commit'); return true; };
       keys.Escape = () => { finish('cancel'); return true; };
       view = new EditorView(mount, {
-        state: EditorState.create({ doc: projection.doc, plugins: [history(), leafIdentityPlugin(), keymap(keys)] }), nodeViews,
+        state: EditorState.create({ doc: projection.doc, plugins: [history(), leafIdentityPlugin(), listInputPlugin(), keymap(keys)] }), nodeViews,
         attributes: { role: 'textbox', 'aria-label': 'Edit text', 'aria-multiline': 'true' },
         dispatchTransaction(tr) {
           if (closed) return;

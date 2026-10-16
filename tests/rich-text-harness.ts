@@ -6,6 +6,7 @@ import { history } from 'prosemirror-history';
 import { DOMParser, DOMSerializer } from 'prosemirror-model';
 import { TextProjection } from '../slidewright/canvas/rich-text/projection';
 import { richTextKeys } from '../slidewright/canvas/rich-text/commands';
+import { listInputPlugin } from '../slidewright/canvas/rich-text/input';
 import { parse } from '../slidewright/runtime/parser';
 import { emit } from '../slidewright/runtime/emitter';
 import { buildRegistry } from '../slidewright/runtime/contract';
@@ -22,7 +23,7 @@ const registry = buildRegistry({
   Formula: { slidewright: { produces: 'text', slots: {}, inlineEditing: { mode: 'owned' } }, default: () => null },
 });
 const projection = new TextProjection({ content: original.items[0]!.fills[0]!.value, registry, scope: { bindings: { term: 'shared term' } } });
-const state = EditorState.create({ doc: projection.doc, plugins: [history(), keymap(richTextKeys(projection.schema))] });
+const state = EditorState.create({ doc: projection.doc, plugins: [history(), listInputPlugin(), keymap(richTextKeys(projection.schema))] });
 const output = document.querySelector('#source')!;
 function update() {
   const value = projection.lower(view.state.doc);

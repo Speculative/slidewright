@@ -119,6 +119,22 @@ export function structuralCommand(command: Command): Command {
   return (state, dispatch, view) => command(state, dispatch ? tr => dispatch(closeHistory(tr)) : undefined, view);
 }
 
+// Generic joining wraps a paragraph after a list in a new ListItem. An
+// empty paragraph should instead disappear, with the caret at the end of
+// the preceding item (including its deepest nested child).
+export const deleteEmptyParagraphAfterList: Command = (state, dispatch) => {
+  const { $from, empty } = state.selection;
+  if (!empty || $from.depth !== 1 || $from.parent.type.name !== 'paragraph' || $from.parent.content.size !== 0) return false;
+  const start = $from.before();
+  const previous = state.doc.resolve(start).nodeBefore;
+  if (!previous || !['bullet_list', 'ordered_list'].includes(previous.type.name)) return false;
+  if (dispatch) {
+    const tr = state.tr.delete(start, $from.after());
+    dispatch(tr.setSelection(TextSelection.near(tr.doc.resolve(start), -1)).scrollIntoView());
+  }
+  return true;
+};
+
 // Generic block joining prefers wrapping a constrained ListItem into a
 // nested list. Text items instead merge at the preceding text endpoint,
 // preserving both lists when that endpoint is a nested item.
@@ -183,7 +199,7 @@ export function richTextKeys(schema: Schema): Record<string, Command> {
     }),
     Tab: structuralCommand(sinkListItem(item)),
     'Shift-Tab': structuralCommand(liftListItem(item)),
-    Backspace: structuralCommand(chainCommands(deleteSelection, mergeListItems(-1), joinBackward, selectNodeBackward)),
+    Backspace: structuralCommand(chainCommands(deleteSelection, deleteEmptyParagraphAfterList, mergeListItems(-1), joinBackward, selectNodeBackward)),
     Delete: structuralCommand(chainCommands(deleteSelection, mergeListItems(1), joinForward, selectNodeForward)),
     'Mod-z': undo,
     'Mod-Shift-z': redo,
