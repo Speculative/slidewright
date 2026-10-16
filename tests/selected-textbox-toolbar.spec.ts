@@ -43,9 +43,9 @@ test('whole-box formatting retains selection, supports undo, and hands off to ra
   await text.click();
   const whole = page.getByRole('toolbar', { name: 'TextBox formatting', exact: true });
   await expect(whole).toBeVisible();
-  await whole.getByLabel('Font family', { exact: true }).fill('Georgia');
-  await page.keyboard.press('Enter');
-  await expect(text).toHaveCSS('font-family', 'Georgia');
+  await whole.getByLabel('Text preset', { exact: true }).selectOption('header');
+  await expect(text).toHaveCSS('font-size', '76px');
+  await expect(text).toHaveCSS('font-weight', '700');
   await expect(whole).toBeVisible();
   await text.dblclick();
   await expect(whole).toHaveCount(0);
@@ -69,6 +69,9 @@ test('whole-box controls style empty text and dismiss for other object selection
   await box.click({ position: { x: 20, y: 20 } });
   const toolbar = page.getByRole('toolbar', { name: 'TextBox formatting', exact: true });
   await expect(toolbar).toBeVisible();
+  await toolbar.getByLabel('Text preset').selectOption('body');
+  await expect(toolbar.getByLabel('Text preset')).toHaveValue('body');
+  await expect.poll(() => getEditorSource(page)).toContain('fontSize: 38');
   await toolbar.getByLabel('Font size', { exact: true }).fill('52');
   await page.keyboard.press('Enter');
   await expect.poll(() => getEditorSource(page)).toContain('fontSize: 52');
@@ -138,3 +141,65 @@ for (const navigation of ['thumbnail', 'keyboard', 'source cursor'] as const) {
     expect(await getEditorSource(page)).toBe(source);
   });
 }
+
+for (const [preset, size, weight] of [['title', 100, '700'], ['header', 76, '700'], ['body', 38, '400']] as const) {
+  test(`${preset} preset styles mixed TextBox content in one undo step`, async ({ page }) => {
+    await page.goto('/canvas.html?fixture=slide-grade-text');
+    const before = await getEditorSource(page);
+    const stage = page.locator('.sw-canvas-stage');
+    await stage.getByText('style', { exact: true }).click();
+    const toolbar = page.getByRole('toolbar', { name: 'TextBox formatting', exact: true });
+    const presets = toolbar.getByRole('combobox', { name: 'Text preset' });
+    await expect(presets).toHaveValue('');
+    await presets.selectOption(preset);
+    await expect(presets).toHaveValue(preset);
+    for (const text of ['style', 'First bullet']) {
+      await expect(stage.getByText(text, { exact: true })).toHaveCSS('font-size', `${size}px`);
+      await expect(stage.getByText(text, { exact: true })).toHaveCSS('font-weight', weight);
+    }
+    const source = await getEditorSource(page);
+    expect(source).toContain(`fontSize: ${size}`);
+    expect(source).toContain('href: "https://example.com/rich-text"');
+    expect(source).toContain('start: 3');
+    expect(source).not.toContain('size: 48');
+    await expect(stage.getByText('Structured item', { exact: true })).toHaveCSS('font-size', '34px');
+    await toolbar.getByLabel('Font size', { exact: true }).fill('43');
+    await page.keyboard.press('Enter');
+    await expect(presets).toHaveValue('');
+    await toolbar.getByLabel('Font size', { exact: true }).blur();
+    await page.keyboard.press('ControlOrMeta+Z');
+    await expect.poll(() => getEditorSource(page)).toBe(source);
+    await page.keyboard.press('ControlOrMeta+Z');
+    await expect.poll(() => getEditorSource(page)).toBe(before);
+  });
+}
+
+test('range presets preserve surrounding text, undo atomically, cancel and commit', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-textbox');
+  const before = await getEditorSource(page);
+  const text = page.locator('.sw-canvas-stage').getByText('Hello', { exact: true });
+  await text.dblclick();
+  const editor = page.getByRole('textbox', { name: 'Edit text' });
+  await selectRichText(page, 'Hello', 1, 'Hello', 4);
+  const toolbar = page.getByRole('toolbar', { name: 'Selection formatting', exact: true });
+  await toolbar.getByLabel('Text preset').selectOption('title');
+  await expect(editor.getByText('ell', { exact: true })).toHaveCSS('font-size', '100px');
+  await expect(toolbar.getByLabel('Text preset')).toHaveValue('title');
+  await editor.focus();
+  await page.keyboard.press('ControlOrMeta+Z');
+  await expect(editor.getByText('Hello', { exact: true })).toBeVisible();
+  await selectRichText(page, 'Hello', 1, 'Hello', 4);
+  await toolbar.getByLabel('Text preset').selectOption('body');
+  await page.keyboard.press('Escape');
+  expect(await getEditorSource(page)).toBe(before);
+  await text.dblclick();
+  await selectRichText(page, 'Hello', 1, 'Hello', 4);
+  await toolbar.getByLabel('Text preset').selectOption('header');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  const source = await getEditorSource(page);
+  expect(source).toContain('size: 76');
+  expect(source).toContain('"H"');
+  expect(source).toContain('"o"');
+  await page.keyboard.press('ControlOrMeta+Z');
+  await expect.poll(() => getEditorSource(page)).toBe(before);
+});

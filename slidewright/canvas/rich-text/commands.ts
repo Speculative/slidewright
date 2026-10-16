@@ -85,6 +85,23 @@ export function setTextStyle(field: typeof STYLE_FIELDS[number], value: string |
   };
 }
 
+// Apply related fields in one transaction so a preset is one draft undo step.
+export function setTextStyles(styles: Partial<Record<typeof STYLE_FIELDS[number], string | number | boolean | null>>): Command {
+  return (state, dispatch) => {
+    if (dispatch) {
+      const tr = closeHistory(state.tr);
+      const { from, to, empty } = state.selection;
+      for (const [field, value] of Object.entries(styles)) {
+        const type = state.schema.marks[field]!;
+        if (empty) value === null ? tr.removeStoredMark(type) : tr.addStoredMark(type.create({ value }));
+        else value === null ? tr.removeMark(from, to, type) : tr.addMark(from, to, type.create({ value }));
+      }
+      dispatch(tr);
+    }
+    return true;
+  };
+}
+
 export const clearTextStyles: Command = (state, dispatch) => {
   if (dispatch) {
     const { from, to, empty } = state.selection;

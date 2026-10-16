@@ -8,13 +8,13 @@ import { measureLayoutSnapshot } from '../layout-measurement.js';
 import { readColorValueCss } from '../ColorControls.js';
 import { TextProjection } from './projection.js';
 import { formattingState } from './feedback.js';
-import { clearTextStyles, setParagraphStyle, setTextStyle } from './commands.js';
+import { clearTextStyles, setParagraphStyle, setTextStyle, setTextStyles } from './commands.js';
 import { FloatingToolbar, type TextStyleControls } from './FloatingToolbar.js';
 import { TextStyleButtons } from './FormattingToolbar.js';
 import type { TextStyleField } from './Editor.js';
 
 const defaults = { font: 'font', size: 'fontSize', weight: 'fontWeight', color: 'color', letterSpacing: 'letterSpacing' } as const;
-export type WholeTextChange = { content: Value; field?: string; value?: string | number | boolean | Value | null };
+export type WholeTextChange = { content: Value; defaults?: Record<string, string | number>; field?: string; value?: string | number | boolean | Value | null };
 
 // Reuse the private projection without mounting an editable DOM island. A
 // whole-box command selects every block and lowers through the same origins
@@ -44,6 +44,12 @@ export function SelectedTextBoxToolbar({ component, params, scope, registry, col
     selectionBounds: () => measureLayoutSnapshot({ start: component.span.start.offset, end: component.span.end.offset })?.layoutEl.getBoundingClientRect() ?? null,
     finish() {},
     format,
+    preset({ font, size, weight }) {
+      setTextStyles({ font: null, size: null, weight: null })(state, tr => onChange({
+        content: projection.lower(state.apply(tr).doc),
+        defaults: { font, fontSize: size, fontWeight: weight },
+      }, false));
+    },
     toggle(field) {
       const current = feedback.inline[field];
       const enabled = !current.mixed && (field === 'weight' ? String(current.value) === '700' : current.value === true);

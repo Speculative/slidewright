@@ -22,7 +22,7 @@ export function formattingState(state: EditorState, defaults: Record<string, unk
     if (node.isInline && !empty) marks.push(node.marks);
     if (node.type.name === 'paragraph') paragraphs.push(node.attrs);
   });
-  const inline = Object.fromEntries(STYLE_FIELDS.map(field => [field, common(marks.map(group => {
+  const inline = Object.fromEntries(STYLE_FIELDS.map(field => [field, common((marks.length ? marks : [[]]).map(group => {
     const mark = group.find(mark => mark.type.name === field);
     const authored = mark?.attrs.authored;
     return authored?.kind === 'name_ref' ? authored.name : mark?.attrs.value ?? (defaults[field] as FormattingValue['value']) ?? null;

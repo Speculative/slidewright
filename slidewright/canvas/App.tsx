@@ -2595,14 +2595,14 @@ export function App({
       path = pathToComponent(ast, comp);
       const content = comp.fills.find(fill => fill.name === 'content');
       if (content) content.value = change.content; else comp.fills.push(slotFill('content', change.content));
-      if (change.field) {
-        const value = change.value;
-        if (value == null) comp.fills = comp.fills.filter(fill => fill.name !== change.field);
+      const fields = { ...change.defaults, ...(change.field ? { [change.field]: change.value } : {}) };
+      for (const [field, value] of Object.entries(fields)) {
+        if (value == null) comp.fills = comp.fills.filter(fill => fill.name !== field);
         else {
           const next = typeof value === 'object' ? value : typeof value === 'number' ? numberLit(value) : typeof value === 'boolean' ? booleanLit(value)
-            : change.field === 'color' && value in state.colorTokens ? nameRef(value) : stringLit(value);
-          const fill = comp.fills.find(fill => fill.name === change.field);
-          if (fill) fill.value = next; else comp.fills.push(slotFill(change.field, next));
+            : field === 'color' && value in state.colorTokens ? nameRef(value) : stringLit(value);
+          const fill = comp.fills.find(fill => fill.name === field);
+          if (fill) fill.value = next; else comp.fills.push(slotFill(field, next));
         }
       }
       return {};

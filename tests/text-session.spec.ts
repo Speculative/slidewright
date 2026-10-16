@@ -491,7 +491,8 @@ test('floating toolbar follows selection and persists font, stroke, and paragrap
   const bounds = await toolbar.boundingBox();
   const textBounds = await editor.boundingBox();
   expect(bounds!.y + bounds!.height).toBeLessThan(textBounds!.y);
-  for (const [label, value] of [['Font family', 'Georgia'], ['Font size', '42'], ['Foreground color', '#123456'], ['Stroke width', '1.5'], ['Stroke color', '#ff0000'], ['Line height', '1.8'], ['Letter spacing', '2']]) {
+  await toolbar.getByLabel('Text preset').selectOption('body');
+  for (const [label, value] of [['Font size', '42'], ['Foreground color', '#123456'], ['Stroke width', '1.5'], ['Stroke color', '#ff0000'], ['Line height', '1.8'], ['Letter spacing', '2']]) {
     await toolbar.getByLabel(label, { exact: true }).fill(value);
     await page.keyboard.press('Enter');
   }
@@ -503,7 +504,7 @@ test('floating toolbar follows selection and persists font, stroke, and paragrap
   const source = await getEditorSource(page);
   expect(source).toContain('strokeWidth: 1.5');
   expect(source).toContain('strokeColor: "#ff0000"');
-  expect(source).toContain('font: "Georgia"');
+  expect(source).toContain('font: "body"');
   expect(source).toContain('lineHeight: 1.8');
   await expect(page.locator('.sw-canvas-stage').getByText('Hello', { exact: true })).toHaveCSS('-webkit-text-stroke-color', 'rgb(255, 0, 0)');
   await page.locator('.sw-canvas-stage').getByText('Hello', { exact: true }).dblclick();

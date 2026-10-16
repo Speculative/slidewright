@@ -12,7 +12,8 @@ import type { Scope } from '../../runtime/scope.js';
 import { readColorValueCss } from '../ColorControls.js';
 import { renderEditorInline } from '../../runtime/loader.js';
 import { STYLE_FIELDS, TextProjection } from './projection.js';
-import { richTextKeys, setTextStyle, clearTextStyles, setParagraphStyle, type ParagraphField, setListStyle, changeListDepth, type ListStyle } from './commands.js';
+import { richTextKeys, setTextStyle, setTextStyles, clearTextStyles, setParagraphStyle, type ParagraphField, setListStyle, changeListDepth, type ListStyle } from './commands.js';
+import type { TextPreset } from './presets.js';
 import { formattingState, type TextFormattingState } from './feedback.js';
 import { leafIdentityPlugin, textRange } from './selection.js';
 import type { TextRange } from './bindings.js';
@@ -35,6 +36,7 @@ export interface TextSessionHandle {
   range(): TextRange | null;
   selectionBounds(): { left: number; right: number; top: number; bottom: number } | null;
   format(field: TextStyleField, value: string | number | boolean | null): void;
+  preset(preset: TextPreset): void;
   toggle(field: 'weight' | 'italic' | 'underline' | 'strikethrough'): void;
   clearFormatting(): void;
   formatColor(field: 'color' | 'strokeColor', value: Value | null): void;
@@ -217,6 +219,9 @@ export function RichTextEditor({ snapshot, registry, onReady, onFinish, onFormat
         setTextStyle(field, value)(view.state, tr => view.dispatch(tr));
       };
       callbacks.current.onReady({ finish,
+        preset({ font, size, weight }) {
+          if (!closed) setTextStyles({ font, size, weight })(view.state, tr => view.dispatch(tr));
+        },
         selectionColor(field) {
           if (closed) return '';
           const node = view.domAtPos(view.state.selection.from).node;
