@@ -31,6 +31,7 @@ test('placement accepts typing immediately and retains authored content on dismi
   await page.keyboard.type('Immediate text');
   await page.keyboard.press('ControlOrMeta+Enter');
   await expect.poll(() => getEditorSource(page)).toContain('"Immediate text"');
+  expect(await getEditorSource(page)).not.toMatch(/"Immediate text"\s*,?\s*""/);
   await expect(page.locator('.sw-canvas-stage [data-sw-component="TextBox"]')).toHaveCount(2);
 });
 

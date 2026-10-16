@@ -89,6 +89,19 @@ const commented = compile('[Paragraph { content: ["plain"\n// keep the named sty
 let commentState = EditorState.create({ doc: commented.projection.doc });
 commentState = commentState.apply(commentState.tr.insertText('!', 2));
 assert.ok(text(commented.projection.lower(commentState.doc)).includes('// keep the named style'));
+const emptyParagraph = compile('[Paragraph { content: [""] }]');
+let emptyState = EditorState.create({ doc: emptyParagraph.projection.doc });
+emptyState = emptyState.apply(emptyState.tr.insertText('Entered text', 1));
+const enteredContent = fill(blocks(emptyParagraph.projection.lower(emptyState.doc))[0]!, 'content');
+assert.equal(enteredContent.kind, 'list');
+assert.deepEqual((enteredContent as { items: Value[] }).items.map(value => value.kind === 'string' ? value.value : value.kind), ['Entered text'], 'typing replaces the sole empty string instead of appending it');
+
+const emptySibling = compile('[Paragraph { content: ["editable", ""] }]');
+let siblingState = EditorState.create({ doc: emptySibling.projection.doc });
+siblingState = siblingState.apply(siblingState.tr.insertText('!', 2));
+const siblingContent = fill(blocks(emptySibling.projection.lower(siblingState.doc))[0]!, 'content') as { items: Value[] };
+assert.equal(siblingContent.items.at(-1), (fill(blocks(emptySibling.value)[0]!, 'content') as { items: Value[] }).items[1], 'empty sibling runs remain authored content');
+
 const invisible = compile('[Paragraph { content: [Span { content: [] weight: "700" } "editable"] }]');
 let invisibleState = EditorState.create({ doc: invisible.projection.doc });
 invisibleState = invisibleState.apply(invisibleState.tr.insertText('!', 2));

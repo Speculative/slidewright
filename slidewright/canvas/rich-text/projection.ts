@@ -296,6 +296,9 @@ export class TextProjection {
         const entries = [...values];
         for (let index = 0; index < before.items.length; index++) {
           const value = before.items[index]!;
+          // A sole bare empty string is the empty editor's initial content.
+          // Typing replaces it; it is not an invisible authored sibling.
+          if (before.items.length === 1 && values.length > 0 && value.kind === 'string' && value.value === '') continue;
           const bound = [...this.origins.values()].find(origin => origin.value === value);
           if (!(bound?.projected instanceof Fragment) || bound.projected.size !== 0 || entries.includes(value)) continue;
           const next = before.items.slice(index + 1);
