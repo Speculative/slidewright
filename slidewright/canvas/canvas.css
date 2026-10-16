@@ -214,6 +214,8 @@ html, body, #root {
  * that actually catch the pointer — the visible line, hit-area
  * line, and polygon — which is exactly what we want). */
 [data-sw-component='Box'],
+[data-sw-component='Ellipse'],
+[data-sw-component='Line'],
 [data-sw-component='Arrow'] {
   cursor: grab;
 }

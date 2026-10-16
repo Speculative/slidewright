@@ -58,6 +58,18 @@ See the [extension README](extension/README.md) for the F5 development-host
 workflow and the **Slidewright: Open Canvas** command. Browser tests run against
 the standalone host; desktop VS Code still needs a smoke check before release.
 
+## Canvas shape shortcuts
+
+Press **T** for text, **R** for a rectangle, **E** for a line (Edge),
+**Shift+E** for an arrow, or **O** for an ellipse. Click to place text;
+drag to draw the other shapes inside a Freeform. **Escape** cancels the
+armed tool. These shortcuts stay inactive while typing or presenting.
+**I** opens the insertion picker, which also includes Line and Ellipse.
+
+Select a Line or Arrow and use **startHead** / **endHead** in the inspector
+to choose `none`, `arrow`, or `circle` independently at either endpoint.
+These settings are saved in the `.sw` source and support canvas undo.
+
 ## Repository map
 
 - [SLIDEWRIGHT.md](SLIDEWRIGHT.md) — durable architecture, component contracts, and

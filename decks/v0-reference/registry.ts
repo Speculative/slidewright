@@ -22,6 +22,8 @@ import * as Group from './components/Group.js';
 import * as Box from './components/Box.js';
 import * as TextBox from './components/TextBox.js';
 import * as Arrow from './components/Arrow.js';
+import * as Line from './components/Line.js';
+import * as Ellipse from './components/Ellipse.js';
 import * as PlateauSlide from '../uist-2026/components/PlateauSlide.js';
 import * as DebuggerDemo from '../uist-2026/components/DebuggerDemo.js';
 import * as StateTimeChart from '../uist-2026/components/StateTimeChart.js';
@@ -41,6 +43,8 @@ export const components = buildRegistry({
   Box,
   TextBox,
   Arrow,
+  Line,
+  Ellipse,
   Image,
   Video,
   InlineBadge,

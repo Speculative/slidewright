@@ -601,6 +601,7 @@ function ComponentPropertiesView({
             <PropertyRow
               key={`${shape.slideIdx}-${shape.childIdx}-${row.fill.name}`}
               fill={row.fill}
+              choices={row.choices}
               source={source}
               onCommit={wrappedCommit}
               slotType={fillSlotType(shape.meta, row.fill.name)}
@@ -614,6 +615,7 @@ function ComponentPropertiesView({
             <MissingPropertyRow
               key={`missing-${shape.slideIdx}-${shape.childIdx}-${row.name}`}
               name={row.name}
+              choices={row.choices}
               slotType={row.slotType}
               defaultValue={row.defaultValue}
               owner={row.owner}
@@ -635,7 +637,7 @@ function ComponentPropertiesView({
 // tracks which Component this row's data came from — used by the
 // unified Slide+content panel to route metaFor lookups and keep
 // React keys unique across merged sources.
-type PropertyRowDescriptor =
+type PropertyRowDescriptor = (
   | { kind: 'filled'; fill: SlotFill; owner: Component }
   | {
       kind: 'missing';
@@ -643,7 +645,8 @@ type PropertyRowDescriptor =
       slotType: SlotType;
       defaultValue?: unknown;
       owner: Component;
-    };
+    }
+) & { choices?: readonly string[] };
 
 function buildPropertyRowDescriptors(
   comp: Component,
@@ -654,7 +657,7 @@ function buildPropertyRowDescriptors(
   // Filled rows first, in source order — preserves the existing
   // visual ordering the user is used to.
   for (const fill of comp.fills) {
-    rows.push({ kind: 'filled', fill, owner: comp });
+    rows.push({ kind: 'filled', fill, owner: comp, choices: meta.params?.[fill.name]?.choices });
   }
   // Missing slots, then missing params. Within each group, follow
   // the meta's declaration order (Object.entries on the schema —
@@ -671,6 +674,7 @@ function buildPropertyRowDescriptors(
         name,
         slotType: schema.type,
         defaultValue: schema.default,
+        choices: schema.choices,
         owner: comp,
       });
     }
@@ -687,6 +691,7 @@ function rowBelongsTo(
 
 function MissingPropertyRow({
   name,
+  choices,
   slotType,
   defaultValue,
   owner,
@@ -694,6 +699,7 @@ function MissingPropertyRow({
   onCommit,
 }: {
   name: string;
+  choices?: readonly string[];
   slotType: SlotType;
   defaultValue?: unknown;
   owner: Component;
@@ -706,17 +712,17 @@ function MissingPropertyRow({
   const initial = missingValueSource(slotType, defaultValue);
   const [draft, setDraft] = useState(initial);
   const canceledRef = useRef(false);
-  const commit = (): void => {
+  const commit = (candidate = draft): void => {
     if (canceledRef.current) {
       canceledRef.current = false;
       return;
     }
-    if (!editable || draft.length === 0) return;
+    if (!editable || candidate.length === 0) return;
     // Parse the candidate value through the real grammar, then graft that
     // AST node into the real component and canonical-emit the whole deck.
     // This rejects malformed inspector text without ever creating a second
     // value parser or storing presentation-only state.
-    const probe = parse(`Probe { value: ${draft} }`, '<inspector-value>');
+    const probe = parse(`Probe { value: ${candidate} }`, '<inspector-value>');
     const probeFill = probe.ast.items[0]?.fills[0];
     if (
       !probeFill ||
@@ -736,14 +742,19 @@ function MissingPropertyRow({
   return (
     <div className="sw-property-row sw-property-row-missing">
       <span className="sw-property-key">{name}</span>
-      {editable ? (
+      {choices ? (
+        <select className="sw-property-value" aria-label={name}
+          value={typeof defaultValue === 'string' ? defaultValue : ''} onChange={event => commit(JSON.stringify(event.currentTarget.value))}>
+          {choices.map(choice => <option key={choice} value={choice}>{choice}</option>)}
+        </select>
+      ) : editable ? (
         <input
           className="sw-property-value sw-property-value-missing"
           value={draft}
           spellCheck={false}
           aria-label={`${name} (default)`}
           onChange={(event) => setDraft(event.currentTarget.value)}
-          onBlur={commit}
+          onBlur={() => commit()}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
               event.preventDefault();
@@ -1058,6 +1069,7 @@ function SlidePropertiesView({
             <PropertyRow
               key={`${rowKeyPrefix(row)}-${row.fill.name}`}
               fill={row.fill}
+              choices={row.choices}
               source={source}
               onCommit={wrappedCommit}
               slotType={fillSlotType(metaFor(row), row.fill.name)}
@@ -1071,6 +1083,7 @@ function SlidePropertiesView({
             <MissingPropertyRow
               key={`missing-${rowKeyPrefix(row)}-${row.name}`}
               name={row.name}
+              choices={row.choices}
               slotType={row.slotType}
               defaultValue={row.defaultValue}
               owner={row.owner}
@@ -1218,6 +1231,7 @@ function SlotPropertiesView({
 // ─── Per-row editor ──────────────────────────────────────────────
 
 interface PropertyRowProps {
+  choices?: readonly string[];
   fill: SlotFill;
   source: string;
   onCommit: (newSource: string) => void;
@@ -1253,6 +1267,7 @@ interface PropertyRowProps {
 
 function PropertyRow({
   fill,
+  choices,
   source,
   onCommit,
   slotType,
@@ -1495,7 +1510,13 @@ function PropertyRow({
       >
         {fill.name}
       </span>
-      {isColor ? (
+      {choices && fill.value.kind === 'string' ? (
+        <select className="sw-property-value" aria-label={fill.name}
+          value={fill.value.value} onChange={event => onCommit(spliceValueText(JSON.stringify(event.currentTarget.value)))}>
+          {!choices.includes(fill.value.value) && <option value={fill.value.value}>{fill.value.value}</option>}
+          {choices.map(choice => <option key={choice} value={choice}>{choice}</option>)}
+        </select>
+      ) : isColor ? (
         <div
           ref={colorCellRef}
           className={

@@ -39,6 +39,7 @@ export const slidewright: ComponentMeta = {
   category: 'Shapes',
   description: 'Absolutely-positioned rectangle.',
   insertion: {
+    shortcut: 'R',
     // Modal-only: matches the muscle memory of design tools where
     // shape primitives are drawn by drag-rect rather than dropped.
     gestures: ['modal'],
@@ -61,6 +62,10 @@ export const slidewright: ComponentMeta = {
 };
 
 export default function Box({ params }: ComponentRenderProps) {
+  return renderBox(params);
+}
+
+export function renderBox(params: Record<string, unknown>, ellipse = false) {
   const x = (params.x as number | undefined) ?? 0;
   const y = (params.y as number | undefined) ?? 0;
   const width = (params.width as number | undefined) ?? 200;
@@ -79,7 +84,7 @@ export default function Box({ params }: ComponentRenderProps) {
         height: `${height}px`,
         background: fill,
         border: `${Math.max(0, Number(params.borderWidth ?? 4))}px solid ${params.borderColor ?? 'var(--fg, #000)'}`,
-        borderRadius: Math.max(0, Number(params.radius ?? 0)),
+        borderRadius: ellipse ? '50%' : Math.max(0, Number(params.radius ?? 0)),
         boxSizing: 'border-box',
       }}
     />

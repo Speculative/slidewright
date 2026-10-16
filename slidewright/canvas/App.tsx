@@ -355,7 +355,7 @@ interface CreatePreview {
   // Preview overlay shape — cached at gesture-start from the
   // component's `meta.insertion.modalPreview` so the overlay
   // renderer doesn't need to re-consult the registry every frame.
-  previewShape: 'rect' | 'line' | 'point';
+  previewShape: 'rect' | 'line' | 'ellipse' | 'point';
   // Freeform's positioned div (the portal target — selection
   // visuals and create preview both portal in here).
   freeformDiv: HTMLElement;
@@ -796,6 +796,7 @@ const toolEntries: ToolEntry[] = Object.entries(components)
     description: loaded.meta.description,
     category: loaded.meta.category,
     gestures: loaded.meta.insertion!.gestures,
+    shortcut: loaded.meta.insertion!.shortcut,
   }));
 
 // Read the current canvas scale (design pixels → CSS pixels). The
@@ -2312,6 +2313,15 @@ export function App({
 
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
+      const shortcut = `${e.shiftKey ? 'Shift+' : ''}${e.key.toUpperCase()}`;
+      const tool = toolEntries.find(entry => entry.shortcut === shortcut);
+      if (tool && !e.defaultPrevented && !e.isComposing && !e.repeat &&
+          !presenting && !richEditing && !editing && !gestureMeta && !createPreview && !marquee && !toolDrag) {
+        e.preventDefault();
+        chooseInsertTool(tool.id);
+        return;
+      }
+
       if (e.key === 'Escape') {
         // If a gesture is in flight, the per-gesture effect's own
         // Escape handler owns the cancel — don't also clear
@@ -2374,6 +2384,10 @@ export function App({
     slideSelection,
     handleDeleteSlides,
     handleAddSlide,
+    presenting,
+    richEditing,
+    editing,
+    chooseInsertTool,
   ]);
 
   // ─── Derived gesture deltas (for context distribution) ──────────
@@ -3224,6 +3238,7 @@ function CreatePreviewOverlay({
         width: `${width}px`,
         height: `${height}px`,
         pointerEvents: 'none',
+        borderRadius: createPreview.previewShape === 'ellipse' ? '50%' : undefined,
         background: 'rgba(0, 102, 255, 0.15)',
         border: '2px dashed rgba(0, 102, 255, 0.85)',
         boxSizing: 'border-box',

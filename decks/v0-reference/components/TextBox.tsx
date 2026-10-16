@@ -57,6 +57,7 @@ export const slidewright: ComponentMeta = {
   category: 'Shapes',
   description: 'Absolutely-positioned text region.',
   insertion: {
+    shortcut: 'T',
     gestures: ['modal'],
     modalPlacement: 'point',
     stub: (ctx) => {

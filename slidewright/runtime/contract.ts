@@ -40,6 +40,8 @@ export interface SlotSchema {
 }
 
 export interface ParamSchema {
+  // Suggested authored string values, displayed as an inspector select.
+  choices?: readonly string[];
   type: SlotType;
   default?: unknown;
 }
@@ -172,7 +174,9 @@ export interface ComponentInsertion {
   // dragStart to dragEnd (Arrow). Defaults to 'rect' when
   // unspecified. Ignored for components that don't opt into the
   // modal gesture.
-  modalPreview?: 'rect' | 'line';
+  modalPreview?: 'rect' | 'line' | 'ellipse';
+  // Canvas shortcut (e.g. R or Shift+E), ignored while editing text.
+  shortcut?: string;
   // Point placement accepts a click and uses its landing position.
   modalPlacement?: 'point' | 'draw';
 }

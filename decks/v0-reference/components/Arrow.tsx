@@ -32,50 +32,57 @@ import {
   slotFill,
 } from '../../../slidewright/runtime/ast-builders.js';
 
-export const slidewright: ComponentMeta = {
-  produces: 'block',
-  slots: {},
-  params: {
-    x1: { type: 'number', default: 0 },
-    y1: { type: 'number', default: 0 },
-    x2: { type: 'number', default: 200 },
-    y2: { type: 'number', default: 200 },
-    color: { type: 'color-token', default: 'fg' },
-    strokeWidth: { type: 'number', default: 4 },
-  },
-  protocols: {},
-  category: 'Shapes',
-  description: 'Line with arrowhead between two points.',
-  insertion: {
-    gestures: ['modal'],
-    modalPreview: 'line',
-    stub: (ctx) => {
-      if (!acceptsTargetSlot('block', ctx.targetSlotType)) return null;
-      // Arrow reads the unnormalized drag vector so the tail lands
-      // at the pointerdown point and the tip at the release point
-      // — direction matters for the arrowhead. Falls back to the
-      // normalized rect's diagonal if dragStart/dragEnd weren't
-      // supplied (e.g., a drag-from-toolbar drop with no draw
-      // gesture); falls back to null if neither is present.
-      if (ctx.dragStart && ctx.dragEnd) {
-        return makeComponent('Arrow', [
-          slotFill('x1', numberLit(Math.round(ctx.dragStart.x))),
-          slotFill('y1', numberLit(Math.round(ctx.dragStart.y))),
-          slotFill('x2', numberLit(Math.round(ctx.dragEnd.x))),
-          slotFill('y2', numberLit(Math.round(ctx.dragEnd.y))),
-        ]);
-      }
-      if (!ctx.rect) return null;
-      const { x, y, width, height } = ctx.rect;
-      return makeComponent('Arrow', [
-        slotFill('x1', numberLit(Math.round(x))),
-        slotFill('y1', numberLit(Math.round(y))),
-        slotFill('x2', numberLit(Math.round(x + width))),
-        slotFill('y2', numberLit(Math.round(y + height))),
-      ]);
+export function lineMetadata(name: 'Line' | 'Arrow'): ComponentMeta {
+  return {
+    produces: 'block',
+    slots: {},
+    params: {
+      x1: { type: 'number', default: 0 },
+      y1: { type: 'number', default: 0 },
+      x2: { type: 'number', default: 200 },
+      y2: { type: 'number', default: 200 },
+      color: { type: 'color-token', default: 'fg' },
+      strokeWidth: { type: 'number', default: 4 },
+      startHead: { type: 'string', default: 'none', choices: ['none', 'arrow', 'circle'] },
+      endHead: { type: 'string', default: name === 'Arrow' ? 'arrow' : 'none', choices: ['none', 'arrow', 'circle'] },
     },
-  },
-};
+    protocols: {},
+    category: 'Shapes',
+    description: 'Line between two points with configurable heads at either end.',
+    insertion: {
+      gestures: ['modal'],
+      shortcut: name === 'Arrow' ? 'Shift+E' : 'E',
+      modalPreview: 'line',
+      stub: (ctx) => {
+        if (!acceptsTargetSlot('block', ctx.targetSlotType)) return null;
+        // Arrow reads the unnormalized drag vector so the tail lands
+        // at the pointerdown point and the tip at the release point
+        // — direction matters for the arrowhead. Falls back to the
+        // normalized rect's diagonal if dragStart/dragEnd weren't
+        // supplied (e.g., a drag-from-toolbar drop with no draw
+        // gesture); falls back to null if neither is present.
+        if (ctx.dragStart && ctx.dragEnd) {
+          return makeComponent(name, [
+            slotFill('x1', numberLit(Math.round(ctx.dragStart.x))),
+            slotFill('y1', numberLit(Math.round(ctx.dragStart.y))),
+            slotFill('x2', numberLit(Math.round(ctx.dragEnd.x))),
+            slotFill('y2', numberLit(Math.round(ctx.dragEnd.y))),
+          ]);
+        }
+        if (!ctx.rect) return null;
+        const { x, y, width, height } = ctx.rect;
+        return makeComponent(name, [
+          slotFill('x1', numberLit(Math.round(x))),
+          slotFill('y1', numberLit(Math.round(y))),
+          slotFill('x2', numberLit(Math.round(x + width))),
+          slotFill('y2', numberLit(Math.round(y + height))),
+        ]);
+      },
+    },
+  };
+}
+
+export const slidewright = lineMetadata('Arrow');
 
 export default function Arrow({ params }: ComponentRenderProps) {
   const x1 = (params.x1 as number | undefined) ?? 0;
@@ -84,7 +91,22 @@ export default function Arrow({ params }: ComponentRenderProps) {
   const y2 = (params.y2 as number | undefined) ?? 200;
   const color = (params.color as string | undefined) ?? 'var(--fg)';
   const strokeWidth = (params.strokeWidth as number | undefined) ?? 4;
-  const head = computeArrowGeometry(x1, y1, x2, y2, strokeWidth);
+  const startHead = params.startHead ?? 'none';
+  const endHead = params.endHead ?? 'arrow';
+  const start = computeArrowGeometry(x2, y2, x1, y1, strokeWidth);
+  const end = computeArrowGeometry(x1, y1, x2, y2, strokeWidth);
+  const radius = Math.max(6, strokeWidth * 1.5);
+  const headAt = (kind: unknown, x: number, y: number, points: string, key: string) => {
+    if (kind === 'arrow') {
+      return <polygon key={key} data-line-head={key} points={points}
+        fill={color} style={{ pointerEvents: 'visiblePainted' }} />;
+    }
+    if (kind === 'circle') {
+      return <circle key={key} data-line-head={key} cx={x} cy={y} r={radius}
+        fill={color} style={{ pointerEvents: 'visiblePainted' }} />;
+    }
+    return null;
+  };
   // Hit-area stroke width — keeps thin arrows comfortably
   // clickable. Matches the visible stroke for already-thick arrows.
   const hitWidth = Math.max(strokeWidth, 24);
@@ -104,10 +126,10 @@ export default function Arrow({ params }: ComponentRenderProps) {
         * line below catches clicks within a wider region so thin
         * arrows are still grabbable. */}
       <line
-        x1={x1}
-        y1={y1}
-        x2={head.baseX}
-        y2={head.baseY}
+        x1={startHead === 'arrow' ? start.baseX : x1}
+        y1={startHead === 'arrow' ? start.baseY : y1}
+        x2={endHead === 'arrow' ? end.baseX : x2}
+        y2={endHead === 'arrow' ? end.baseY : y2}
         stroke={color}
         strokeWidth={strokeWidth}
         strokeLinecap="round"
@@ -118,19 +140,16 @@ export default function Arrow({ params }: ComponentRenderProps) {
       <line
         x1={x1}
         y1={y1}
-        x2={head.baseX}
-        y2={head.baseY}
+        x2={x2}
+        y2={y2}
         stroke="transparent"
         strokeWidth={hitWidth}
         strokeLinecap="round"
         style={{ pointerEvents: 'stroke' }}
         data-arrow-hit="line"
       />
-      <polygon
-        points={head.points}
-        fill={color}
-        style={{ pointerEvents: 'visiblePainted' }}
-      />
+      {headAt(startHead, x1, y1, start.points, 'start')}
+      {headAt(endHead, x2, y2, end.points, 'end')}
     </svg>
   );
 }

@@ -7,6 +7,7 @@ export interface ToolEntry {
   id: string;
   label: string;
   description?: string;
+  shortcut?: string;
   category?: string;
   gestures: ('drag' | 'modal')[];
 }
@@ -105,7 +106,7 @@ export function ToolPalette({ placing, tools, onSelect, onDragStart }: Props): R
       {matches.map((tool, i) => <div key={tool.id}>
         {(i === 0 || tool.category !== matches[i - 1]?.category) && <div className="sw-tool-section-header">{tool.category ?? 'Other'}</div>}
         <button type="button" tabIndex={-1} id={`sw-insert-${tool.id}`} role="option" aria-selected={current === i}
-          className="sw-tool" title={tool.description} onMouseMove={() => setIndex(i)}
+          className="sw-tool" title={[tool.description, tool.shortcut].filter(Boolean).join(' · ')} aria-keyshortcuts={tool.shortcut} onMouseMove={() => setIndex(i)}
           onClick={() => confirm(tool.id)} onPointerDown={event => {
             if (tool.gestures.includes('drag') && onDragStart) onDragStart(tool.id, event);
           }}>{tool.label}</button>
