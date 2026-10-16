@@ -170,7 +170,13 @@ test('filter input narrows the visible entries', async ({ page }) => {
 // ─── Drop on empty-slot placeholder ───────────────────────────────
 
 test('drag VStack onto an empty block slot materializes the fill', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('console', message => {
+    if (message.type() === 'error') errors.push(message.text());
+  });
+  page.on('pageerror', error => errors.push(error.message));
   await page.goto('/canvas.html?fixture=empty-block-slot');
+  const before = await getSource(page);
   // The body slot's empty placeholder. `data-sw-slot-name="body"`
   // is the wrapper; the dashed box visual is its first child.
   const placeholder = page
@@ -181,6 +187,13 @@ test('drag VStack onto an empty block slot materializes the fill', async ({ page
   const source = await getSource(page);
   expect(source).toMatch(/body:\s*VStack\s*\{/);
   await expect(page.locator('.sw-hierarchy-node.selected[data-sw-component="VStack"]')).toHaveCount(1);
+  expect(errors).toEqual([]);
+  // One drop is one undo entry, even under StrictMode's updater replay.
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(() => getSource(page)).toBe(before);
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await expect.poll(() => getSource(page)).toBe(source);
+  expect(errors).toEqual([]);
 });
 
 test('drag with mismatched type rejects (no source change)', async ({ page }) => {
@@ -198,6 +211,41 @@ test('drag with mismatched type rejects (no source change)', async ({ page }) =>
   const afterSrc = await getSource(page);
   expect(afterSrc).toBe(beforeSrc);
 });
+
+for (const cancel of [false, true]) {
+  test(`tool drag handles batched pointer events (${cancel ? 'cancel' : 'drop'})`, async ({ page }) => {
+    await page.goto('/canvas.html?fixture=empty-block-slot');
+    const before = await getSource(page);
+    const placeholder = page.locator('[data-sw-slot-name="body"][data-sw-slot-empty="true"] > *').first();
+    const target = await placeholder.boundingBox();
+    if (!target) throw new Error('placeholder not visible');
+    await openInsertionPicker(page);
+    const tool = await page.locator('.sw-tool', { hasText: /^VStack$/ }).boundingBox();
+    if (!tool) throw new Error('VStack tool not visible');
+    await page.mouse.move(tool.x + tool.width / 2, tool.y + tool.height / 2);
+    await page.mouse.down();
+    await letReactCatchUp(page);
+    // No render between crossing the drag threshold and releasing. Repeated
+    // terminal events must neither resurrect the preview nor commit twice.
+    await page.evaluate(({ target, cancel }) => {
+      const init = { bubbles: true, clientX: target.x + target.width / 2, clientY: target.y + target.height / 2 };
+      document.dispatchEvent(new PointerEvent('pointermove', init));
+      if (cancel) document.dispatchEvent(new PointerEvent('pointercancel', init));
+      document.dispatchEvent(new PointerEvent('pointerup', init));
+      document.dispatchEvent(new PointerEvent('pointerup', init));
+      document.dispatchEvent(new PointerEvent('pointermove', init));
+    }, { target, cancel });
+    await page.mouse.up();
+    if (cancel) {
+      expect(await getSource(page)).toBe(before);
+      await expect(placeholder).toBeVisible();
+    } else {
+      await expect.poll(() => getSource(page)).toMatch(/body:\s*VStack\s*\{/);
+      await page.keyboard.press('ControlOrMeta+z');
+      await expect.poll(() => getSource(page)).toBe(before);
+    }
+  });
+}
 
 // ─── Gap insertion in a filled array slot ─────────────────────────
 

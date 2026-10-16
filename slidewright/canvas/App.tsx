@@ -1950,101 +1950,106 @@ export function App({
       return;
     }
 
+    // Keep pointer state synchronous, including moves React hasn't rendered
+    // yet. Source writes must stay in event handlers: React may replay state
+    // updaters during render, so committing from one repeats the host write.
+    let current = toolDrag;
+    let finished = false;
     const onMove = (e: PointerEvent) => {
+      if (finished) return;
       const x = e.clientX;
       const y = e.clientY;
-      setToolDrag((prev) => {
-        if (!prev) return prev;
-        const committed =
-          prev.committed ||
-          Math.hypot(
-            x - prev.pointerStartX,
-            y - prev.pointerStartY,
-          ) >= TOOL_DRAG_THRESHOLD;
-        if (!committed) {
-          return { ...prev, pointerCurrentX: x, pointerCurrentY: y };
-        }
+      const committed =
+        current.committed ||
+        Math.hypot(
+          x - current.pointerStartX,
+          y - current.pointerStartY,
+        ) >= TOOL_DRAG_THRESHOLD;
+      if (!committed) {
+        current = { ...current, pointerCurrentX: x, pointerCurrentY: y };
+      } else {
         const { target, invalidHover } = hitTestDropTarget(x, y, produces);
-        return {
-          ...prev,
+        current = {
+          ...current,
           committed: true,
           pointerCurrentX: x,
           pointerCurrentY: y,
           target,
           invalidHover,
         };
-      });
+      }
+      setToolDrag(current);
     };
 
-    let cancelled = false;
+    const onCancel = () => {
+      finished = true;
+      setToolDrag(null);
+    };
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      cancelled = true;
-      setToolDrag(null);
+      onCancel();
     };
 
     const onUp = (event: PointerEvent) => {
-      if (cancelled) {
-        setToolDrag(null);
-        return;
-      }
-      setToolDrag((prev) => {
-        if (!prev || !prev.committed) return null;
-        const target = hitTestDropTarget(event.clientX, event.clientY, produces).target;
-        if (!target) return null;
-        const result = commitSourceEdit(
-          sourceRef.current,
-          '<tool-drag>',
-          (ast) => {
-            const parent = findComponentAtSpan(
-              ast,
-              target.parentStart,
-              target.parentEnd,
-            );
-            if (!parent) return null;
-            const node = insertion.stub({
-              gesture: 'drag',
-              targetSlotType: target.slotType,
-              insertionIndex:
-                target.kind === 'array-gap'
-                  ? target.insertionIndex
-                  : undefined,
-            });
-            if (!node) return null;
-            const ok =
-              target.kind === 'empty-slot'
-                ? materializeSlotFill(
-                    parent,
-                    target.slotName,
-                    target.slotType,
-                    node,
-                  )
-                : insertIntoArraySlot(
-                    parent,
-                    target.slotName,
-                    target.insertionIndex,
-                    node,
-                  );
-            if (!ok) return null;
-            return { selectComponents: [node] };
-          },
-        );
-        if (result) commitToHost(result.newSource, result.newSelections);
-        return null;
-      });
+      if (finished) return;
+      finished = true;
+      setToolDrag(null);
+      if (!current.committed) return;
+      const target = hitTestDropTarget(event.clientX, event.clientY, produces).target;
+      if (!target) return;
+      const result = commitSourceEdit(
+        sourceRef.current,
+        '<tool-drag>',
+        (ast) => {
+          const parent = findComponentAtSpan(
+            ast,
+            target.parentStart,
+            target.parentEnd,
+          );
+          if (!parent) return null;
+          const node = insertion.stub({
+            gesture: 'drag',
+            targetSlotType: target.slotType,
+            insertionIndex:
+              target.kind === 'array-gap'
+                ? target.insertionIndex
+                : undefined,
+          });
+          if (!node) return null;
+          const ok =
+            target.kind === 'empty-slot'
+              ? materializeSlotFill(
+                  parent,
+                  target.slotName,
+                  target.slotType,
+                  node,
+                )
+              : insertIntoArraySlot(
+                  parent,
+                  target.slotName,
+                  target.insertionIndex,
+                  node,
+                );
+          if (!ok) return null;
+          return { selectComponents: [node] };
+        },
+      );
+      if (result) commitToHost(result.newSource, result.newSelections);
     };
 
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onCancel);
     document.addEventListener('keydown', onKey);
     return () => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onCancel);
       document.removeEventListener('keydown', onKey);
     };
     // Effect re-installs when the tool itself changes; pointer
-    // coords are committed via setState so listeners read fresh
-    // state without re-installing.
+    // coords live in this effect and are published for the preview without
+    // reinstalling listeners on each move.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toolDrag?.tool, host]);
 
