@@ -2,13 +2,13 @@ import { test, expect } from '@playwright/test';
 import { getEditorSource, setHostSource } from './editor-helpers';
 
 test('presenter console syncs notes and slide navigation without changing source', async ({ page }) => {
-  await page.goto('/canvas.html?deck=uist-2026');
+  await page.goto('/canvas.html?fixture=presenter');
   const before = await getEditorSource(page);
   const popupPromise = page.waitForEvent('popup');
   await page.getByRole('button', { name: 'Presenter view', exact: true }).click();
   const presenter = await popupPromise;
   await expect(presenter.getByRole('heading', { name: 'Presenter view', exact: true })).toBeVisible();
-  await expect(presenter.getByLabel('Presenter slide')).toContainText('Slide 1 of 20');
+  await expect(presenter.getByLabel('Presenter slide')).toContainText('Slide 1 of 3');
   await expect(presenter.getByLabel('Speaker notes')).toContainText("Hello! I'm Jeff");
   await expect(presenter.getByRole('heading', { name: 'Next slide overview' })).toBeVisible();
   const previews = await presenter.locator('.sw-presenter-previews > div').all();
@@ -16,15 +16,15 @@ test('presenter console syncs notes and slide navigation without changing source
   await expect(presenter.getByLabel('Speaker notes')).toBeInViewport();
   await expect(page.locator('.sw-editor-pane')).toBeHidden();
   await presenter.getByRole('button', { name: 'Next slide', exact: true }).click();
-  await expect(presenter.getByLabel('Presenter slide')).toContainText('Slide 2 of 20');
+  await expect(presenter.getByLabel('Presenter slide')).toContainText('Slide 2 of 3');
   await expect(page.locator('.sw-canvas-stage')).toContainText('Why I Care About Debugging');
   await expect(presenter.getByLabel('Speaker notes')).toContainText('Just to introduce');
   await presenter.locator('h1').click();
   await presenter.keyboard.press('ArrowLeft');
-  await expect(presenter.getByLabel('Presenter slide')).toContainText('Slide 1 of 20');
+  await expect(presenter.getByLabel('Presenter slide')).toContainText('Slide 1 of 3');
   await page.locator('.sw-standalone-controls').click({ position: { x: 5, y: 5 } });
   await page.keyboard.press('ArrowRight');
-  await expect(presenter.getByLabel('Presenter slide')).toContainText('Slide 2 of 20');
+  await expect(presenter.getByLabel('Presenter slide')).toContainText('Slide 2 of 3');
   await expect.poll(() => presenter.getByLabel('Elapsed time').textContent()).not.toBe('00:00');
   await presenter.getByRole('button', { name: 'Reset timer', exact: true }).click();
   await expect(presenter.getByLabel('Elapsed time')).toHaveText('00:00');
@@ -34,11 +34,11 @@ test('presenter console syncs notes and slide navigation without changing source
   const reopened = page.waitForEvent('popup');
   await page.getByRole('button', { name: 'Presenter view', exact: true }).click();
   const next = await reopened;
-  await expect(next.getByLabel('Presenter slide')).toContainText('Slide 2 of 20');
+  await expect(next.getByLabel('Presenter slide')).toContainText('Slide 2 of 3');
 });
 
 test('presenter notes follow live source and popup failure has actionable feedback', async ({ page }) => {
-  await page.goto('/canvas.html?deck=uist-2026');
+  await page.goto('/canvas.html?fixture=presenter');
   const popupPromise = page.waitForEvent('popup');
   await page.getByRole('button', { name: 'Presenter view', exact: true }).click();
   const presenter = await popupPromise;
@@ -53,7 +53,7 @@ test('presenter notes follow live source and popup failure has actionable feedba
 });
 
 test('fullscreen audience keeps navigation, notes sync and source intact through native exit', async ({ page }) => {
-  await page.goto('/canvas.html?deck=uist-2026');
+  await page.goto('/canvas.html?fixture=presenter');
   const before = await getEditorSource(page);
   const popupPromise = page.waitForEvent('popup');
   await page.getByRole('button', { name: 'Presenter view', exact: true }).click();
@@ -68,14 +68,14 @@ test('fullscreen audience keeps navigation, notes sync and source intact through
   await expect.poll(async () => (await page.locator('.sw-canvas-stage .presentation-canvas').boundingBox())!.width).toBeCloseTo(width, 0);
   await expect(page.locator('.sw-canvas-stage .presentation-canvas')).toHaveCSS('outline-style', 'none');
   await page.keyboard.press('ArrowRight');
-  await expect(presenter.getByLabel('Presenter slide')).toContainText('Slide 2 of 20');
+  await expect(presenter.getByLabel('Presenter slide')).toContainText('Slide 2 of 3');
   await expect(presenter.getByLabel('Speaker notes')).toContainText('Just to introduce');
   await page.keyboard.press('End');
-  await expect(presenter.getByLabel('Presenter slide')).toContainText('Slide 20 of 20');
+  await expect(presenter.getByLabel('Presenter slide')).toContainText('Slide 3 of 3');
   await page.keyboard.press('ArrowRight');
-  await expect(presenter.getByLabel('Presenter slide')).toContainText('Slide 20 of 20');
+  await expect(presenter.getByLabel('Presenter slide')).toContainText('Slide 3 of 3');
   await page.keyboard.press('Home');
-  await expect(presenter.getByLabel('Presenter slide')).toContainText('Slide 1 of 20');
+  await expect(presenter.getByLabel('Presenter slide')).toContainText('Slide 1 of 3');
   await page.screenshot({ path: test.info().outputPath('audience-fullscreen.png') });
   // Browser-initiated exit (including native Escape) emits fullscreenchange.
   await page.evaluate(() => document.exitFullscreen());
@@ -94,7 +94,7 @@ test('fullscreen audience keeps navigation, notes sync and source intact through
 });
 
 test('fullscreen request errors retain windowed presentation and source', async ({ page }) => {
-  await page.goto('/canvas.html?deck=uist-2026');
+  await page.goto('/canvas.html?fixture=presenter');
   const before = await getEditorSource(page);
   await page.getByRole('button', { name: 'Present', exact: true }).click();
   await page.evaluate(() => { Element.prototype.requestFullscreen = async () => { throw new DOMException('Denied', 'NotAllowedError'); }; });

@@ -15,6 +15,7 @@ import './styles.css';
 import '../decks/uist-2026/presentation.css';
 import '../slidewright/canvas/canvas.css';
 
+import type { PresentationBuild } from '../slidewright/runtime/presentation.js';
 import { App } from '../slidewright/canvas/App.js';
 import { EditorPane } from '../slidewright/canvas/EditorPane.js';
 import { PresenterView, usePresenterWindow } from './PresenterView.js';
@@ -23,6 +24,7 @@ import { StandaloneHost } from './standalone-host.js';
 
 function Standalone(): ReactElement {
   const [activeSlide, setActiveSlide] = useState(0);
+  const [build, setBuild] = useState<PresentationBuild | null>(null);
   const presenter = usePresenterWindow();
   const [presenting, setPresenting] = useState(false);
   const audience = useRef<HTMLDivElement>(null);
@@ -80,12 +82,14 @@ function Standalone(): ReactElement {
     {fullscreen && <button type="button" className="sw-audience-exit-fullscreen" onClick={() => void toggleFullscreen()}>Exit fullscreen</button>}
     <App
       host={host}
+      presenting={presenting}
+      onPresentationBuildChange={setBuild}
       onActiveSlideChange={setActiveSlide}
       bottomExtra={(projection) => (
         <EditorPane host={host} projection={projection} />
       )}
     />
-    {presenter.popup && <PresenterView host={host} index={activeSlide} popup={presenter.popup} />}
+    {presenter.popup && <PresenterView host={host} index={activeSlide} popup={presenter.popup} build={build} />}
     </div>
   );
 }

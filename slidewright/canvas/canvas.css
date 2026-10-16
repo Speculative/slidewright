@@ -1172,7 +1172,7 @@ input.sw-property-value:disabled {
 .sw-presenting .sw-canvas-status, .sw-presenting .sw-tool-palette, .sw-presenting .sw-text-session-actions,
 .sw-presenting .sw-selection-outline, .sw-presenting .sw-selection-group, .sw-presenting .sw-selection-slot-label,
 .sw-presenting .sw-resize-handle-shape, .sw-presenting .sw-arrow-handle { display: none; }
-.sw-presenting .sw-canvas-stage { pointer-events: none; }
+.sw-presenting .sw-canvas-stage { pointer-events: auto; }
 .sw-presenting .sw-canvas-stage button, .sw-presenting .sw-canvas-stage select, .sw-presenting .sw-canvas-stage video { pointer-events: auto; }
 
 /* Fullscreen audience chrome stays outside authored slide content. */

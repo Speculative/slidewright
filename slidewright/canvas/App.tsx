@@ -24,6 +24,7 @@ import {
 import type { PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
+import { PresentationBuild, PresentationContext } from '../runtime/presentation.js';
 import { emit } from '../runtime/emitter.js';
 import {
   loadDeck,
@@ -809,8 +810,12 @@ export function App({
   host,
   bottomExtra,
   onActiveSlideChange,
+  presenting = false,
+  onPresentationBuildChange,
 }: {
   host: Host;
+  presenting?: boolean;
+  onPresentationBuildChange?(build: PresentationBuild): void;
   onActiveSlideChange?(index: number): void;
   // Optional source/notes pane alongside hierarchy in the bottom dock.
   // VS Code uses its native editor and leaves this slot empty.
@@ -821,6 +826,8 @@ export function App({
 }): ReactElement {
   const [state, setState] = useState<RenderState | null>(null);
   const [activeIdx, setActiveIdx] = useState(0);
+  const build = useMemo(() => new PresentationBuild(), [activeIdx, presenting]);
+  useEffect(() => { onPresentationBuildChange?.(build); }, [build, onPresentationBuildChange]);
   useEffect(() => { onActiveSlideChange?.(activeIdx); }, [activeIdx, onActiveSlideChange]);
   // Slide-strip multi-selection. Invariant: always contains
   // `activeIdx`. The anchor pins the start of a shift-range so
@@ -1562,9 +1569,11 @@ export function App({
         k === ' ' ||
         k === 'Spacebar'
       ) {
-        setActiveIdx((i) => Math.min(total - 1, i + 1));
+        if (!presenting || !build.advance(1)) setActiveIdx((i) => Math.min(total - 1, i + 1));
       } else if (k === 'ArrowLeft' || k === 'ArrowUp' || k === 'PageUp') {
-        setActiveIdx((i) => Math.max(0, i - 1));
+        if (!presenting || !build.advance(-1)) setActiveIdx((i) => Math.max(0, i - 1));
+      } else if (presenting && k.toLowerCase() === 'r') {
+        build.reset();
       } else if (k === 'Home') {
         setActiveIdx(0);
       } else if (k === 'End') {
@@ -1579,7 +1588,7 @@ export function App({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [total]);
+  }, [total, presenting, build]);
 
   // Pending text-edit baton drainer. Fires after every state
   // update; if the previous tick queued an empty-text-slot
@@ -2574,7 +2583,14 @@ export function App({
               max={STRIP_WIDTH_MAX}
             />
             {preparedSlide ? (
-              <div className="sw-canvas-stage" onPointerDownCapture={event => { if (toolDrag) event.stopPropagation(); }}>
+              <div className="sw-canvas-stage"
+                onPointerDownCapture={event => { if (toolDrag || presenting && !(event.target as HTMLElement).closest('video, [data-sw-presentation-interactive]')) event.stopPropagation(); }}
+                onDoubleClickCapture={event => { if (presenting) { event.preventDefault(); event.stopPropagation(); } }}
+                onClickCapture={event => {
+                  if (!presenting || event.button !== 0 || (event.target as HTMLElement).closest('video, [data-sw-presentation-interactive]')) return;
+                  event.preventDefault(); event.stopPropagation();
+                  if (!build.advance(1)) setActiveIdx(i => Math.min(total - 1, i + 1));
+                }}>
                 {activeTool !== SELECT_TOOL && !toolDrag?.committed && <div className="sw-placement-hint sw-tool-status" role="status">Draw {activeTool} · Esc to cancel</div>}
                 {toolDrag?.committed && <div className="sw-placement-hint" role="status">Click a compatible slot or gap to insert {toolDrag.tool} · Esc to cancel</div>}
                 <TextDocumentSessionContext.Provider value={richEditing ? {
@@ -2643,7 +2659,9 @@ export function App({
                     }}
                     activeTool={activeTool}
                   >
-                    {preparedSlide}
+                    <PresentationContext.Provider key={`${activeIdx}-${presenting}`} value={presenting ? { build } : null}>
+                      {preparedSlide}
+                    </PresentationContext.Provider>
                   </ScaledCanvas>
                   {/* Key on activeIdx so DOM-tied hook state (cached
                     portal target, ResizeObserver subscriptions, layout

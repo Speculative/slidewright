@@ -62,9 +62,13 @@ imported decks keep browser drafts instead; Save draft confirms storage.
 Download source exports the current full deck as a `.sw` file. Open source
 imports a saved deck with the bundled component/asset catalog.
 
-Present hides editor chrome and keeps keyboard slide navigation and media/demo
-controls. Fullscreen fills the audience display with the slide, hiding the file
-toolbar and authoring frame. Escape or the Exit fullscreen overlay returns to
+Present hides editor chrome and demo step controls. Right/Space/PageDown and
+a left click on the slide advance one build; Left/PageUp reverses one build.
+Motion within a build runs automatically, then waits. At a build boundary,
+navigation moves to the adjacent slide. Each slide entry starts at build zero;
+R resets the current build. Multiple visuals advance together, each stopping at
+its own final stage. Video controls remain interactive. Fullscreen fills the
+audience display with the slide, hiding the file toolbar and authoring frame. Escape or the Exit fullscreen overlay returns to
 windowed presentation on the same slide; Edit slides returns to authoring.
 `npm run build` includes the canvas
 and all talk media; serve `dist/` with `npm run preview`. The production check is
@@ -72,6 +76,7 @@ and all talk media; serve `dist/` with `npm run preview`. The production check i
 
 Presenter view opens a separate speaker console with current/next slide
 outlines, live speaker notes, slide navigation and an elapsed timer. It also
-puts the audience window into Present mode. Previews show the slide's initial
-build; animation build synchronization and click-to-progress behavior are
-tracked separately. Close and reopen the presenter window as needed.
+puts the audience window into Present mode. The current preview shares the
+audience's build state; the next preview shows its initial build. Arrow keys
+and R control the same audience build. Previous/Next slide buttons skip builds.
+Close and reopen the presenter window as needed.

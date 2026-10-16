@@ -1,3 +1,4 @@
+import { PresentationBuild, PresentationContext } from '../slidewright/runtime/presentation.js';
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { loadDeck } from '../slidewright/runtime/loader.js';
@@ -7,7 +8,8 @@ import { DeckMetaContext } from './Slide.jsx';
 import type { HostState } from '../slidewright/canvas/host.js';
 import type { StandaloneHost } from './standalone-host.js';
 
-function Preview({ slide, label }: { slide: ReactElement; label: string }) {
+function Preview({ slide, label, build }: { slide: ReactElement; label: string; build?: PresentationBuild | null }) {
+  const initial = useMemo(() => new PresentationBuild(), []);
   const frame = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(.25);
   useEffect(() => {
@@ -18,11 +20,11 @@ function Preview({ slide, label }: { slide: ReactElement; label: string }) {
     return () => resize.disconnect();
   }, []);
   return <div><h2>{label}</h2><div ref={frame} style={{ position: 'relative', aspectRatio: '16 / 9', overflow: 'hidden', border: '1px solid #bbb', pointerEvents: 'none' }}>
-    <div inert style={{ width: 1920, height: 1080, transform: `scale(${scale})`, transformOrigin: 'top left' }}>{prepareSlide(slide)}</div>
+    <div inert style={{ width: 1920, height: 1080, transform: `scale(${scale})`, transformOrigin: 'top left' }}><PresentationContext.Provider value={{ build: build ?? initial, preview: true }}>{prepareSlide(slide)}</PresentationContext.Provider></div>
   </div></div>;
 }
 
-export function PresenterView({ host, index, popup }: { host: StandaloneHost; index: number; popup: Window }) {
+export function PresenterView({ host, index, popup, build }: { host: StandaloneHost; index: number; popup: Window; build: PresentationBuild | null }) {
   const [state, setState] = useState<HostState | null>(null);
   const [started, setStarted] = useState(Date.now());
   const [now, setNow] = useState(Date.now());
@@ -34,12 +36,13 @@ export function PresenterView({ host, index, popup }: { host: StandaloneHost; in
   useEffect(() => {
     function key(event: KeyboardEvent) {
       if (event.ctrlKey || event.metaKey || event.altKey || ((event.target as HTMLElement | null)?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test((event.target as HTMLElement | null)?.tagName ?? ''))) return;
-      if (['ArrowRight', 'PageDown'].includes(event.key)) { event.preventDefault(); navigate(active + 1); }
-      if (['ArrowLeft', 'PageUp'].includes(event.key)) { event.preventDefault(); navigate(active - 1); }
+      if (['ArrowRight', 'ArrowDown', 'PageDown', ' '].includes(event.key)) { event.preventDefault(); if (!build?.advance(1)) navigate(active + 1); }
+      if (['ArrowLeft', 'ArrowUp', 'PageUp'].includes(event.key)) { event.preventDefault(); if (!build?.advance(-1)) navigate(active - 1); }
+      if (event.key.toLowerCase() === 'r') { event.preventDefault(); build?.reset(); }
     }
     popup.addEventListener('keydown', key);
     return () => popup.removeEventListener('keydown', key);
-  }, [popup, active, deck]);
+  }, [popup, active, deck, build]);
   if (!deck) return null;
   const note = deck.slidesData[active]?.comp.fills.find(fill => fill.name === 'notes')?.value;
   const label = deck.slidesData[active]?.comp.fills.find(fill => fill.name === 'label')?.value;
@@ -53,11 +56,11 @@ export function PresenterView({ host, index, popup }: { host: StandaloneHost; in
         <button type="button" disabled={active >= deck.slides.length - 1} onClick={() => navigate(active + 1)}>Next slide</button>
       </header>
       <div className="sw-presenter-previews">
-        {deck.slides[active] && <Preview slide={deck.slides[active]!} label="Current slide overview" />}
-        {deck.slides[active + 1] ? <Preview slide={deck.slides[active + 1]!} label="Next slide overview" /> : <p>End of deck</p>}
+        {deck.slides[active] && <Preview key={active} slide={deck.slides[active]!} label="Current slide overview" build={build} />}
+        {deck.slides[active + 1] ? <Preview key={active + 1} slide={deck.slides[active + 1]!} label="Next slide overview" /> : <p>End of deck</p>}
       </div>
       <section aria-label="Speaker notes"><h2>Speaker notes</h2><div className="sw-presenter-notes">{note?.kind === 'string' && note.value ? note.value : 'No speaker notes.'}</div></section>
-      <p className="sw-presenter-help">Arrow keys navigate slides. Previews show slide overviews; animation build state stays on the audience view.</p>
+      <p className="sw-presenter-help">Arrow keys advance or reverse builds, then navigate slides. R resets the current build. The current preview follows the audience; the next preview shows its initial build.</p>
     </main>
   </DeckMetaContext.Provider>, popup.document.body);
 }

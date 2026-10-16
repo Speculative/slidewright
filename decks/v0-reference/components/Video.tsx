@@ -33,7 +33,7 @@ export default function Video({ slots, params }: ComponentRenderProps) {
             onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}
             onError={() => setError('Unable to load video')}
             style={{ width: '100%', height: '100%', objectFit: mediaFit(params.fit), pointerEvents: 'none' }} />
-          <div onPointerDown={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}
+          <div data-sw-presentation-interactive onPointerDown={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}
             style={{ position: 'absolute', bottom: 8, right: 8, display: 'flex', gap: 8, fontSize: 24 }}>
             <button type="button" aria-label={`${playing ? 'Pause' : 'Play'} ${label}`}
               onClick={() => playing ? ref.current?.pause() : void play()}>{playing ? 'Pause' : 'Play'}</button>

@@ -1,3 +1,4 @@
+import { useBuildStep } from '../../../slidewright/runtime/presentation.js';
 import { useEffect, useState } from 'react';
 import type { ComponentMeta, ComponentRenderProps } from '../../../slidewright/runtime/contract.js';
 import { makeRectAdapter } from '../../../slidewright/canvas/rect-adapter.js';
@@ -12,24 +13,25 @@ export const slidewright: ComponentMeta = {
 };
 export const canvas = makeRectAdapter({ width: 1600, height: 780 });
 export default function DebuggerDemo({ params }: ComponentRenderProps) {
-  const [step, setStep] = useState(0), [frame, setFrame] = useState(0), [playing, setPlaying] = useState(false);
+  const { step, setStep, presenting } = useBuildStep(STEPS.length);
+  const [frame, setFrame] = useState(0), [playing, setPlaying] = useState(false);
   const [paused, setPaused] = useState(false);
   const snap = STEPS[step]!;
   const frames = executionFrames(step);
   const delay = [11, 15, 18].includes(step) ? 200 : 50;
   useEffect(() => { setFrame(0); }, [step]);
   useEffect(() => {
-    if (paused) return;
+    if (paused && !presenting) return;
     const length = executionFrames(step).length;
     if (!length) return;
     const timer = setInterval(() => setFrame(value => Math.min(value + 1, length - 1)), delay);
     return () => clearInterval(timer);
-  }, [step, delay, paused]);
+  }, [step, delay, paused, presenting]);
   useEffect(() => {
-    if (!playing) return;
+    if (!playing || presenting) return;
     const timer = setTimeout(() => { if (step === STEPS.length - 1) setPlaying(false); else setStep(step + 1); }, Math.max(frames.length - frame, 0) * delay + 1000);
     return () => clearTimeout(timer);
-  }, [playing, step, delay, frames.length, frame]);
+  }, [playing, step, delay, frames.length, frame, presenting]);
   const current = frames[Math.min(frame, frames.length - 1)];
   const highlight = current?.line ?? snap.bpDebuggerHighlightLine;
   const iteration = current?.iteration ?? snap.bpDebuggerIteration;
@@ -91,12 +93,12 @@ export default function DebuggerDemo({ params }: ComponentRenderProps) {
         {(snap.rightPanel === 'terminal' || snap.showCostTerminal) && <div aria-label="Demo terminal" style={{ flex: 1, minWidth: 0, minHeight: 0, boxSizing: 'border-box', overflow: 'auto', padding: 16, borderRadius: 12, lineHeight: 1.625, background: '#111827', color: '#4ade80', fontFamily: 'var(--font-mono, monospace)', fontSize: 22 }}>{snap.showCostTerminal ? tr.terminalLines.map(([label, value], index) => <div key={index} data-demo-cost-row>{label} <span data-demo-cost-value style={{ color: '#fff' }}>{value}</span></div>) : <><strong>Terminal</strong>{terminal.map((line, index) => <div key={index}>{line}</div>)}</>}</div>}
       </div>
     </div>
-    <div aria-label="Demo playback" role="group" onPointerDown={stop} onDoubleClick={stop} onKeyDown={stop} style={{ display: 'flex', justifyContent: 'center', gap: 12, height: 45, fontSize: 20 }}>
+    {!presenting && <div aria-label="Demo playback" role="group" onPointerDown={stop} onDoubleClick={stop} onKeyDown={stop} style={{ display: 'flex', justifyContent: 'center', gap: 12, height: 45, fontSize: 20 }}>
       <button type="button" disabled={step === 0} onClick={() => go(step - 1)}>Previous demo step</button>
       <label>Stage <select aria-label="Demo stage" value={step} onChange={event => go(Number(event.target.value))}>{STEPS.map((stage, index) => <option key={index} value={index}>{index + 1}: {stage.phase}</option>)}</select></label>
       <button type="button" disabled={step === STEPS.length - 1} onClick={() => go(step + 1)}>Next demo step</button>
       <button type="button" onClick={() => { if (step === STEPS.length - 1) setStep(0); setPaused(playing); setPlaying(value => !value); }}>{playing ? 'Pause demo' : 'Play demo'}</button>
       <button type="button" onClick={() => { go(0); setFrame(0); }}>Reset demo</button>
-    </div>
+    </div>}
   </div>;
 }

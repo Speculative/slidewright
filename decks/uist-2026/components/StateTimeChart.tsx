@@ -1,3 +1,4 @@
+import { useBuildStep } from '../../../slidewright/runtime/presentation.js';
 import { useEffect, useId, useState } from 'react';
 import type { ComponentMeta, ComponentRenderProps } from '../../../slidewright/runtime/contract.js';
 import { makeRectAdapter } from '../../../slidewright/canvas/rect-adapter.js';
@@ -15,15 +16,15 @@ export function chartStepCount(mode: ChartMode): number { return mode === 'strea
 export default function StateTimeChart({ params }: ComponentRenderProps) {
   const mode: ChartMode = chartModes.includes(params.mode as ChartMode) ? params.mode as ChartMode : 'collection';
   const arrowId = `chart-arrow-${useId().replace(/:/g, '')}`;
-  const [step, setStep] = useState(0);
+  const { step, setStep, presenting } = useBuildStep(chartStepCount(mode));
   const [playing, setPlaying] = useState(false);
   const count = chartStepCount(mode);
   useEffect(() => { setStep(0); setPlaying(false); }, [mode]);
   useEffect(() => {
-    if (!playing) return;
+    if (!playing || presenting) return;
     const timer = setInterval(() => setStep(value => { if (value >= count - 1) { setPlaying(false); return value; } return value + 1; }), mode === 'stepping' ? 400 : 1200);
     return () => clearInterval(timer);
-  }, [playing, count, mode]);
+  }, [playing, count, mode, presenting]);
   const bars = mode !== 'filtering' && mode !== 'stepping' && (mode !== 'collection' || step === 2);
   const dots = mode !== 'filtering' && (mode !== 'collection' || step >= 1);
   const streams = ['computed'].includes(mode) || mode === 'streams' && step > 0;
@@ -81,12 +82,12 @@ export default function StateTimeChart({ params }: ComponentRenderProps) {
       {mode === 'collection' && step === 1 && <text x="460" y="25" textAnchor="middle" fontSize="28" fontWeight="bold" fill={blue} style={{ animation: 'sw-chart-disappear 400ms ease-out both' }}>breakpoint debugger</text>}
       <text key={`title-${step}`} style={mode === 'collection' && step > 0 ? appear(500, step === 1 ? 300 : 0) : undefined} fontWeight="bold" x="460" y="25" textAnchor="middle" fontSize="28" fill={mode === 'collection' && step === 1 ? red : blue}>{mode === 'collection' ? ['breakpoint debugger', 'print debugging', 'autopsy'][step] : 'autopsy'}</text>
     </svg>
-    <div role="group" aria-label="Chart playback" onPointerDown={stop} onDoubleClick={stop} onKeyDown={stop} style={{ display: 'flex', gap: 10, justifyContent: 'center', height: 45, fontSize: 20 }}>
+    {!presenting && <div role="group" aria-label="Chart playback" onPointerDown={stop} onDoubleClick={stop} onKeyDown={stop} style={{ display: 'flex', gap: 10, justifyContent: 'center', height: 45, fontSize: 20 }}>
       <button type="button" disabled={step === 0} onClick={() => { setPlaying(false); setStep(value => value - 1); }}>Previous step</button>
       <span aria-live="polite">{step + 1} / {count}</span>
       <button type="button" disabled={step === count - 1} onClick={() => { setPlaying(false); setStep(value => value + 1); }}>Next step</button>
       <button type="button" onClick={() => { if (step === count - 1) setStep(0); setPlaying(value => !value); }}>{playing ? 'Pause chart' : 'Play chart'}</button>
       <button type="button" onClick={() => { setPlaying(false); setStep(0); }}>Reset chart</button>
-    </div>
+    </div>}
   </div>;
 }
