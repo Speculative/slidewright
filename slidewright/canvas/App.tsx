@@ -35,6 +35,7 @@ import {
 } from '../runtime/loader.js';
 import { parse } from '../runtime/parser.js';
 import { numberLit, stringLit, booleanLit, nameRef, paragraphDocument } from '../runtime/ast-builders.js';
+import type { Value } from '../runtime/ast.js';
 import type { Diagnostic } from '../runtime/diagnostics.js';
 import type { Scope } from '../runtime/scope.js';
 import { slotFill } from '../runtime/ast-builders.js';
@@ -42,6 +43,8 @@ import { RichTextEditor, type TextEditorSnapshot, type TextSessionHandle } from 
 import { BoxSettings, type TextBoxDefault, type TextBoxDefaults } from './rich-text/BoxSettings.js';
 import type { TextFormattingState } from './rich-text/feedback.js';
 import { commitOnTextBlur } from './rich-text/focus.js';
+import { shapeStyleParam, type ShapeStyleField } from './shape-formatting.js';
+import { SelectedShapeToolbar } from './SelectedShapeToolbar.js';
 import { SelectedTextBoxToolbar, type WholeTextChange } from './rich-text/SelectedTextBoxToolbar.js';
 import { FormattingToolbar } from './rich-text/FormattingToolbar.js';
 import { TextDocumentSessionContext } from './text-document-context.js';
@@ -1104,8 +1107,10 @@ export function App({
   // single undo entry containing the pre-scrub source iff the
   // final source actually differs.
   const scrubPreSourceRef = useRef<string | null>(null);
+  const scrubPreSelectionRef = useRef<SelectionTarget[]>([]);
   const beginScrub = useCallback(() => {
     scrubPreSourceRef.current = sourceRef.current;
+    scrubPreSelectionRef.current = selectedRef.current;
   }, []);
   const applyScrubPreview = useCallback(
     (preview: string) => {
@@ -1129,6 +1134,7 @@ export function App({
       if (final === null || final === pre) {
         // Cancellation or no-op. Make sure the host reflects pre.
         if (sourceRef.current !== pre) {
+          pendingSelectionRef.current = scrubPreSelectionRef.current;
           internalSourceChangeRef.current = true;
           host.setSource?.(pre);
         }
@@ -1142,6 +1148,7 @@ export function App({
       });
       redoStackRef.current = [];
       internalSourceChangeRef.current = true;
+      pendingSelectionRef.current = selectedRef.current;
       host.setSource?.(final);
       scrubPreSourceRef.current = null;
     },
@@ -1355,8 +1362,10 @@ export function App({
         if (scrubPreSourceRef.current === null) {
           setSelected(pending ?? []);
         } else {
+          // Formatting supplies exact post-emit spans, including nested shapes
+          // that the Freeform-child fallback cannot identify.
           setSelected((prevSelected) =>
-            preserveSelectionAcrossExternalEdit(
+            pending ?? preserveSelectionAcrossExternalEdit(
               prevSelected,
               prevShapesForPreserve,
               result.shapes,
@@ -2631,6 +2640,16 @@ export function App({
     singleTarget?.kind === 'component'
       ? findShapeForRange(state.shapes, singleTarget.span)
       : null;
+  const selectedTextBoxes = selected.flatMap(target => {
+    const shape = target.kind === 'component' ? findShapeForRange(state.shapes, target.span) : null;
+    return shape?.comp.name === 'TextBox' ? [shape] : [];
+  });
+  const textBoxFormatting = selectedTextBoxes.length > 0 && selectedTextBoxes.length === selected.length;
+  const selectedShapes = selected.flatMap(target => {
+    const shape = target.kind === 'component' ? findShapeForRange(state.shapes, target.span) : null;
+    return shape && shapeStyleParam(shape, 'strokeWidth') ? [shape] : [];
+  });
+  const shapeFormatting = selectedShapes.length > 0 && selectedShapes.length === selected.length;
   const boxShape = selectedShape?.comp.name === 'TextBox' ? selectedShape : singleTarget && (singleTarget.kind === 'slot' || singleTarget.kind === 'empty-slot')
     ? findShapeForRange(state.shapes, singleTarget.parentSpan) : null;
   const applyBoxSetting = (field: TextBoxDefault, setting: string | number | boolean) => {
@@ -2662,32 +2681,64 @@ export function App({
     const restored = path ? componentByPath(parse(result.newSource, '<box-selection>').ast, path) : null;
     commitToHost(result.newSource, restored ? [{ start: restored.span.start.offset, end: restored.span.end.offset }] : undefined);
   };
-  const applyWholeTextChange = (change: WholeTextChange, preview: boolean) => {
-    if (selectedShape?.comp.name !== 'TextBox') return;
-    let path: ReturnType<typeof pathToComponent> = null;
+  const applyShapeChange = (field: ShapeStyleField, value: Value, preview: boolean) => {
+    if (!shapeFormatting) return;
+    const paths: NonNullable<ReturnType<typeof pathToComponent>>[] = [];
+    const result = commitSourceEdit(sourceRef.current, '<shape-formatting>', ast => {
+      for (const shape of selectedShapes) {
+        const param = shapeStyleParam(shape, field);
+        const comp = findComponentAtSpan(ast, shape.comp.span.start.offset, shape.comp.span.end.offset);
+        const path = comp && pathToComponent(ast, comp);
+        if (!param || !comp || !path) return null;
+        paths.push(path);
+        const fill = comp.fills.find(fill => fill.name === param);
+        if (fill) fill.value = value; else comp.fills.push(slotFill(param, value));
+      }
+      return {};
+    });
+    if (!result) return;
+    const ast = parse(result.newSource, '<shape-selection>').ast;
+    const spans = paths.flatMap(path => {
+      const restored = componentByPath(ast, path);
+      return restored ? [{ start: restored.span.start.offset, end: restored.span.end.offset }] : [];
+    });
+    if (preview) {
+      pendingSelectionRef.current = spans.map(componentTarget);
+      applyScrubPreview(result.newSource);
+    } else commitToHost(result.newSource, spans);
+  };
+  const applyWholeTextChange = (changes: WholeTextChange[], preview: boolean) => {
+    if (!textBoxFormatting) return;
+    const paths: NonNullable<ReturnType<typeof pathToComponent>>[] = [];
     const result = commitSourceEdit(sourceRef.current, '<whole-text-formatting>', ast => {
-      const comp = findComponentAtSpan(ast, selectedShape.comp.span.start.offset, selectedShape.comp.span.end.offset);
-      if (!comp) return null;
-      path = pathToComponent(ast, comp);
-      const content = comp.fills.find(fill => fill.name === 'content');
-      if (content) content.value = change.content; else comp.fills.push(slotFill('content', change.content));
-      const fields = { ...change.defaults, ...(change.field ? { [change.field]: change.value } : {}) };
-      for (const [field, value] of Object.entries(fields)) {
-        if (value == null) comp.fills = comp.fills.filter(fill => fill.name !== field);
-        else {
-          const next = typeof value === 'object' ? value : typeof value === 'number' ? numberLit(value) : typeof value === 'boolean' ? booleanLit(value)
-            : field === 'color' && value in state.colorTokens ? nameRef(value) : stringLit(value);
-          const fill = comp.fills.find(fill => fill.name === field);
-          if (fill) fill.value = next; else comp.fills.push(slotFill(field, next));
+      for (const change of changes) {
+        const comp = findComponentAtSpan(ast, change.target.start, change.target.end);
+        const path = comp && pathToComponent(ast, comp);
+        if (!comp || !path) return null;
+        paths.push(path);
+        const content = comp.fills.find(fill => fill.name === 'content');
+        if (content) content.value = change.content; else comp.fills.push(slotFill('content', change.content));
+        const fields = { ...change.defaults, ...(change.field ? { [change.field]: change.value } : {}) };
+        for (const [field, value] of Object.entries(fields)) {
+          if (value == null) comp.fills = comp.fills.filter(fill => fill.name !== field);
+          else {
+            const next = typeof value === 'object' ? value : typeof value === 'number' ? numberLit(value) : typeof value === 'boolean' ? booleanLit(value)
+              : field === 'color' && value in state.colorTokens ? nameRef(value) : stringLit(value);
+            const fill = comp.fills.find(fill => fill.name === field);
+            if (fill) fill.value = next; else comp.fills.push(slotFill(field, next));
+          }
         }
       }
       return {};
     });
     if (!result) return;
-    const restored = path ? componentByPath(parse(result.newSource, '<whole-text-selection>').ast, path) : null;
-    const spans = restored ? [{ start: restored.span.start.offset, end: restored.span.end.offset }] : undefined;
+    const ast = parse(result.newSource, '<whole-text-selection>').ast;
+    const spans = paths.flatMap(path => {
+      const restored = componentByPath(ast, path);
+      return restored ? [{ start: restored.span.start.offset, end: restored.span.end.offset }] : [];
+    });
     if (preview) {
-      if (spans) pendingSelectionRef.current = spans.map(componentTarget);
+      pendingSelectionRef.current = spans.map(componentTarget);
       applyScrubPreview(result.newSource);
     } else commitToHost(result.newSource, spans);
   };
@@ -2966,8 +3017,14 @@ export function App({
             colorTokens={state.colorTokens}
             slideColors={slideColors}
           />
-          {!richEditing && !presenting && !gestureMeta && selectedShape?.comp.name === 'TextBox' && <SelectedTextBoxToolbar
-            component={selectedShape.comp} params={selectedShape.params} scope={state.scope} registry={components}
+          {!richEditing && !presenting && !gestureMeta && shapeFormatting && <SelectedShapeToolbar
+            key={selectedShapes.map(shape => Array.from(state.shapes.values()).indexOf(shape)).sort((a, b) => a - b).join(':')}
+            shapes={selectedShapes} colorTokens={state.colorTokens} slideColors={slideColors}
+            onChange={applyShapeChange}
+            onColorGesture={phase => { if (phase === 'begin') beginScrub(); else endScrub(phase === 'cancel' ? null : sourceRef.current); }} />}
+          {!richEditing && !presenting && !gestureMeta && textBoxFormatting && <SelectedTextBoxToolbar
+            key={selectedTextBoxes.map(shape => Array.from(state.shapes.values()).indexOf(shape)).sort((a, b) => a - b).join(':')}
+            shapes={selectedTextBoxes} scope={state.scope} registry={components}
             colorTokens={state.colorTokens} slideColors={slideColors} onChange={applyWholeTextChange}
             onColorGesture={phase => { if (phase === 'begin') beginScrub(); else endScrub(phase === 'cancel' ? null : sourceRef.current); }} />}
           {(richEditing || boxShape?.comp.name === 'TextBox') && <div className="sw-text-session-actions" onKeyDown={event => event.stopPropagation()}

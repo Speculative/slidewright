@@ -608,7 +608,7 @@ test('clicking inside a CardRow drills through the selectable chain', async ({ p
   ).toContainText('Slot: body');
 });
 
-test('selection outline survives slide nav away and back', async ({ page }) => {
+test('selection outline can be reselected after slide nav away and back', async ({ page }) => {
   // Bug fix verification: SelectionLayer + GestureOverlayLayer key
   // on activeIdx so their hook state (ResizeObserver subscriptions,
   // cached portal targets, cached bounds) resets on slide nav. The
@@ -619,15 +619,16 @@ test('selection outline survives slide nav away and back', async ({ page }) => {
   // Select the shape on slide 1 via the hierarchy panel.
   await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
-  // Navigate to slide 2 — selection state persists, but the
-  // outline shouldn't render here because the selected element
-  // belongs to slide 1.
+  // Navigating to another slide clears object selection.
   await page.locator('.sw-thumb').nth(1).click();
   await expect(page.locator('.sw-thumb').nth(1)).toHaveClass(/active/);
-  // Navigate back to slide 1. The outline must render again — the
-  // remount-on-activeIdx forces fresh DOM lookups + measurement.
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(0);
+  // Navigate back and select again. The remount must provide fresh
+  // DOM lookups and measurements for the new selection outline.
   await page.locator('.sw-thumb').nth(0).click();
   await expect(page.locator('.sw-thumb').nth(0)).toHaveClass(/active/);
+  await expect(page.locator('.sw-selection-outline')).toHaveCount(0);
+  await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
 });
 

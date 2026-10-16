@@ -259,7 +259,7 @@ function useResolvedDedup(
   globals: readonly Swatch[],
   slide: readonly Swatch[],
 ): { globals: Swatch[]; slide: Swatch[] } {
-  type Resolved = { globals: number[]; slide: number[] };
+  type Resolved = { globals: number[]; slide: number[]; globalInput: readonly Swatch[]; slideInput: readonly Swatch[] };
   const [keep, setKeep] = useState<Resolved | null>(null);
   useEffect(() => {
     const probe = document.createElement('div');
@@ -290,9 +290,11 @@ function useResolvedDedup(
       }
     }
     probe.remove();
-    setKeep({ globals: globalsKeep, slide: slideKeep });
+    setKeep({ globals: globalsKeep, slide: slideKeep, globalInput: globals, slideInput: slide });
   }, [globals, slide]);
-  if (!keep) {
+  // Source previews and cancellation can replace or shrink the candidates.
+  // Previous indices belong only to the arrays resolved by that effect.
+  if (!keep || keep.globalInput !== globals || keep.slideInput !== slide) {
     return { globals: [...globals], slide: [...slide] };
   }
   return {
