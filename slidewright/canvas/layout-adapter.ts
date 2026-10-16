@@ -117,6 +117,7 @@ export interface LayoutAdapter {
     state: unknown,
     dx: number,
     dy: number,
+    shift?: boolean,
   ): unknown;
 
   // Live preview during a gesture. For gestures that change layout

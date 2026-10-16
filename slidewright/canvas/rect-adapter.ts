@@ -67,6 +67,7 @@ interface RectDelta {
   original: Rect;
   dx: number;
   dy: number;
+  shift: boolean;
 }
 
 // Apply an axis-aligned transform to a rect: x' = sx*x + tx,
@@ -91,7 +92,27 @@ export function resizeRect(
   orig: Rect,
   dx: number,
   dy: number,
+  shift = false,
 ): Rect {
+  if (shift && orig.width > 0 && orig.height > 0) {
+    const horizontal = direction.includes('w') || direction.includes('e');
+    const vertical = direction.includes('n') || direction.includes('s');
+    const sx = 1 + (direction.includes('w') ? -dx : dx) / orig.width;
+    const sy = 1 + (direction.includes('n') ? -dy : dy) / orig.height;
+    // Corners follow the axis with the larger proportional change.
+    const scale = Math.max(MIN_SIZE / orig.width, MIN_SIZE / orig.height,
+      horizontal && vertical ? (Math.abs(sx - 1) >= Math.abs(sy - 1) ? sx : sy)
+        : horizontal ? sx : sy);
+    const width = orig.width * scale;
+    const height = orig.height * scale;
+    return {
+      x: direction.includes('w') ? orig.x + orig.width - width
+        : horizontal ? orig.x : orig.x + (orig.width - width) / 2,
+      y: direction.includes('n') ? orig.y + orig.height - height
+        : vertical ? orig.y : orig.y + (orig.height - height) / 2,
+      width, height,
+    };
+  }
   let { x, y, width, height } = orig;
   if (direction.includes('w')) {
     const proposed = orig.width - dx;
@@ -214,7 +235,7 @@ export function makeRectAdapter(defaults: { width: number; height: number }): Sh
       // Opaque arm — only `box-resize` originates from this adapter.
       const inner = delta.delta as RectDelta | null;
       if (inner && inner.kind === 'box-resize') {
-        const r = resizeRect(inner.direction, inner.original, inner.dx, inner.dy);
+        const r = resizeRect(inner.direction, inner.original, inner.dx, inner.dy, inner.shift);
         return { ...params, x: r.x, y: r.y, width: r.width, height: r.height };
       }
       return params;
@@ -231,7 +252,7 @@ export function makeRectAdapter(defaults: { width: number; height: number }): Sh
       return state;
     },
 
-    combineGestureState(state, dx, dy) {
+    combineGestureState(state, dx, dy, shift = false) {
       const cast = state as RectGestureState | null;
       if (!cast || cast.kind !== 'box-resize') return null;
       const out: RectDelta = {
@@ -240,6 +261,7 @@ export function makeRectAdapter(defaults: { width: number; height: number }): Sh
         original: cast.original,
         dx,
         dy,
+        shift,
       };
       return out;
     },
@@ -282,7 +304,7 @@ export function makeRectAdapter(defaults: { width: number; height: number }): Sh
       } else {
         const inner = delta.delta as RectDelta | null;
         if (!inner || inner.kind !== 'box-resize') return null;
-        const r = resizeRect(inner.direction, inner.original, inner.dx, inner.dy);
+        const r = resizeRect(inner.direction, inner.original, inner.dx, inner.dy, inner.shift);
         const xSlot = findNumericSlot(target, 'x');
         const ySlot = findNumericSlot(target, 'y');
         const wSlot = findNumericSlot(target, 'width');

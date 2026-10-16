@@ -52,6 +52,8 @@ async function dragByDesign(
   designDx: number,
   designDy: number,
 ): Promise<void> {
+  // Wait for selection-driven layout changes before reading the drag origin.
+  await locator.hover();
   const eb = await locator.boundingBox();
   if (!eb) throw new Error('drag target not visible');
   const scale = await getCanvasScale(page);
@@ -628,4 +630,131 @@ test('dragging selected stack child through its text reorders the selected compo
     return source.indexOf('"Second card."') < source.indexOf('"First card."');
   }).toBe(true);
   await expect(page.locator('.sw-hierarchy-node.selected')).toHaveAttribute('data-sw-component', 'CardRow');
+});
+
+// Shift constraints use the captured geometry throughout the drag.
+for (const component of ['Box', 'Ellipse', 'TextBox', 'Image', 'Video']) {
+  test(`Shift resize preserves an existing ${component}'s aspect ratio`, async ({ page }) => {
+    await page.goto('/canvas.html?fixture=single-box');
+    await setHostSource(page, `Deck { slides: [ Slide { content: Freeform { children: [
+      ${component} { x: 400 y: 300 width: 200 height: 150 ${component === 'TextBox' ? 'content: "Hello" sizing: "fixed"' : ''} }
+    ] } } ] }`);
+    await page.locator(`.sw-hierarchy-node[data-sw-component="${component}"]`).click();
+    await page.keyboard.down('Shift');
+    await dragByDesign(page, page.locator('.sw-resize-se'), 80, 10);
+    await page.keyboard.up('Shift');
+    expect(await getSource(page)).toMatch(/x: 400\s+y: 300\s+width: 280\s+height: 210/);
+  });
+}
+
+for (const [direction, dx, dy, expected] of [
+  ['nw', 80, 10, /x: 480\s+y: 360\s+width: 120\s+height: 90/],
+  ['ne', 80, -10, /x: 400\s+y: 240\s+width: 280\s+height: 210/],
+  ['sw', -80, 10, /x: 320\s+y: 300\s+width: 280\s+height: 210/],
+  ['e', 80, 0, /x: 400\s+y: 270\s+width: 280\s+height: 210/],
+  ['n', 0, -60, /x: 360\s+y: 240\s+width: 280\s+height: 210/],
+] as const) {
+  test(`Shift ${direction} resize keeps the opposite anchor fixed`, async ({ page }) => {
+    await page.goto('/canvas.html?fixture=single-box');
+    await page.locator('.sw-hierarchy-node[data-sw-component="Box"]').click();
+    await page.keyboard.down('Shift');
+    await dragByDesign(page, page.locator(`.sw-resize-${direction}`), dx, dy);
+    await page.keyboard.up('Shift');
+    expect(await getSource(page)).toMatch(expected);
+  });
+}
+
+test('Shift toggles an existing resize preview without pointer movement', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-box');
+  const box = page.locator('.sw-canvas-stage [data-sw-component="Box"] > div').first();
+  await box.click();
+  const handle = (await page.locator('.sw-resize-se').boundingBox())!;
+  const scale = await getCanvasScale(page);
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+  await page.mouse.down();
+  await letReactCatchUp(page);
+  await page.mouse.move(handle.x + handle.width / 2 + 80 * scale, handle.y + handle.height / 2 + 10 * scale);
+  const height = async () => Number.parseFloat(await box.evaluate(el => (el as HTMLElement).style.height));
+  await expect.poll(height).toBeCloseTo(160, 1);
+  await page.keyboard.down('Shift');
+  await expect.poll(height).toBeCloseTo(210, 1);
+  await page.keyboard.up('Shift');
+  await expect.poll(height).toBeCloseTo(160, 1);
+  await page.mouse.up();
+  expect(await getSource(page)).toMatch(/width: 280\s+height: 160/);
+});
+
+for (const direction of ['se', 'e']) {
+  test(`Shift group ${direction} resize scales uniformly`, async ({ page }) => {
+    await page.goto('/canvas.html?fixture=two-boxes');
+    const rows = page.locator('.sw-hierarchy-node[data-sw-component="Box"]');
+    await rows.nth(0).click();
+    await rows.nth(1).click({ modifiers: ['Shift'] });
+    await page.keyboard.down('Shift');
+    await dragByDesign(page, page.locator(`.sw-resize-${direction}`), 160, 0);
+    await page.keyboard.up('Shift');
+    const source = await getSource(page);
+    expect(source).toMatch(direction === 'se'
+      ? /x: 200\s+y: 200\s+width: 240\s+height: 180/
+      : /x: 200\s+y: 155\s+width: 240\s+height: 180/);
+    expect(source).toMatch(direction === 'se'
+      ? /x: 920\s+y: 560\s+width: 240\s+height: 180/
+      : /x: 920\s+y: 515\s+width: 240\s+height: 180/);
+  });
+}
+
+for (const component of ['Arrow', 'Line']) {
+  for (const endpoint of [0, 1]) {
+    test(`Shift snaps existing ${component} endpoint ${endpoint + 1}`, async ({ page }) => {
+      await page.goto('/canvas.html?fixture=single-arrow');
+      if (component === 'Line') await setHostSource(page, (await getSource(page)).replace('Arrow {', 'Line {'));
+      await page.locator(`.sw-hierarchy-node[data-sw-component="${component}"]`).click();
+      await page.keyboard.down('Shift');
+      await dragByDesign(page, page.locator('.sw-arrow-endpoint').nth(endpoint), 80, -60);
+      await page.keyboard.up('Shift');
+      expect(await getSource(page)).toMatch(endpoint === 1
+        ? /x1: 400\s+y1: 300\s+x2: 760\s+y2: 660/
+        : /x1: 460\s+y1: 260\s+x2: 800\s+y2: 600/);
+    });
+  }
+}
+
+test('Shift side resize fixes both dimensions of an auto-height TextBox', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-textbox');
+  await setHostSource(page, `Deck { slides: [ Slide { content: Freeform { children: [
+    TextBox { x: 400 y: 300 width: 200 sizing: "auto-height" content: "Hello" }
+  ] } } ] }`);
+  const box = page.locator('.sw-canvas-stage [data-sw-component="TextBox"] > div').first();
+  await page.locator('.sw-hierarchy-node[data-sw-component="TextBox"]').click();
+  const before = (await box.boundingBox())!;
+  await page.keyboard.down('Shift');
+  await dragByDesign(page, page.locator('.sw-resize-e'), 100, 0);
+  await page.keyboard.up('Shift');
+  await expect.poll(async () => (await box.boundingBox())!.height / before.height).toBeCloseTo(1.5, 1);
+  expect(await getSource(page)).toMatch(/width: 300/);
+  expect(await getSource(page)).toMatch(/sizing: "fixed"/);
+});
+
+test('Shift toggles an existing arrow endpoint preview and commits its snapped position', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-arrow');
+  await page.locator('.sw-hierarchy-node[data-sw-component="Arrow"]').click();
+  const tip = page.locator('.sw-arrow-endpoint').nth(1);
+  await tip.hover();
+  const bounds = (await tip.boundingBox())!;
+  const scale = await getCanvasScale(page);
+  await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+  await page.mouse.down();
+  await letReactCatchUp(page);
+  await page.mouse.move(bounds.x + bounds.width / 2 + 80 * scale, bounds.y + bounds.height / 2 - 60 * scale);
+  const line = page.locator('.sw-canvas-stage [data-sw-component="Arrow"] line[stroke="transparent"]');
+  const tipX = async () => Number(await line.getAttribute('x2'));
+  await expect.poll(tipX).toBeCloseTo(880, 1);
+  await page.keyboard.down('Shift');
+  await expect.poll(tipX).toBeCloseTo(760, 1);
+  await page.keyboard.up('Shift');
+  await expect.poll(tipX).toBeCloseTo(880, 1);
+  await page.keyboard.down('Shift');
+  await page.mouse.up();
+  await page.keyboard.up('Shift');
+  expect(await getSource(page)).toMatch(/x1: 400\s+y1: 300\s+x2: 760\s+y2: 660/);
 });

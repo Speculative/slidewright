@@ -91,6 +91,7 @@ import type {
   TransformDelta,
 } from './shape-adapter.js';
 import { resizeRect } from './rect-adapter.js';
+import { snapDirection } from './gesture-constraints.js';
 import { nudgeSelection } from './nudge.js';
 import { copyElements, pasteElements, ELEMENT_CLIPBOARD_TYPE } from './element-clipboard.js';
 import { GestureProvider, spanKey } from './gesture-context.js';
@@ -267,6 +268,7 @@ interface GestureMeta {
 interface GestureLive {
   dx: number;
   dy: number;
+  shift?: boolean;
 }
 
 const ZERO_LIVE: GestureLive = { dx: 0, dy: 0 };
@@ -385,12 +387,8 @@ function createEndpoint(preview: CreatePreview): { x: number; y: number } {
   const dx = designCurrentX - x;
   const dy = designCurrentY - y;
   if (preview.previewShape === 'line') {
-    const angle = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
-    const ux = Math.round(Math.cos(angle));
-    const uy = Math.round(Math.sin(angle));
-    // Project onto the nearest compass direction, keeping axes exact.
-    const distance = (dx * ux + dy * uy) / (ux * ux + uy * uy);
-    return { x: x + distance * ux, y: y + distance * uy };
+    const snapped = snapDirection(dx, dy);
+    return { x: x + snapped.x, y: y + snapped.y };
   }
   const size = Math.max(Math.abs(dx), Math.abs(dy));
   return { x: x + (dx < 0 ? -size : size), y: y + (dy < 0 ? -size : size) };
@@ -1814,7 +1812,7 @@ export function App({
       if (!updateThreshold(e)) return;
       const dx = (e.clientX - pointerStartX) / scale;
       const dy = (e.clientY - pointerStartY) / scale;
-      setGestureLive({ dx, dy });
+      setGestureLive({ dx, dy, shift: e.shiftKey });
     };
 
     // Escape mid-gesture cancels: drop the gesture state without
@@ -1824,6 +1822,10 @@ export function App({
     // running, the commit is skipped.
     let cancelled = false;
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Shift' && dragged) {
+        setGestureLive(prev => ({ ...prev, shift: e.shiftKey }));
+        return;
+      }
       if (e.key !== 'Escape') return;
       e.preventDefault();
       e.stopPropagation();
@@ -1860,7 +1862,7 @@ export function App({
           const data = stateRef.current?.shapes.get(key);
           if (!data) continue;
           const adapter = data.canvas as ShapeAdapter | LayoutAdapter;
-          const finalDelta = gestureStateToDelta(state, dx, dy, groupResize, adapter);
+          const finalDelta = gestureStateToDelta(state, dx, dy, groupResize, adapter, e.shiftKey);
           if (!adapter.commit) continue;
           const out = adapter.commit(ast, span, finalDelta, slideIdx);
           if (!out) continue;
@@ -1885,6 +1887,7 @@ export function App({
     };
     document.addEventListener('pointercancel', onCancel);
     document.addEventListener('keydown', onKey);
+    document.addEventListener('keyup', onKey);
     if (cursor) document.body.style.cursor = cursor;
     document.body.style.userSelect = 'none';
     return () => {
@@ -1892,6 +1895,7 @@ export function App({
       document.removeEventListener('pointerup', onUp);
       document.removeEventListener('pointercancel', onCancel);
       document.removeEventListener('keydown', onKey);
+      document.removeEventListener('keyup', onKey);
       if (cursor) document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
@@ -2497,6 +2501,7 @@ export function App({
           gestureLive.dy,
           gestureMeta.groupResize,
           adapter,
+          gestureLive.shift,
         ),
       );
     }
@@ -3107,6 +3112,7 @@ function gestureStateToDelta(
   dy: number,
   groupResize: GestureMeta['groupResize'] | undefined,
   adapter: ShapeAdapter | LayoutAdapter | null,
+  shift = false,
 ): ShapeDelta {
   if (state.kind === 'translate') {
     return { kind: 'translate', dx, dy };
@@ -3116,7 +3122,7 @@ function gestureStateToDelta(
     // shouldn't happen in practice (transform states only get
     // created together with groupResize), but stay safe.
     if (!groupResize) return { kind: 'transform', sx: 1, sy: 1, tx: 0, ty: 0 };
-    return groupResizeToTransform(groupResize, dx, dy);
+    return groupResizeToTransform(groupResize, dx, dy, shift);
   }
   // Opaque arm — the adapter combines its captured payload with
   // the cursor delta to produce the per-frame opaque delta.
@@ -3125,7 +3131,7 @@ function gestureStateToDelta(
   if (!adapter?.combineGestureState) return { kind: 'opaque', delta: null };
   return {
     kind: 'opaque',
-    delta: adapter.combineGestureState(state.payload, dx, dy),
+    delta: adapter.combineGestureState(state.payload, dx, dy, shift),
   };
 }
 
@@ -3133,33 +3139,23 @@ function gestureStateToDelta(
 // resize direction + cursor delta. The opposite corner / edge stays
 // fixed; the named direction's corner / edge moves with the cursor;
 // every member shape is mapped through `x' = sx*x + tx, y' = sy*y +
-// ty`. Edges (n / s / e / w) only scale on one axis.
+// ty`. Shift keeps the original aspect ratio, including edge drags.
 function groupResizeToTransform(
   ctx: NonNullable<GestureMeta['groupResize']>,
   dx: number,
   dy: number,
+  shift: boolean,
 ): TransformDelta {
   const { direction, original } = ctx;
-  const newBox = resizeRect(direction, original, dx, dy);
-  const horizontal = direction.includes('e') || direction.includes('w');
-  const vertical = direction.includes('n') || direction.includes('s');
-  const sx = horizontal ? newBox.width / original.width : 1;
-  const sy = vertical ? newBox.height / original.height : 1;
-  // Fixed-edge anchor: opposite side stays put under the scale.
-  // For 'w', the EAST edge (original.x + original.width) is fixed;
-  // for everything else (incl. no horizontal) the WEST edge is.
-  const fixedX = direction.includes('w')
-    ? original.x + original.width
-    : original.x;
-  const fixedY = direction.includes('n')
-    ? original.y + original.height
-    : original.y;
+  const newBox = resizeRect(direction, original, dx, dy, shift);
+  const sx = newBox.width / original.width;
+  const sy = newBox.height / original.height;
   return {
     kind: 'transform',
     sx,
     sy,
-    tx: fixedX * (1 - sx),
-    ty: fixedY * (1 - sy),
+    tx: newBox.x - sx * original.x,
+    ty: newBox.y - sy * original.y,
   };
 }
 

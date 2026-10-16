@@ -1,3 +1,4 @@
+import { snapDirection } from '../../../slidewright/canvas/gesture-constraints.js';
 // Arrow shape primitive.
 //
 // SVG line with arrowhead, drawn from (x1, y1) to (x2, y2) in
@@ -266,9 +267,15 @@ export const canvas: ShapeAdapter = {
     return state;
   },
 
-  combineGestureState(state, dx, dy) {
+  combineGestureState(state, dx, dy, shift = false) {
     const cast = state as ArrowGestureState | null;
     if (!cast || cast.kind !== 'arrow-endpoint') return null;
+    if (shift) {
+      const snapped = snapDirection(cast.originalX + dx - cast.fixedX,
+        cast.originalY + dy - cast.fixedY);
+      dx = cast.fixedX + snapped.x - cast.originalX;
+      dy = cast.fixedY + snapped.y - cast.originalY;
+    }
     const out: ArrowDelta = {
       kind: 'arrow-endpoint',
       endpoint: cast.endpoint,

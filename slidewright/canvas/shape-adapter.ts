@@ -238,13 +238,15 @@ export interface ShapeAdapter {
   buildGestureState(init: unknown): unknown;
 
   // Per-frame: combine the captured gesture state with the cursor
-  // delta (in design-space pixels) to produce an opaque delta.
+  // delta (in design-space pixels) and current Shift state to produce
+  // an opaque delta. Shift also updates while the pointer is stationary.
   // Returned value flows to `applyGesture` (rendering) and at
   // gesture-end to `commit`.
   combineGestureState(
     state: unknown,
     dx: number,
     dy: number,
+    shift?: boolean,
   ): unknown;
 
   // React component rendering the shape's selection handles. Null

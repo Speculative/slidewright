@@ -1,4 +1,4 @@
-import type { ShapeAdapter } from './shape-adapter.js';
+import type { ShapeAdapter, ShapeDelta } from './shape-adapter.js';
 import { makeRectAdapter } from './rect-adapter.js';
 import { measureLayoutSnapshot } from './layout-measurement.js';
 import { findComponentAtSpan } from './ast-edits.js';
@@ -7,6 +7,14 @@ import { numberLit, slotFill, stringLit } from '../runtime/ast-builders.js';
 export function textBoxSizing(params: Record<string, unknown>): string {
   if (['auto-width', 'auto-height', 'fixed'].includes(String(params.sizing))) return String(params.sizing);
   return typeof params.width === 'number' ? typeof params.height === 'number' ? 'fixed' : 'auto-height' : 'auto-width';
+}
+
+// An unconstrained side drag reflows text. Shift constrains both dimensions.
+function resizeSizing(params: Record<string, unknown>, delta: ShapeDelta): string {
+  const resize = delta.kind === 'opaque'
+    ? delta.delta as { direction?: string; shift?: boolean } | null : null;
+  const side = resize?.direction === 'e' || resize?.direction === 'w';
+  return side && !resize?.shift && textBoxSizing(params) !== 'fixed' ? 'auto-height' : 'fixed';
 }
 
 export function makeTextBoxAdapter(): ShapeAdapter {
@@ -26,9 +34,8 @@ export function makeTextBoxAdapter(): ShapeAdapter {
     applyGesture(params, delta) {
       if (delta.kind === 'translate') return rect.applyGesture(params, delta);
       const next = rect.applyGesture(measuredParams(params), delta);
-      const direction = delta.kind === 'opaque' ? (delta.delta as { direction?: string } | null)?.direction : undefined;
       return { ...next, __measuredWidth: undefined, __measuredHeight: undefined,
-        sizing: (direction === 'e' || direction === 'w') && textBoxSizing(params) !== 'fixed' ? 'auto-height' : 'fixed' };
+        sizing: resizeSizing(params, delta) };
     },
     commit(ast, span, delta, slideIdx) {
       const target = findComponentAtSpan(ast, span.start, span.end);
@@ -47,8 +54,7 @@ export function makeTextBoxAdapter(): ShapeAdapter {
           if (delta.kind === 'transform' && fill) fill.value = numberLit(original);
           else if (!fill) target.fills.push(slotFill(name, numberLit(original)));
         }
-        const direction = delta.kind === 'opaque' ? (delta.delta as { direction?: string } | null)?.direction : undefined;
-        const mode = stringLit((direction === 'e' || direction === 'w') && textBoxSizing(originalParams) !== 'fixed' ? 'auto-height' : 'fixed');
+        const mode = stringLit(resizeSizing(originalParams, delta));
         const fill = target.fills.find(fill => fill.name === 'sizing');
         if (fill) fill.value = mode; else target.fills.push(slotFill('sizing', mode));
       }
