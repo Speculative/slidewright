@@ -2663,6 +2663,7 @@ export function App({
           }
         : null;
     return {
+      source: state?.source ?? '',
       activeSlide,
       activeSlideIndex: activeSlide ? activeIdx : 0,
       totalSlides: state?.slidesData.length ?? 0,

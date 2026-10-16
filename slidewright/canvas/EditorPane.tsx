@@ -15,6 +15,7 @@ import {
   type Extension,
 } from '@codemirror/state';
 import { sourceFolding, hangingWrap } from './source-layout.js';
+import { tokenize } from '../runtime/lexer.js';
 import { indentWithTab } from '@codemirror/commands';
 import {
   slidewrightHighlighting,
@@ -29,6 +30,7 @@ import type {
 } from './editor-projection.js';
 
 interface DocumentProjection {
+  source: string;
   mode: EditorMode;
   text: string;
   globalStart: number;
@@ -56,6 +58,7 @@ function makeDocumentProjection(
 ): DocumentProjection {
   if (requestedMode === 'slide' && projection.activeSlide) {
     return {
+      source,
       mode: 'slide',
       text: source.slice(
         projection.activeSlide.start,
@@ -68,6 +71,7 @@ function makeDocumentProjection(
   }
   if (requestedMode === 'notes' && projection.notes) {
     return {
+      source,
       mode: 'notes',
       text: projection.notes.value,
       globalStart: projection.notes.sourceRange.start,
@@ -76,6 +80,7 @@ function makeDocumentProjection(
     };
   }
   return {
+    source,
     mode: 'deck',
     text: source,
     globalStart: 0,
@@ -105,7 +110,9 @@ function encodeNotesValue(
   source: string,
   notes: NotesProjection,
 ): string {
-  if (!notes.multiline && !value.includes('\n')) {
+  // Triple strings have no escaping and dedent away significant whitespace.
+  // Use an escaped string whenever that syntax cannot preserve the draft.
+  if ((!notes.multiline && !value.includes('\n')) || value.includes('"""')) {
     return JSON.stringify(value);
   }
 
@@ -116,7 +123,8 @@ function encodeNotesValue(
     .split('\n')
     .map((line) => (line.length > 0 ? `${indentation}  ${line}` : ''))
     .join('\n');
-  return `"""\n${body}\n${indentation}"""`;
+  const encoded = `"""\n${body}\n${indentation}"""`;
+  return tokenize(encoded, '<notes>').tokens[0]?.value === value ? encoded : JSON.stringify(value);
 }
 
 function sourceFromDocument(
@@ -132,24 +140,47 @@ function sourceFromDocument(
       source.slice(projection.globalEnd)
     );
   }
-  if (!projection.notes) return source;
+  return notesDocumentEdit(document, source, projection)?.source ?? source;
+}
+
+function notesDocumentEdit(
+  document: string,
+  source: string,
+  projection: DocumentProjection,
+): { source: string; projection: DocumentProjection } | null {
+  // Never apply a range to a different source revision.
+  if (!projection.notes || source !== projection.source) return null;
+  let start = projection.globalStart;
+  let encoded: string;
+  let nextSource: string;
   if (projection.notes.insertField) {
-    if (!document) return source;
+    if (!document || source[start] !== '}') return null;
     const lineStart = source.lastIndexOf('\n', projection.globalStart - 1) + 1;
     const indentation = /^[ \t]*/.exec(source.slice(lineStart, projection.globalStart))?.[0] ?? '';
     const before = source.slice(0, projection.globalStart).replace(/[ \t]+$/, '');
-    return (
-      before + (before.endsWith('\n') ? '' : '\n') +
-      `${indentation}  notes: ${JSON.stringify(document)}\n${indentation}` +
+    const prefix = before + (before.endsWith('\n') ? '' : '\n') + `${indentation}  notes: `;
+    start = prefix.length;
+    encoded = JSON.stringify(document);
+    nextSource = (
+      prefix + encoded + `\n${indentation}` +
       source.slice(projection.globalEnd)
     );
+  } else {
+    encoded = encodeNotesValue(document, source, projection.notes);
+    nextSource = source.slice(0, start) + encoded + source.slice(projection.globalEnd);
   }
-  const encoded = encodeNotesValue(document, source, projection.notes);
-  return (
-    source.slice(0, projection.globalStart) +
-    encoded +
-    source.slice(projection.globalEnd)
-  );
+  const end = start + encoded.length;
+  return {
+    source: nextSource,
+    projection: {
+      source: nextSource,
+      mode: 'notes',
+      text: document,
+      globalStart: start,
+      globalEnd: end,
+      notes: { sourceRange: { start, end }, value: document, multiline: encoded.startsWith('"""') },
+    },
+  };
 }
 
 function selectionForGlobalRange(
@@ -180,7 +211,6 @@ export function EditorPane({
   projection: EditorPaneProjection;
   height?: number;
 }): ReactElement {
-  const [hostSource, setHostSource] = useState<string>('');
   const [displayedSource, setDisplayedSource] = useState<string>('');
   const [mode, setMode] = useState<EditorMode>('deck');
   const [selection, setSelection] = useState<SelectionState>({ start: 0, end: 0 });
@@ -190,6 +220,7 @@ export function EditorPane({
   const modeRef = useRef<EditorMode>('deck');
   const projectionRef = useRef<EditorPaneProjection>(projection);
   const documentProjectionRef = useRef<DocumentProjection>({
+    source: '',
     mode: 'deck',
     text: '',
     globalStart: 0,
@@ -198,6 +229,30 @@ export function EditorPane({
   });
   const extensionsRef = useRef<(mode: EditorMode) => Extension[]>(() => []);
   const pendingSelectionRef = useRef<SourceRange | null>(null);
+  const pendingNotesRef = useRef<{
+    document: string;
+    projection: DocumentProjection;
+  } | null>(null);
+  const notesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushNotesRef = useRef<() => void>(() => {});
+
+  const cancelPendingNotes = (): void => {
+    if (notesTimerRef.current != null) clearTimeout(notesTimerRef.current);
+    notesTimerRef.current = null;
+    pendingNotesRef.current = null;
+  };
+  flushNotesRef.current = () => {
+    const pending = pendingNotesRef.current;
+    cancelPendingNotes();
+    if (!pending || !host.setSource) return;
+    const edit = notesDocumentEdit(pending.document, sourceRef.current, pending.projection);
+    if (!edit) return;
+    // Advance the range before publishing: blur/another edit can run before
+    // React has delivered the updated AST projection back to this pane.
+    documentProjectionRef.current = edit.projection;
+    sourceRef.current = edit.source;
+    host.setSource(edit.source);
+  };
 
   projectionRef.current = projection;
 
@@ -209,20 +264,21 @@ export function EditorPane({
         : 'deck';
 
   const currentDocumentProjection = useMemo(
-    () => makeDocumentProjection(hostSource, effectiveMode, projection),
-    [hostSource, effectiveMode, projection],
+    () => makeDocumentProjection(projection.source, effectiveMode, projection),
+    [effectiveMode, projection],
   );
 
   modeRef.current = effectiveMode;
 
-  // Host → editor source subscription. CodeMirror itself remains the
-  // source of the current visible document; this state only tracks the
-  // host's complete canonical source and drives projection updates.
+  // Track source authority synchronously; source-backed projections from
+  // the canvas carry their own matching source snapshot.
   useEffect(() => {
     return host.subscribe(({ source }) => {
+      // A replacement from outside this editor wins over any pending draft.
+      // Our own flush clears the draft before notifying the host.
+      if (source !== sourceRef.current) cancelPendingNotes();
       sourceRef.current = source;
-      setHostSource(source);
-      setDisplayedSource(source);
+      if (modeRef.current === 'deck') setDisplayedSource(source);
     });
   }, [host]);
 
@@ -250,6 +306,9 @@ export function EditorPane({
       ]),
       keymap.of([indentWithTab]),
       EditorView.editable.of(host.setSource != null),
+      EditorView.domEventHandlers({
+        blur: () => { flushNotesRef.current(); },
+      }),
       EditorView.updateListener.of((update) => {
         const viewProjection = documentProjectionRef.current;
         const main = update.state.selection.main;
@@ -258,11 +317,22 @@ export function EditorPane({
           end: main.to,
         };
         const globalSelection = localToGlobal(nextSelection, viewProjection);
-        setSelection(globalSelection);
-        host.setCursor?.(globalSelection.start);
+        if (update.selectionSet || update.docChanged) {
+          setSelection(globalSelection);
+          host.setCursor?.(globalSelection.start);
+        }
 
         if (!update.docChanged || host.setSource == null) return;
         const nextDocument = update.state.doc.toString();
+        if (viewProjection.mode === 'notes') {
+          // Keep typing inside CodeMirror. Mapping and the host's full deck
+          // reload happen once after a pause, or synchronously on exit.
+          pendingNotesRef.current = { document: nextDocument, projection: viewProjection };
+          if (notesTimerRef.current != null) clearTimeout(notesTimerRef.current);
+          notesTimerRef.current = setTimeout(() => flushNotesRef.current(), 300);
+          setDisplayedSource(nextDocument);
+          return;
+        }
         const nextSource = sourceFromDocument(
           nextDocument,
           sourceRef.current,
@@ -288,10 +358,24 @@ export function EditorPane({
     setSelection(localToGlobal({ start: 0, end: 0 }, initial));
 
     return () => {
+      flushNotesRef.current();
       view.destroy();
       viewRef.current = null;
     };
   }, [host]);
+
+  useEffect(() => {
+    const flush = (): void => flushNotesRef.current();
+    window.addEventListener('pagehide', flush);
+    const onVisibility = (): void => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
 
   // Host source, active slide, or projection mode changed. Reconcile the
   // visible document while retaining the full source in sourceRef. A
@@ -299,6 +383,12 @@ export function EditorPane({
   // editor-side equivalent of the canvas's external-edit barrier.
   useEffect(() => {
     const next = currentDocumentProjection;
+    if (next.source !== sourceRef.current) return;
+    // Same-source host notifications (for example, saving a browser draft)
+    // must not replace the text still being typed in Notes.
+    if (pendingNotesRef.current && next.mode === 'notes' &&
+        next.globalStart === pendingNotesRef.current.projection.globalStart) return;
+    flushNotesRef.current();
     const previousMode = documentProjectionRef.current.mode;
     documentProjectionRef.current = next;
     const view = viewRef.current;
@@ -358,6 +448,7 @@ export function EditorPane({
   const chooseMode = (next: EditorMode): void => {
     if (next === 'slide' && !projection.activeSlide) return;
     if (next === 'notes' && !projection.notes) return;
+    flushNotesRef.current();
     setMode(next);
   };
 

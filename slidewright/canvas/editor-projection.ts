@@ -21,6 +21,8 @@ export interface NotesProjection {
 }
 
 export interface EditorPaneProjection {
+  // Source snapshot owning every range in this projection.
+  source: string;
   activeSlide: SourceRange | null;
   activeSlideIndex: number;
   totalSlides: number;
