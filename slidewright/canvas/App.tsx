@@ -94,7 +94,8 @@ import type {
 import { resizeRect } from './rect-adapter.js';
 import { snapDirection } from './gesture-constraints.js';
 import { nudgeSelection } from './nudge.js';
-import { copyElements, pasteElements, ELEMENT_CLIPBOARD_TYPE } from './element-clipboard.js';
+import { clipboardImageFiles, readClipboardImage } from './image-clipboard.js';
+import { copyElements, pasteElements, pasteImages, ELEMENT_CLIPBOARD_TYPE } from './element-clipboard.js';
 import { GestureProvider, spanKey } from './gesture-context.js';
 import { crossesDragThreshold } from './drag-threshold.js';
 import { wrapShape } from './shape-projection.js';
@@ -892,6 +893,7 @@ export function App({
       PROPERTIES_WIDTH_MAX,
     ),
   );
+  const [clipboardError, setClipboardError] = useState<string | null>(null);
   const [editing, setEditing] = useState<TextEditTarget | null>(null);
   const externalTextCancellationRef = useRef(false);
   const [richEditing, setRichEditing] = useState<TextEditorSnapshot | null>(null);
@@ -2317,6 +2319,7 @@ export function App({
 
   // Native clipboard events cover Ctrl/Cmd+C/V and browser menu commands.
   useEffect(() => {
+    let cancelled = false;
     const canHandle = (event: ClipboardEvent) => {
       const target = event.target as HTMLElement | null;
       return !event.defaultPrevented && !!event.clipboardData && !presenting &&
@@ -2335,13 +2338,33 @@ export function App({
       if (!canHandle(event) || !host.setSource) return;
       const content = event.clipboardData!.getData(ELEMENT_CLIPBOARD_TYPE) || event.clipboardData!.getData('text/plain');
       const result = pasteElements(sourceRef.current, selected, activeIdxRef.current, content);
-      if (!result) return;
+      if (result) {
+        event.preventDefault();
+        setClipboardError(null);
+        commitToHost(result.newSource, result.newSelections);
+        return;
+      }
+      const files = clipboardImageFiles(event.clipboardData!);
+      if (!files.length) return;
       event.preventDefault();
-      commitToHost(result.newSource, result.newSelections);
+      setClipboardError(null);
+      const source = sourceRef.current;
+      const slideIdx = activeIdxRef.current;
+      // Decoding is asynchronous. Never apply old source or old selection
+      // offsets after navigation, another edit, or leaving canvas mode.
+      void Promise.all(files.map(readClipboardImage)).then(images => {
+        if (cancelled || sourceRef.current !== source || activeIdxRef.current !== slideIdx) return;
+        const pasted = pasteImages(source, selected, slideIdx, images);
+        if (pasted) commitToHost(pasted.newSource, pasted.newSelections);
+        else setClipboardError('Select a Freeform canvas to paste images.');
+      }).catch(error => {
+        if (!cancelled) setClipboardError(error instanceof Error ? error.message : 'Could not paste the image.');
+      });
     };
     window.addEventListener('copy', onCopy);
     window.addEventListener('paste', onPaste);
     return () => {
+      cancelled = true;
       window.removeEventListener('copy', onCopy);
       window.removeEventListener('paste', onPaste);
     };
@@ -2803,6 +2826,7 @@ export function App({
     >
       <div className="sw-canvas-status">
         {state.fileName.split('/').pop()} · slide {activeIdx + 1} of {total}
+        {clipboardError && <span role="alert"> · {clipboardError}</span>}
       </div>
       <DiagnosticsPanel diagnostics={errors} />
       <ToolPalette

@@ -1,7 +1,8 @@
 import type { Component, SourceFile, Value } from '../runtime/ast.js';
+import { makeComponent, numberLit, slotFill, stringLit } from '../runtime/ast-builders.js';
 import { emit } from '../runtime/emitter.js';
 import { parse } from '../runtime/parser.js';
-import { commitSourceEdit, componentByPath, findActiveSlideFreeform, findComponentAtSpan, pathToComponent } from './ast-edits.js';
+import { commitSourceEdit, componentByPath, findComponentAtSpan, pathToComponent } from './ast-edits.js';
 import type { SelectionTarget } from './selection-target.js';
 
 export const ELEMENT_CLIPBOARD_TYPE = 'application/x-slidewright-elements';
@@ -54,16 +55,61 @@ export function pasteElements(source: string, selected: readonly SelectionTarget
   if (!clipboard.startsWith(HEADER)) return null;
   const parsed = parse(clipboard.slice(HEADER.length), '<paste-elements>');
   if (parsed.diagnostics.some(d => d.severity === 'error') || !parsed.ast.items.length) return null;
+  return insertElements(source, selected, slideIdx, parsed.ast.items);
+}
+
+// Prefer an explicit selection; otherwise search within the active slide so
+// authored wrappers (such as PlateauSlide) can contain the canvas.
+function slideFreeform(ast: SourceFile, slideIdx: number): Component | null {
+  const slides = ast.items[0]?.fills.find(fill => fill.name === 'slides')?.value;
+  const slide = slides?.kind === 'list' ? slides.items[slideIdx] : null;
+  const visit = (value: Value): Component | null => {
+    if (value.kind === 'list') {
+      for (const item of value.items) { const found = visit(item); if (found) return found; }
+    }
+    if (value.kind !== 'component') return null;
+    if (value.name === 'Freeform') return value;
+    for (const fill of value.fills) { const found = visit(fill.value); if (found) return found; }
+    for (const child of value.implicitChildren) { const found = visit(child); if (found) return found; }
+    return null;
+  };
+  return slide ? visit(slide) : null;
+}
+
+function insertElements(source: string, selected: readonly SelectionTarget[], slideIdx: number, nodes: Component[]) {
   return commitSourceEdit(source, '<paste-elements>', ast => {
     const target = selected[0];
     const node = target && selectedNode(ast, target);
     const explicitContainer = node && ['Freeform', 'Group'].includes(node.name) &&
       (node.name === 'Freeform' || (target?.kind !== 'component' && target?.kind !== 'slide' && target?.slotName === 'children'));
     const parent = explicitContainer ? node : target ? enclosingElement(ast, target)?.parent : null;
-    const destination = parent ?? findActiveSlideFreeform(ast, slideIdx);
+    const destination = parent ?? slideFreeform(ast, slideIdx);
     const items = destination && children(destination);
     if (!items) return null;
-    items.push(...parsed.ast.items);
-    return { selectComponents: parsed.ast.items };
+    items.push(...nodes);
+    return { selectComponents: nodes };
   });
+}
+
+export interface ClipboardImage {
+  src: string;
+  width: number;
+  height: number;
+}
+
+// Embed bytes in the source rather than retaining a temporary blob URL.
+// Keep small images at native size and fit large ones within the slide.
+export function pasteImages(source: string, selected: readonly SelectionTarget[], slideIdx: number, images: readonly ClipboardImage[]) {
+  if (!images.length) return null;
+  const nodes = images.map((image, index) => {
+    const scale = Math.min(1, 1440 / image.width, 810 / image.height);
+    return makeComponent('Image', [
+      slotFill('x', numberLit(80 + index * 24)),
+      slotFill('y', numberLit(80 + index * 24)),
+      slotFill('width', numberLit(image.width * scale)),
+      slotFill('height', numberLit(image.height * scale)),
+      slotFill('src', stringLit(image.src)),
+    ]);
+  });
+  return insertElements(source, selected, slideIdx, nodes);
 }
