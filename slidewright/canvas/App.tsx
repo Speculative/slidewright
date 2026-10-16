@@ -42,6 +42,7 @@ import { RichTextEditor, type TextEditorSnapshot, type TextSessionHandle } from 
 import { BoxSettings, type TextBoxDefault, type TextBoxDefaults } from './rich-text/BoxSettings.js';
 import type { TextFormattingState } from './rich-text/feedback.js';
 import { commitOnTextBlur } from './rich-text/focus.js';
+import { SelectedTextBoxToolbar, type WholeTextChange } from './rich-text/SelectedTextBoxToolbar.js';
 import { FormattingToolbar } from './rich-text/FormattingToolbar.js';
 import { TextDocumentSessionContext } from './text-document-context.js';
 import { components, staticTokens } from '../../decks/v0-reference/registry.js';
@@ -893,6 +894,21 @@ export function App({
   const [selected, setSelected] = useState<SelectionTarget[]>([]);
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
+
+  // Object and slot selections belong to the visible slide. Navigation
+  // must drop old targets so floating controls and edit/delete commands
+  // cannot keep acting on a component from the slide we just left.
+  useEffect(() => {
+    if (selected.length === 0) return;
+    const slideSpan = state?.slidesData[activeIdx]?.comp.span;
+    const visible = selected.filter(target => {
+      if (!slideSpan) return false;
+      if (target.kind === 'slide') return true;
+      const span = target.kind === 'component' ? target.span : target.parentSpan;
+      return span.start >= slideSpan.start.offset && span.end <= slideSpan.end.offset;
+    });
+    if (visible.length !== selected.length) setSelected(visible);
+  }, [activeIdx, state?.slidesData, selected]);
 
   // Selection-preservation across host.setSource. Spans shift after
   // every emit; gestures stash the post-emit selection here before
@@ -2556,6 +2572,35 @@ export function App({
     const restored = path ? componentByPath(parse(result.newSource, '<box-selection>').ast, path) : null;
     commitToHost(result.newSource, restored ? [{ start: restored.span.start.offset, end: restored.span.end.offset }] : undefined);
   };
+  const applyWholeTextChange = (change: WholeTextChange, preview: boolean) => {
+    if (selectedShape?.comp.name !== 'TextBox') return;
+    let path: ReturnType<typeof pathToComponent> = null;
+    const result = commitSourceEdit(sourceRef.current, '<whole-text-formatting>', ast => {
+      const comp = findComponentAtSpan(ast, selectedShape.comp.span.start.offset, selectedShape.comp.span.end.offset);
+      if (!comp) return null;
+      path = pathToComponent(ast, comp);
+      const content = comp.fills.find(fill => fill.name === 'content');
+      if (content) content.value = change.content; else comp.fills.push(slotFill('content', change.content));
+      if (change.field) {
+        const value = change.value;
+        if (value == null) comp.fills = comp.fills.filter(fill => fill.name !== change.field);
+        else {
+          const next = typeof value === 'object' ? value : typeof value === 'number' ? numberLit(value) : typeof value === 'boolean' ? booleanLit(value)
+            : change.field === 'color' && value in state.colorTokens ? nameRef(value) : stringLit(value);
+          const fill = comp.fills.find(fill => fill.name === change.field);
+          if (fill) fill.value = next; else comp.fills.push(slotFill(change.field, next));
+        }
+      }
+      return {};
+    });
+    if (!result) return;
+    const restored = path ? componentByPath(parse(result.newSource, '<whole-text-selection>').ast, path) : null;
+    const spans = restored ? [{ start: restored.span.start.offset, end: restored.span.end.offset }] : undefined;
+    if (preview) {
+      if (spans) pendingSelectionRef.current = spans.map(componentTarget);
+      applyScrubPreview(result.newSource);
+    } else commitToHost(result.newSource, spans);
+  };
   const slotInfo: SlotInfo | null = (() => {
     if (!singleTarget || singleTarget.kind !== 'slot') return null;
     const parentShape = findShapeForRange(state.shapes, singleTarget.parentSpan);
@@ -2831,6 +2876,10 @@ export function App({
             colorTokens={state.colorTokens}
             slideColors={slideColors}
           />
+          {!richEditing && !presenting && !gestureMeta && selectedShape?.comp.name === 'TextBox' && <SelectedTextBoxToolbar
+            component={selectedShape.comp} params={selectedShape.params} scope={state.scope} registry={components}
+            colorTokens={state.colorTokens} slideColors={slideColors} onChange={applyWholeTextChange}
+            onColorGesture={phase => { if (phase === 'begin') beginScrub(); else endScrub(phase === 'cancel' ? null : sourceRef.current); }} />}
           {(richEditing || boxShape?.comp.name === 'TextBox') && <div className="sw-text-session-actions" onKeyDown={event => event.stopPropagation()}
             onBlur={event => commitOnTextBlur(event.relatedTarget, () => richSessionRef.current?.finish('commit'))}>
             <BoxSettings onApply={applyBoxSetting} current={{ ...boxShape?.params, ...boxDraft }} />

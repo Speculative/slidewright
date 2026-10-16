@@ -6,11 +6,11 @@ import { parse } from '../../runtime/parser.js';
 import type { SlideColor } from '../InspectorPanels.js';
 import type { Value } from '../../runtime/ast.js';
 import type { FormattingValue } from './feedback.js';
-import type { TextSessionHandle } from './Editor.js';
+import type { TextStyleControls } from './FloatingToolbar.js';
 
 export function TextColorPicker({ field, label, current, session, colorTokens, slideColors }: {
   field: 'color' | 'strokeColor'; label: string; current?: FormattingValue;
-  session: RefObject<TextSessionHandle | null>; colorTokens: Record<string, string>; slideColors: SlideColor[];
+  session: RefObject<TextStyleControls | null>; colorTokens: Record<string, string>; slideColors: SlideColor[];
 }) {
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);

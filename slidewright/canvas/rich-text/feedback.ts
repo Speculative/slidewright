@@ -14,7 +14,7 @@ const common = (values: FormattingValue['value'][]): FormattingValue => ({
 });
 
 // Positions and marks stay private; consumers receive authored style values.
-export function formattingState(state: EditorState): TextFormattingState {
+export function formattingState(state: EditorState, defaults: Record<string, unknown> = {}): TextFormattingState {
   const { from, to, empty, $from } = state.selection;
   const marks = empty ? [state.storedMarks ?? $from.marks()] : [];
   const paragraphs: Record<string, unknown>[] = [];
@@ -25,9 +25,9 @@ export function formattingState(state: EditorState): TextFormattingState {
   const inline = Object.fromEntries(STYLE_FIELDS.map(field => [field, common(marks.map(group => {
     const mark = group.find(mark => mark.type.name === field);
     const authored = mark?.attrs.authored;
-    return authored?.kind === 'name_ref' ? authored.name : mark?.attrs.value ?? null;
+    return authored?.kind === 'name_ref' ? authored.name : mark?.attrs.value ?? (defaults[field] as FormattingValue['value']) ?? null;
   }))])) as TextFormattingState['inline'];
-  const paragraph = Object.fromEntries(PARAGRAPH_FIELDS.map(field => [field, common(paragraphs.map(attrs => attrs[field] as FormattingValue['value']))])) as TextFormattingState['paragraph'];
+  const paragraph = Object.fromEntries(PARAGRAPH_FIELDS.map(field => [field, common(paragraphs.map(attrs => (attrs[field] ?? defaults[field]) as FormattingValue['value']))])) as TextFormattingState['paragraph'];
   let list: TextFormattingState['list'] = null;
   for (let depth = $from.depth; depth > 0; depth--) {
     const node = $from.node(depth);

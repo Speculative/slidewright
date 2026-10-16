@@ -224,7 +224,11 @@ test('formatting toolbar retains a cross-run range and commits one source edit',
   expect(source).toContain('italic: true');
   expect(source).toContain('"First bullet"');
   expect(source).toContain('href: "https://example.com/rich-text"');
-  await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
+  // The object toolbar now remains above the selected TextBox after Done.
+  // Deselect through the bottom of the slide, clear of the floating controls.
+  const canvas = page.locator('.sw-canvas-stage .presentation');
+  const bounds = (await canvas.boundingBox())!;
+  await canvas.click({ position: { x: 5, y: bounds.height - 5 } });
   await page.keyboard.press('ControlOrMeta+Z');
   await expect.poll(() => getEditorSource(page)).toBe(before);
 });

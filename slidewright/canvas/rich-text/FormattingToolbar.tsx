@@ -1,7 +1,7 @@
 import { Bold, Italic, Underline, Strikethrough, RemoveFormatting } from 'lucide-react';
 import type { SlideColor } from '../InspectorPanels.js';
 import { commitOnTextBlur } from './focus.js';
-import { FloatingToolbar } from './FloatingToolbar.js';
+import { FloatingToolbar, type TextStyleControls } from './FloatingToolbar.js';
 import { useEffect, useState, type RefObject } from 'react';
 import type { TextFormattingState, FormattingValue } from './feedback.js';
 import type { ParagraphField, ListStyle } from './commands.js';
@@ -52,10 +52,6 @@ export function FormattingToolbar({ session, state, colorTokens, slideColors }: 
   const [paragraphField, setParagraphField] = useState<ParagraphField>('align');
   const [paragraphValue, setParagraphValue] = useState('');
   const describe = (value: FormattingValue | undefined) => value?.mixed ? 'Mixed' : !value || value.value === null ? 'Inherited' : String(value.value);
-  function pressed(field: 'weight' | 'italic' | 'underline' | 'strikethrough'): boolean | 'mixed' {
-    const current = state?.inline[field];
-    return current?.mixed ? 'mixed' : field === 'weight' ? String(current?.value) === '700' : current?.value === true;
-  }
   function applyParagraph() {
     const next = !paragraphValue.trim() ? null : paragraphField === 'align' ? paragraphValue : Number(paragraphValue);
     if (typeof next === 'number' && (!Number.isFinite(next) || paragraphField === 'lineHeight' && next <= 0)) return;
@@ -68,14 +64,7 @@ export function FormattingToolbar({ session, state, colorTokens, slideColors }: 
     if (typeof next === 'number' && (!Number.isFinite(next) || (field === 'size' && next <= 0 || field === 'strokeWidth' && next < 0))) return;
     session.current?.format(field, next);
   }
-  const buttons = <div className="sw-text-formatting-buttons">
-      {([['weight', 'Bold', Bold, 'Ctrl/Cmd+B'], ['italic', 'Italic', Italic, 'Ctrl/Cmd+I'],
-        ['underline', 'Underline', Underline, 'Ctrl/Cmd+U'], ['strikethrough', 'Strikethrough', Strikethrough, 'Ctrl/Cmd+Shift+X']] as const).map(([name, label, Icon, shortcut]) => <button key={name} type="button" className="sw-icon-button" aria-label={label} title={`${label} (${shortcut})`}
-        aria-pressed={pressed(name)} onPointerDown={event => { if (!(document.activeElement instanceof HTMLInputElement)) event.preventDefault(); }} onClick={() => session.current?.toggle(name)}>
-        <Icon size={18} aria-hidden="true" focusable="false" />
-      </button>)}
-      <button type="button" className="sw-icon-button" aria-label="Clear formatting" title="Clear formatting" onPointerDown={event => { if (!(document.activeElement instanceof HTMLInputElement)) event.preventDefault(); }} onClick={() => session.current?.clearFormatting()}><RemoveFormatting size={18} aria-hidden="true" focusable="false" /></button>
-    </div>;
+  const buttons = <TextStyleButtons session={session} state={state} />;
   return <div className="sw-text-formatting" data-sw-text-formatting role="group" aria-label="Text formatting"
     onBlur={event => {
       commitOnTextBlur(event.relatedTarget, () => session.current?.finish('commit'));
@@ -116,4 +105,19 @@ export function FormattingToolbar({ session, state, colorTokens, slideColors }: 
     </button>)}
     {listMessage && <span role="status">{listMessage}</span>}
   </div>;
+}
+
+export function TextStyleButtons({ session, state }: { session: RefObject<TextStyleControls | null>; state: TextFormattingState | null }) {
+  function pressed(field: 'weight' | 'italic' | 'underline' | 'strikethrough'): boolean | 'mixed' {
+    const current = state?.inline[field];
+    return current?.mixed ? 'mixed' : field === 'weight' ? String(current?.value) === '700' : current?.value === true;
+  }
+  return <div className="sw-text-formatting-buttons">
+      {([['weight', 'Bold', Bold, 'Ctrl/Cmd+B'], ['italic', 'Italic', Italic, 'Ctrl/Cmd+I'],
+        ['underline', 'Underline', Underline, 'Ctrl/Cmd+U'], ['strikethrough', 'Strikethrough', Strikethrough, 'Ctrl/Cmd+Shift+X']] as const).map(([name, label, Icon, shortcut]) => <button key={name} type="button" className="sw-icon-button" aria-label={label} title={`${label} (${shortcut})`}
+        aria-pressed={pressed(name)} onPointerDown={event => { if (!(document.activeElement instanceof HTMLInputElement)) event.preventDefault(); }} onClick={() => session.current?.toggle(name)}>
+        <Icon size={18} aria-hidden="true" focusable="false" />
+      </button>)}
+      <button type="button" className="sw-icon-button" aria-label="Clear formatting" title="Clear formatting" onPointerDown={event => { if (!(document.activeElement instanceof HTMLInputElement)) event.preventDefault(); }} onClick={() => session.current?.clearFormatting()}><RemoveFormatting size={18} aria-hidden="true" focusable="false" /></button>
+    </div>;
 }

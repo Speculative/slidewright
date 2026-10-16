@@ -29,8 +29,10 @@ function StyleInput({ label, current, numeric, min, list, colorControl, apply }:
     onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); commit(); } }} />{colorControl}</span></div>;
 }
 
-export function FloatingToolbar({ session, state, children, colorTokens, slideColors }: {
-  session: RefObject<TextSessionHandle | null>; state: TextFormattingState | null; children: ReactNode; colorTokens: Record<string, string>; slideColors: SlideColor[];
+export type TextStyleControls = Pick<TextSessionHandle, 'selectionBounds' | 'format' | 'toggle' | 'clearFormatting' | 'formatColor' | 'selectionColor' | 'colorGesture' | 'paragraph' | 'finish'>;
+
+export function FloatingToolbar({ session, state, children, colorTokens, slideColors, label = 'Selection formatting' }: {
+  session: RefObject<TextStyleControls | null>; label?: string; state: TextFormattingState | null; children: ReactNode; colorTokens: Record<string, string>; slideColors: SlideColor[];
 }) {
   const toolbar = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
@@ -57,7 +59,7 @@ export function FloatingToolbar({ session, state, children, colorTokens, slideCo
     <StyleInput key={field} label={label} current={state?.inline[field]} numeric={numeric} min={min} list={list} colorControl={(field === 'color' || field === 'strokeColor') && <TextColorPicker field={field} label={label} current={state?.inline[field]} session={session} colorTokens={colorTokens} slideColors={slideColors} />}
       apply={value => session.current?.format(field, value)} />;
   return createPortal(<div ref={toolbar} className="sw-floating-text-toolbar sw-text-session-actions" data-sw-text-formatting
-    role="toolbar" aria-label="Selection formatting" style={{ left: position?.left ?? 8, top: position?.top ?? 8, visibility: position ? 'visible' : 'hidden' }}
+    role="toolbar" aria-label={label} style={{ left: position?.left ?? 8, top: position?.top ?? 8, visibility: position ? 'visible' : 'hidden' }}
     onPointerDown={event => event.stopPropagation()}
     onKeyDown={event => {
       event.stopPropagation();
