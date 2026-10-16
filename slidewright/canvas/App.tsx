@@ -89,6 +89,7 @@ import type {
 } from './shape-adapter.js';
 import { resizeRect } from './rect-adapter.js';
 import { nudgeSelection } from './nudge.js';
+import { copyElements, pasteElements, ELEMENT_CLIPBOARD_TYPE } from './element-clipboard.js';
 import { GestureProvider, spanKey } from './gesture-context.js';
 import { crossesDragThreshold } from './drag-threshold.js';
 import { wrapShape } from './shape-projection.js';
@@ -2288,6 +2289,38 @@ export function App({
       document.removeEventListener('keydown', onKey);
     };
   }, [marquee]);
+
+  // Native clipboard events cover Ctrl/Cmd+C/V and browser menu commands.
+  useEffect(() => {
+    const canHandle = (event: ClipboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      return !event.defaultPrevented && !!event.clipboardData && !presenting &&
+        !richEditing && !editing && !gestureMeta && !createPreview && !marquee && !toolDrag &&
+        !target?.isContentEditable && !target?.closest('input, textarea, select, .sw-rich-text-editor, .sw-text-session-actions');
+    };
+    const onCopy = (event: ClipboardEvent) => {
+      if (!canHandle(event)) return;
+      const content = copyElements(sourceRef.current, selected);
+      if (!content) return;
+      event.clipboardData!.setData(ELEMENT_CLIPBOARD_TYPE, content);
+      event.clipboardData!.setData('text/plain', content);
+      event.preventDefault();
+    };
+    const onPaste = (event: ClipboardEvent) => {
+      if (!canHandle(event) || !host.setSource) return;
+      const content = event.clipboardData!.getData(ELEMENT_CLIPBOARD_TYPE) || event.clipboardData!.getData('text/plain');
+      const result = pasteElements(sourceRef.current, selected, activeIdxRef.current, content);
+      if (!result) return;
+      event.preventDefault();
+      commitToHost(result.newSource, result.newSelections);
+    };
+    window.addEventListener('copy', onCopy);
+    window.addEventListener('paste', onPaste);
+    return () => {
+      window.removeEventListener('copy', onCopy);
+      window.removeEventListener('paste', onPaste);
+    };
+  }, [selected, presenting, richEditing, editing, gestureMeta, createPreview, marquee, toolDrag, host, commitToHost]);
 
   // ─── Keyboard: Escape, Delete / Backspace, Cmd-Z / Cmd-Shift-Z ──
   useEffect(() => {
