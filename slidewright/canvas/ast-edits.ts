@@ -28,6 +28,7 @@
 
 import { emit } from '../runtime/emitter.js';
 import { parse } from '../runtime/parser.js';
+import { makeComponent, slotFill } from '../runtime/ast-builders.js';
 import type {
   Component,
   ListLit,
@@ -511,23 +512,16 @@ function findSlidesList(ast: SourceFile): ListLit | null {
   return slidesFill.value;
 }
 
-// Append an empty `Slide {}` to the deck's slides list. Returns
-// the new slide's index, or -1 if the deck/slides list can't be
-// found. Empty body means no label, no notes, no content —
-// the loader emits placeholders for each so the user can drop
-// content via the toolbar.
-export function appendEmptySlide(ast: SourceFile): number {
+// Insert a slide with an empty Freeform, ready for drawing/insertion.
+// Returns its index, or -1 if the deck/slides list can't be found.
+export function insertEmptySlide(ast: SourceFile, index: number): number {
   const list = findSlidesList(ast);
   if (!list) return -1;
-  list.items.push({
-    kind: 'component',
-    name: 'Slide',
-    fills: [],
-    implicitChildren: [],
-    span: ZERO_SPAN,
-    bodySpan: ZERO_SPAN,
-  });
-  return list.items.length - 1;
+  const insertAt = Math.max(0, Math.min(list.items.length, index));
+  list.items.splice(insertAt, 0, makeComponent('Slide', [
+    slotFill('content', makeComponent('Freeform', [])),
+  ]));
+  return insertAt;
 }
 
 // Remove slides at the given indices from the deck's slides list.

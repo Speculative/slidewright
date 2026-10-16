@@ -223,7 +223,8 @@ export function SlideStrip({
         className="sw-add-slide"
         onClick={onAddSlide}
         aria-label="Add slide"
-        title="Add slide"
+        title="Add slide below current (Ctrl+M)"
+        aria-keyshortcuts="Control+m Meta+m"
       >
         + Slide
       </button>

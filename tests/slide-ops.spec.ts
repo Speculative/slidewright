@@ -1,5 +1,5 @@
 // End-to-end tests for slide-strip operations:
-//   - Add-slide button appends an empty Slide and activates it
+//   - Add-slide button / Ctrl+M insert a Freeform slide below the active one
 //   - Multi-select via shift+click (range) and cmd/ctrl+click (toggle)
 //   - Delete with multi-selection removes all selected in one undo
 //   - Drag-reorder moves slides (singletons + groups, preserving
@@ -7,7 +7,7 @@
 
 import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { getEditorSource } from './editor-helpers';
+import { focusEditor, getEditorSource } from './editor-helpers';
 
 async function letReactCatchUp(page: Page): Promise<void> {
   await page.evaluate(
@@ -49,18 +49,51 @@ async function selectedIndices(page: Page): Promise<number[]> {
 
 // ─── Add-slide ───────────────────────────────────────────────────
 
-test('add-slide button appends an empty slide and activates it', async ({ page }) => {
+for (const action of ['button', 'Control+m', 'Meta+m']) {
+  test(`${action} inserts a Freeform slide below the active slide in one undo`, async ({ page }) => {
+    await page.goto('/canvas.html?fixture=three-slides');
+    await expect(page.locator('.sw-thumb')).toHaveCount(3);
+    await page.locator('.sw-thumb').nth(1).click();
+    const before = await getSource(page);
+    if (action === 'button') await page.locator('.sw-add-slide').click();
+    else await page.keyboard.press(action);
+    await letReactCatchUp(page);
+    await expect(page.locator('.sw-thumb')).toHaveCount(4);
+    expect(await activeIdx(page)).toBe(2);
+    expect(await selectedIndices(page)).toEqual([2]);
+    await expect(page.locator('.sw-canvas-stage [data-sw-component="Freeform"]')).toHaveCount(1);
+    await expect(page.locator('.sw-canvas-stage [data-sw-component="Box"]')).toHaveCount(0);
+    const source = await getSource(page);
+    expect(source).toMatch(/Beta[\s\S]*Slide\s*\{\s*content:\s*Freeform\s*\{\s*\}\s*\}\s*Slide\s*\{\s*label:\s*"Gamma"/);
+    const undo = process.platform === 'darwin' ? 'Meta+z' : 'Control+z';
+    await page.keyboard.press(undo);
+    await expect(page.locator('.sw-thumb')).toHaveCount(3);
+    expect(await activeIdx(page)).toBe(1);
+    expect(await getSource(page)).toBe(before);
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+z' : 'Control+Shift+z');
+    await expect(page.locator('.sw-thumb')).toHaveCount(4);
+    expect(await activeIdx(page)).toBe(2);
+    expect(await getSource(page)).toBe(source);
+  });
+}
+
+test('Ctrl+M appends after the last slide and can create consecutive slides', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=three-slides');
+  await page.locator('.sw-thumb').nth(2).click();
+  await page.keyboard.press('Control+m');
+  await expect(page.locator('.sw-thumb')).toHaveCount(4);
+  expect(await activeIdx(page)).toBe(3);
+  await page.keyboard.press('Control+m');
+  await expect(page.locator('.sw-thumb')).toHaveCount(5);
+  expect(await activeIdx(page)).toBe(4);
+});
+
+test('Ctrl+M defers to the source editor while typing', async ({ page }) => {
   await page.goto('/canvas.html?fixture=three-slides');
   await expect(page.locator('.sw-thumb')).toHaveCount(3);
-  await page.locator('.sw-add-slide').click();
-  await letReactCatchUp(page);
-  await expect(page.locator('.sw-thumb')).toHaveCount(4);
-  // New slide is the last one and becomes active.
-  expect(await activeIdx(page)).toBe(3);
-  const source = await getSource(page);
-  // Source ends in `Slide {}` followed by the closing slides
-  // bracket. Match the appended empty body.
-  expect(source).toMatch(/Slide\s*\{\s*\}\s*\]/s);
+  await focusEditor(page);
+  await page.keyboard.press('Control+m');
+  await expect(page.locator('.sw-thumb')).toHaveCount(3);
 });
 
 // ─── Shift-click range select ────────────────────────────────────

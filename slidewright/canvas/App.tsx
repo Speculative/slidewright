@@ -62,7 +62,7 @@ import {
 } from './ScaledCanvas.js';
 import {
   addStringSlotFill,
-  appendEmptySlide,
+  insertEmptySlide,
   commitSourceEdit,
   componentByPath,
   findComponentAtSpan,
@@ -1387,25 +1387,18 @@ export function App({
     [total, slideAnchor, slideSelection],
   );
 
-  // Append an empty `Slide {}` to the deck and activate it. The
-  // loader will surface placeholders for label / notes / content
-  // so the user can fill them via the inspector / toolbar.
+  // Insert below the active slide, with a Freeform ready for content.
   const handleAddSlide = useCallback(() => {
+    let newIdx = -1;
     const result = commitSourceEdit(sourceRef.current, '<add-slide>', (ast) => {
-      const idx = appendEmptySlide(ast);
-      if (idx < 0) return null;
+      newIdx = insertEmptySlide(ast, activeIdxRef.current + 1);
+      if (newIdx < 0) return null;
       return {};
     });
     if (!result) return;
     commitToHost(result.newSource);
-    // The new slide is at the end of the list. The host subscribe
-    // round-trip will replace `state`; queue the activation so it
-    // runs after the new state lands.
+    // Activate after the host subscription has received the new source.
     queueMicrotask(() => {
-      const next = stateRef.current;
-      if (!next) return;
-      const newIdx = next.slides.length - 1;
-      if (newIdx < 0) return;
       setActiveIdx(newIdx);
       setSlideSelection([newIdx]);
       setSlideAnchor(newIdx);
@@ -2221,6 +2214,12 @@ export function App({
       // through that path; this handler covers the
       // canvas-focused / standalone case.
       const ctrlOrCmd = e.ctrlKey || e.metaKey;
+      if (ctrlOrCmd && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'm') {
+        if (e.defaultPrevented || e.isComposing) return;
+        e.preventDefault();
+        handleAddSlide();
+        return;
+      }
       if (ctrlOrCmd && !e.altKey && (e.key === 'z' || e.key === 'Z')) {
         // Always preventDefault on Cmd-Z / Cmd-Shift-Z reaching the
         // canvas. Even when our undo / redo stack is empty, the
@@ -2235,7 +2234,7 @@ export function App({
           if (entry === undefined) return;
           undoStackRef.current.push({
             source: sourceRef.current,
-            slideIdx: entry.slideIdx,
+            slideIdx: activeIdxRef.current,
           });
           internalSourceChangeRef.current = true;
           if (entry.slideIdx !== activeIdxRef.current) {
@@ -2248,7 +2247,7 @@ export function App({
         if (entry === undefined) return;
         redoStackRef.current.push({
           source: sourceRef.current,
-          slideIdx: entry.slideIdx,
+          slideIdx: activeIdxRef.current,
         });
         internalSourceChangeRef.current = true;
         if (entry.slideIdx !== activeIdxRef.current) {
@@ -2321,6 +2320,7 @@ export function App({
     toolDrag,
     slideSelection,
     handleDeleteSlides,
+    handleAddSlide,
   ]);
 
   // ─── Derived gesture deltas (for context distribution) ──────────
