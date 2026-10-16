@@ -162,16 +162,16 @@ test('flow layout selections explain why free positioning is disabled', async ({
 });
 
 for (const [label, axis, expected] of [
-  ['Align horizontal center', 'x', 740],
-  ['Align right', 'x', 1480],
+  ['Align horizontal center', 'x', 860],
+  ['Align right', 'x', 1720],
   ['Align top', 'y', 0],
-  ['Align vertical center', 'y', 367],
-  ['Align bottom', 'y', 734],
+  ['Align vertical center', 'y', 465],
+  ['Align bottom', 'y', 930],
 ] as const) {
   test(`${label} uses the container's design coordinates`, async ({ page }) => {
     await page.goto('/canvas.html?fixture=single-box');
     await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
-    // The fixture's Freeform is 1680 × 884, inside the slide's safe area.
+    // Freeform covers the full 1920 × 1080 slide.
     await page.getByRole('button', { name: label, exact: true }).click();
     await expect.poll(() => getEditorSource(page)).toMatch(new RegExp(`${axis}:\\s*${expected}\\b`));
     await expect(page.locator('.sw-hierarchy-node.selected')).toHaveCount(1);
@@ -183,7 +183,7 @@ test('alignment materializes default coordinates and supports custom adapters', 
   await setHostSource(page, 'Deck { name: "Defaults" slides: [ Slide { content: Freeform { children: [DebuggerDemo { width: 1500 height: 700 }] } } ] }');
   await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
   await page.getByRole('button', { name: 'Align right', exact: true }).click();
-  await expect.poll(() => getEditorSource(page)).toMatch(/x:\s*180\b/);
+  await expect.poll(() => getEditorSource(page)).toMatch(/x:\s*420\b/);
   await expect(page.locator('.sw-hierarchy-node.selected')).toHaveCount(1);
 });
 

@@ -3,7 +3,7 @@
 // Positions children absolutely within the slide's design space. Each
 // child is itself responsible for its own positioning (position:
 // absolute + top/left); Freeform is just a positioning context with
-// position: relative + slide-sized bounds. Per SLIDEWRIGHT.md /
+// absolute positioning + full container bounds. Per SLIDEWRIGHT.md /
 // Primitives, this is the v0 layout primitive for diagram-flavored
 // slides where authors place shapes by coordinate rather than by
 // stack/grid layout.
@@ -56,9 +56,10 @@ export default function Freeform({ slots, slotsState }: ComponentRenderProps) {
   return (
     <div
       style={{
-        position: 'relative',
-        width: '100%',
-        height: '100%',
+        // Fill the positioning container, including Slide's safe-area padding.
+        // Nested Freeforms still use their nearest positioned ancestor.
+        position: 'absolute',
+        inset: 0,
       }}
     >
       {children}

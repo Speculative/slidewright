@@ -67,8 +67,8 @@ async function dragByDesign(
 }
 
 // Drags from one absolute design-space point to another, both
-// relative to the *Freeform's* origin (not the canvas's — the
-// Slide has padding, so canvas (0, 0) ≠ Freeform (0, 0)). Used by
+// relative to the Freeform's origin (the slide origin for a
+// slide-level Freeform). Used by
 // the create-shape tests, which don't have an existing element to
 // grab onto and need to hit specific design coordinates inside
 // the Freeform.
@@ -294,6 +294,26 @@ test('Delete key removes every selected shape', async ({ page }) => {
   expect(source).not.toMatch(/Box\s*\{/);
 });
 
+for (const chromeless of [false, true]) {
+  test(`Freeform fills the slide and marquee starts at its edge (chromeless: ${chromeless})`, async ({ page }) => {
+    await page.goto('/canvas.html?fixture=two-boxes');
+    if (chromeless) {
+      await setHostSource(page, (await getSource(page)).replace('Slide {', 'Slide { chromeless: true'));
+    }
+    const slide = page.locator('.sw-canvas-stage section.slide');
+    const freeform = page.locator('.sw-canvas-stage [data-sw-component="Freeform"] > div').first();
+    await expect(freeform).toBeVisible();
+    await expect.poll(async () => {
+      const frame = await slide.boundingBox();
+      const bounds = await freeform.boundingBox();
+      return frame && bounds ? Math.max(...(['x', 'y', 'width', 'height'] as const).map(key => Math.abs(frame[key] - bounds[key]))) : Infinity;
+    }).toBeLessThan(0.1);
+    // This point used to lie outside Freeform in Slide's padded margin.
+    await dragDesignPoints(page, 5, 5, 1100, 700);
+    await expect(page.locator('.sw-selection-outline')).toHaveCount(2);
+  });
+}
+
 test('marquee drag selects every intersecting shape', async ({ page }) => {
   await page.goto('/canvas.html?fixture=two-boxes');
   // Both Boxes are at known positions: amber at (200, 200) with
@@ -347,8 +367,8 @@ test('Shift marquee preserves original selection but removes withdrawn hits', as
   const boxes = page.locator('.sw-canvas-stage [data-sw-component="Box"] > div');
   await boxes.nth(1).click();
   await page.keyboard.down('Shift');
-  // Start below/right of box 1 and drag backwards across it.
-  const moveTo = await startMarquee(page, 600, 400);
+  // Start below/right of box 1, clear of the selected box's floating toolbar.
+  const moveTo = await startMarquee(page, 600, 700);
   await moveTo(100, 100);
   await expect(page.locator('.sw-selection-outline')).toHaveCount(2);
   await moveTo(500, 380);
