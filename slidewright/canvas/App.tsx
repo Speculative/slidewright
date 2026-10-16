@@ -88,6 +88,7 @@ import type {
   TransformDelta,
 } from './shape-adapter.js';
 import { resizeRect } from './rect-adapter.js';
+import { nudgeSelection } from './nudge.js';
 import { GestureProvider, spanKey } from './gesture-context.js';
 import { crossesDragThreshold } from './drag-threshold.js';
 import { wrapShape } from './shape-projection.js';
@@ -1601,9 +1602,21 @@ export function App({
       ) {
         return;
       }
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.defaultPrevented || e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return;
 
       const k = e.key;
+      if (!presenting && selectedRef.current.length > 0 && /^Arrow(Left|Right|Up|Down)$/.test(k)) {
+        e.preventDefault();
+        if (editing || richEditing || gestureMeta || createPreview || marquee || toolDrag || activeTool !== SELECT_TOOL) return;
+        const shapes = stateRef.current?.shapes;
+        if (!shapes) return;
+        const step = e.shiftKey ? 10 : 1;
+        const dx = k === 'ArrowLeft' ? -step : k === 'ArrowRight' ? step : 0;
+        const dy = k === 'ArrowUp' ? -step : k === 'ArrowDown' ? step : 0;
+        const result = nudgeSelection(sourceRef.current, selectedRef.current, shapes, dx, dy);
+        if (result && result.newSource !== sourceRef.current) commitToHost(result.newSource, result.newSelections);
+        return;
+      }
       let handled = true;
       if (
         k === 'ArrowRight' ||
@@ -1631,7 +1644,7 @@ export function App({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [total, presenting, build]);
+  }, [total, presenting, build, editing, richEditing, gestureMeta, createPreview, marquee, toolDrag, activeTool, commitToHost]);
 
   // Pending text-edit baton drainer. Fires after every state
   // update; if the previous tick queued an empty-text-slot

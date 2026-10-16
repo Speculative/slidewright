@@ -126,7 +126,7 @@ for (const navigation of ['thumbnail', 'keyboard', 'source cursor'] as const) {
     await page.locator('.sw-thumb').first().click();
     await expect(toolbar).toBeVisible();
     if (navigation === 'thumbnail') await page.locator('.sw-thumb').nth(1).click();
-    else if (navigation === 'keyboard') await page.keyboard.press('ArrowRight');
+    else if (navigation === 'keyboard') await page.keyboard.press('PageDown');
     else await page.evaluate(offset => (window as unknown as { __slidewrightHost: { setCursor(offset: number): void } }).__slidewrightHost.setCursor(offset), source.indexOf('label: "Second"'));
     await expect(stage.getByText('Second text', { exact: true })).toBeVisible();
     await expect(toolbar).toHaveCount(0);
