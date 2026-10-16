@@ -547,6 +547,16 @@ export function insertEmptySlide(ast: SourceFile, index: number): number {
   return insertAt;
 }
 
+// Duplicate the complete authored slide, including notes and comments.
+// Returns the copy's index, or -1 when there is no slide to copy.
+export function duplicateSlideAtIndex(ast: SourceFile, index: number): number {
+  const list = findSlidesList(ast);
+  const slide = list?.items[index];
+  if (!list || !slide) return -1;
+  list.items.splice(index + 1, 0, structuredClone(slide));
+  return index + 1;
+}
+
 // Remove slides at the given indices from the deck's slides list.
 // Returns the count actually removed. Indices outside [0, N) are
 // silently skipped. Duplicates are deduped. Single commit → single

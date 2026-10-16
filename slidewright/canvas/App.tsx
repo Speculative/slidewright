@@ -70,6 +70,7 @@ import {
 import {
   addStringSlotFill,
   insertEmptySlide,
+  duplicateSlideAtIndex,
   commitSourceEdit,
   componentByPath,
   findComponentAtSpan,
@@ -1461,7 +1462,7 @@ export function App({
   );
 
   // Insert below the active slide, with a Freeform ready for content.
-  const pendingAddedSlideRef = useRef<{ source: string; idx: number } | null>(null);
+  const pendingInsertedSlideRef = useRef<{ source: string; idx: number } | null>(null);
   const handleAddSlide = useCallback(() => {
     let newIdx = -1;
     const result = commitSourceEdit(sourceRef.current, '<add-slide>', (ast) => {
@@ -1470,16 +1471,27 @@ export function App({
       return {};
     });
     if (!result) return;
-    pendingAddedSlideRef.current = { source: result.newSource, idx: newIdx };
+    pendingInsertedSlideRef.current = { source: result.newSource, idx: newIdx };
+    commitToHost(result.newSource);
+  }, [commitToHost]);
+
+  const handleDuplicateSlide = useCallback(() => {
+    let newIdx = -1;
+    const result = commitSourceEdit(sourceRef.current, '<duplicate-slide>', (ast) => {
+      newIdx = duplicateSlideAtIndex(ast, activeIdxRef.current);
+      return newIdx < 0 ? null : {};
+    });
+    if (!result) return;
+    pendingInsertedSlideRef.current = { source: result.newSource, idx: newIdx };
     commitToHost(result.newSource);
   }, [commitToHost]);
 
   // Activate the new slide after the host applies the updated source,
   // including when the host applies source changes asynchronously.
   useEffect(() => {
-    const pending = pendingAddedSlideRef.current;
+    const pending = pendingInsertedSlideRef.current;
     if (!pending || state?.source !== pending.source) return;
-    pendingAddedSlideRef.current = null;
+    pendingInsertedSlideRef.current = null;
     setActiveIdx(pending.idx);
     setSlideSelection([pending.idx]);
     setSlideAnchor(pending.idx);
@@ -2357,6 +2369,13 @@ export function App({
       // through that path; this handler covers the
       // canvas-focused / standalone case.
       const ctrlOrCmd = e.ctrlKey || e.metaKey;
+      if (ctrlOrCmd && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'd') {
+        if (e.defaultPrevented || e.isComposing || presenting || richEditing || editing ||
+            gestureMeta || createPreview || marquee || toolDrag) return;
+        e.preventDefault();
+        if (!e.repeat) handleDuplicateSlide();
+        return;
+      }
       if (ctrlOrCmd && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'm') {
         if (e.defaultPrevented || e.isComposing) return;
         e.preventDefault();
@@ -2473,6 +2492,7 @@ export function App({
     slideSelection,
     handleDeleteSlides,
     handleAddSlide,
+    handleDuplicateSlide,
     presenting,
     richEditing,
     editing,

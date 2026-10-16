@@ -8,6 +8,15 @@
 import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { focusEditor, getEditorSource } from './editor-helpers';
+import { parse } from '../slidewright/runtime/parser';
+
+function slideSources(source: string): string[] {
+  const deck = parse(source, '<test>').ast.items[0];
+  if (deck?.kind !== 'component') throw new Error('Missing deck');
+  const slides = deck.fills.find(fill => fill.name === 'slides')?.value;
+  if (slides?.kind !== 'list') throw new Error('Missing slides');
+  return slides.items.map(slide => source.slice(slide.span.start.offset, slide.span.end.offset));
+}
 
 async function letReactCatchUp(page: Page): Promise<void> {
   await page.evaluate(
@@ -98,6 +107,66 @@ test('Ctrl+M defers to the source editor while typing', async ({ page }) => {
   await expect(page.locator('.sw-thumb')).toHaveCount(3);
   await focusEditor(page);
   await page.keyboard.press('Control+m');
+  await expect(page.locator('.sw-thumb')).toHaveCount(3);
+});
+
+// ─── Duplicate-slide ─────────────────────────────────────────────
+
+for (const shortcut of ['Control+d', 'Meta+d']) {
+  for (const selectElement of [false, true]) {
+    test(`${shortcut} duplicates the active slide with ${selectElement ? 'an element' : 'a thumbnail'} selected`, async ({ page }) => {
+      await page.goto('/canvas.html?fixture=three-slides');
+      await page.locator('.sw-thumb').nth(1).click();
+      if (selectElement) {
+        await page.locator('.sw-canvas-stage [data-sw-component="Box"] > div').click();
+        await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
+      }
+      const before = await getSource(page);
+      await page.keyboard.press(shortcut);
+      await expect(page.locator('.sw-thumb')).toHaveCount(4);
+      await expect.poll(() => activeIdx(page)).toBe(2);
+      expect(await selectedIndices(page)).toEqual([2]);
+      const source = await getSource(page);
+      const slides = slideSources(source);
+      expect(slides[2]).toBe(slides[1]);
+      expect(source.match(/label:\s*"([^"]+)"/g)).toEqual([
+        'label: "Alpha"', 'label: "Beta"', 'label: "Beta"', 'label: "Gamma"',
+      ]);
+      expect(source.match(/Box\s*\{/g)).toHaveLength(4);
+      await expect(page.locator('.sw-selection-outline')).toHaveCount(0);
+      await page.keyboard.press('ControlOrMeta+z');
+      await expect(page.locator('.sw-thumb')).toHaveCount(3);
+      expect(await activeIdx(page)).toBe(1);
+      expect(await getSource(page)).toBe(before);
+      await page.keyboard.press('ControlOrMeta+Shift+z');
+      await expect(page.locator('.sw-thumb')).toHaveCount(4);
+      expect(await activeIdx(page)).toBe(2);
+      expect(await getSource(page)).toBe(source);
+    });
+  }
+}
+
+test('Ctrl+D appends after the last slide and duplicates the new active copy again', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=three-slides');
+  await page.locator('.sw-thumb').nth(2).click();
+  for (const index of [3, 4]) {
+    await page.keyboard.press('Control+d');
+    await expect(page.locator('.sw-thumb')).toHaveCount(index + 1);
+    await expect.poll(() => activeIdx(page)).toBe(index);
+    const slides = slideSources(await getSource(page));
+    expect(slides[index]).toBe(slides[2]);
+  }
+});
+
+test('Ctrl+D leaves source typing and presentation mode alone', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=three-slides');
+  await expect(page.locator('.sw-thumb')).toHaveCount(3);
+  await focusEditor(page);
+  await page.keyboard.press('Control+d');
+  await expect(page.locator('.sw-thumb')).toHaveCount(3);
+  await page.getByRole('button', { name: 'Present', exact: true }).click();
+  await page.keyboard.press('Control+d');
+  await page.getByRole('button', { name: 'Edit slides', exact: true }).click();
   await expect(page.locator('.sw-thumb')).toHaveCount(3);
 });
 
