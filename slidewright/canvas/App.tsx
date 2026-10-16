@@ -1395,6 +1395,7 @@ export function App({
   );
 
   // Insert below the active slide, with a Freeform ready for content.
+  const pendingAddedSlideRef = useRef<{ source: string; idx: number } | null>(null);
   const handleAddSlide = useCallback(() => {
     let newIdx = -1;
     const result = commitSourceEdit(sourceRef.current, '<add-slide>', (ast) => {
@@ -1403,14 +1404,20 @@ export function App({
       return {};
     });
     if (!result) return;
+    pendingAddedSlideRef.current = { source: result.newSource, idx: newIdx };
     commitToHost(result.newSource);
-    // Activate after the host subscription has received the new source.
-    queueMicrotask(() => {
-      setActiveIdx(newIdx);
-      setSlideSelection([newIdx]);
-      setSlideAnchor(newIdx);
-    });
   }, [commitToHost]);
+
+  // Activate the new slide after the host applies the updated source,
+  // including when the host applies source changes asynchronously.
+  useEffect(() => {
+    const pending = pendingAddedSlideRef.current;
+    if (!pending || state?.source !== pending.source) return;
+    pendingAddedSlideRef.current = null;
+    setActiveIdx(pending.idx);
+    setSlideSelection([pending.idx]);
+    setSlideAnchor(pending.idx);
+  }, [state]);
 
   // Delete a set of slides in one commit (single undo entry).
   // Active slide collapses to the nearest remaining slide.

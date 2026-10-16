@@ -59,8 +59,9 @@ for (const action of ['button', 'Control+m', 'Meta+m']) {
     else await page.keyboard.press(action);
     await letReactCatchUp(page);
     await expect(page.locator('.sw-thumb')).toHaveCount(4);
-    expect(await activeIdx(page)).toBe(2);
+    await expect.poll(() => activeIdx(page)).toBe(2);
     expect(await selectedIndices(page)).toEqual([2]);
+    await expect(page.locator('.sw-thumb').nth(2)).not.toBeFocused();
     await expect(page.locator('.sw-canvas-stage [data-sw-component="Freeform"]')).toHaveCount(1);
     await expect(page.locator('.sw-canvas-stage [data-sw-component="Box"]')).toHaveCount(0);
     const source = await getSource(page);
@@ -82,10 +83,14 @@ test('Ctrl+M appends after the last slide and can create consecutive slides', as
   await page.locator('.sw-thumb').nth(2).click();
   await page.keyboard.press('Control+m');
   await expect(page.locator('.sw-thumb')).toHaveCount(4);
-  expect(await activeIdx(page)).toBe(3);
+  await expect.poll(() => activeIdx(page)).toBe(3);
+  expect(await selectedIndices(page)).toEqual([3]);
+  await expect(page.locator('.sw-thumb').nth(3)).not.toBeFocused();
   await page.keyboard.press('Control+m');
   await expect(page.locator('.sw-thumb')).toHaveCount(5);
-  expect(await activeIdx(page)).toBe(4);
+  await expect.poll(() => activeIdx(page)).toBe(4);
+  expect(await selectedIndices(page)).toEqual([4]);
+  await expect(page.locator('.sw-thumb').nth(4)).not.toBeFocused();
 });
 
 test('Ctrl+M defers to the source editor while typing', async ({ page }) => {
