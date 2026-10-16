@@ -702,7 +702,7 @@ function MissingPropertyRow({
 }): ReactElement {
   const editable =
     !slotType.startsWith('array<') &&
-    !['block', 'slide'].includes(slotType);
+    !['block', 'slide', 'slide-content'].includes(slotType);
   const initial = missingValueSource(slotType, defaultValue);
   const [draft, setDraft] = useState(initial);
   const canceledRef = useRef(false);
@@ -800,7 +800,7 @@ function missingValueSource(type: SlotType, value: unknown): string {
     return String(typeof value === 'boolean' ? value : false);
   }
   if (type.startsWith('array<')) return '[]';
-  if (type === 'block' || type === 'slide') return '';
+  if (type === 'block' || type === 'slide' || type === 'slide-content') return '';
   return JSON.stringify(typeof value === 'string' ? value : '');
 }
 
@@ -953,6 +953,7 @@ function unOmitDefault(type: SlotType): string {
       // registry — a working empty block stub the user replaces.
       return 'Box { }';
     case 'slide':
+    case 'slide-content':
     case 'image':
     default:
       return '""';

@@ -3,9 +3,10 @@
 // schema/validation issues without needing a browser.
 
 import { readFileSync } from 'node:fs';
+import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { loadDeck } from '../loader.js';
-import { buildRegistry } from '../contract.js';
+import { acceptsTargetSlot, BUILTIN_META, buildRegistry } from '../contract.js';
 import { formatDiagnostic } from '../diagnostics.js';
 
 import * as TitleSlide from '../../../decks/v0-reference/components/TitleSlide.js';
@@ -18,6 +19,13 @@ import * as TextBox from '../../../decks/v0-reference/components/TextBox.js';
 import * as Arrow from '../../../decks/v0-reference/components/Arrow.js';
 
 const deckPath = resolve(process.cwd(), 'decks/v0-reference/deck.sw');
+const contentType = BUILTIN_META.Slide!.slots.content!.type;
+assert(acceptsTargetSlot('block', contentType));
+assert(acceptsTargetSlot('slide', contentType));
+assert(!acceptsTargetSlot('text', contentType));
+// Deck.slides and custom slide-valued slots still require slide components.
+assert(!acceptsTargetSlot('block', 'array<slide>'));
+assert(!acceptsTargetSlot('block', 'slide'));
 const source = readFileSync(deckPath, 'utf8');
 
 const components = buildRegistry({

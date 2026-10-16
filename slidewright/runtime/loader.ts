@@ -524,8 +524,8 @@ function renderBuiltinSlide(comp: Component, ctx: LoadCtx, idx: number, chapter?
   // Missing `content` is a warning, not a fatal — emit the
   // diagnostic AND a slot-typed placeholder so the slide still
   // renders (clickable to select the slot; droppable as an
-  // insertion target for any registered `produces: 'slide'`
-  // component via the toolbar). Lets newly-added empty slides
+  // insertion target for registered block or slide components
+  // via the toolbar). Lets newly-added empty slides
   // be a starting canvas rather than a blank no-op.
   let content: ReactNode;
   if (!contentFill) {
@@ -537,7 +537,7 @@ function renderBuiltinSlide(comp: Component, ctx: LoadCtx, idx: number, chapter?
     );
     content = createEmptySlotPlaceholder(
       'content',
-      'slide',
+      BUILTIN_META.Slide!.slots.content!.type,
       comp.span.start.offset,
       comp.span.end.offset,
     );
@@ -1083,7 +1083,7 @@ export function isRenderableSlotType(type: SlotType): boolean {
   const inner = type.startsWith('array<')
     ? (type.slice(6, -1) as SlotType)
     : type;
-  return inner === 'text' || inner === 'text-document' || inner === 'block' || inner === 'slide';
+  return inner === 'text' || inner === 'text-document' || inner === 'block' || inner === 'slide' || inner === 'slide-content';
 }
 
 // ── Value resolution by slot type ──────────────────────────────────────
@@ -1112,6 +1112,7 @@ function resolveSlotValue(type: SlotType, value: Value, ctx: LoadCtx): unknown {
       emit(ctx, 'slot-type-mismatch', value.span, 'expected a ListItem component');
       return null;
     case 'block':
+    case 'slide-content':
       return renderBlockValue(value, ctx);
     case 'image':
       return resolveImageValue(value, ctx);

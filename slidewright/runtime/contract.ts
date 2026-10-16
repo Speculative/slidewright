@@ -22,6 +22,7 @@ export type SlotTypeName =
   | 'block'          // a tree of layout primitives or composite components
   | 'image'          // image reference (URL or asset path)
   | 'slide'          // top-level slide content
+  | 'slide-content'  // Slide.content accepts a block or a slide component
   | 'string'
   | 'number'
   | 'boolean'
@@ -134,6 +135,7 @@ export interface InsertionContext {
 // Convenience: does a component that produces `produces` satisfy
 // a slot of type `targetSlotType`? True when the slot's type is
 // the produced type directly, or `array<that-type>` for list slots.
+// Slide.content also accepts ordinary blocks as its slide body.
 // Used by `insertion.stub` implementations to gate-out incompatible
 // drop targets in one line, and by the toolbar to dim incompatible
 // entries during a drag.
@@ -141,9 +143,11 @@ export function acceptsTargetSlot(
   produces: SlotTypeName,
   targetSlotType: SlotType,
 ): boolean {
-  return (
-    targetSlotType === produces || targetSlotType === `array<${produces}>`
-  );
+  const target = targetSlotType.startsWith('array<')
+    ? targetSlotType.slice(6, -1)
+    : targetSlotType;
+  return target === produces ||
+    (target === 'slide-content' && (produces === 'block' || produces === 'slide'));
 }
 
 export interface ComponentInsertion {
@@ -350,7 +354,7 @@ export const BUILTIN_META: Record<string, ComponentMeta> = {
   Slide: {
     produces: 'slide',
     slots: {
-      content: { type: 'slide', required: true },
+      content: { type: 'slide-content', required: true },
       notes: { type: 'text', required: false },
     },
     params: {

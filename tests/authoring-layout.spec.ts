@@ -70,6 +70,37 @@ test('palette confirmation arms click placement when no slot is selected', async
   await expect(page.locator('.sw-hierarchy-node.selected[data-sw-component="VStack"]')).toHaveCount(1);
 });
 
+for (const [component, selectFirst] of [
+  ['Freeform', false], ['Freeform', true],
+  ['ContentSlide', false], ['ContentSlide', true],
+] as const) {
+test(`${component} fills a new slide content slot (${selectFirst ? 'slot first' : 'picker first'})`, async ({ page }) => {
+  await page.goto('/canvas.html?fixture=three-slides');
+  await page.locator('.sw-add-slide').click();
+  const content = page.locator('.sw-canvas-stage [data-sw-slot-name="content"][data-sw-slot-empty="true"] > *').first();
+  if (selectFirst) {
+    await content.click();
+    await content.click(); // Drill through the slide to its empty slot.
+  }
+  const before = await getEditorSource(page);
+  await openInsertionPicker(page);
+  await page.getByRole('option', { name: component, exact: true }).click();
+  if (!selectFirst) {
+    await expect(page.getByText('Click a compatible slot or gap', { exact: false })).toBeVisible();
+    await content.click();
+  }
+  await expect.poll(() => getEditorSource(page)).toMatch(new RegExp(`Slide\\s*\\{\\s*content:\\s*${component}\\s*\\{`));
+  await expect(content).toHaveCount(0);
+  // Slide components share the Slide hierarchy row; plain blocks keep theirs.
+  const selectedRow = component === 'ContentSlide'
+    ? '.sw-hierarchy-slide-row.selected'
+    : `.sw-hierarchy-node.selected[data-sw-component="${component}"]`;
+  await expect(page.locator(selectedRow)).toHaveCount(1);
+  await page.keyboard.press('Control+z');
+  await expect.poll(() => getEditorSource(page)).toBe(before);
+});
+}
+
 test('properties and bottom panes stay visible without selection or panel-hiding buttons', async ({ page }) => {
   await page.goto('/canvas.html?fixture=single-box');
   await page.locator('.sw-hierarchy-node[data-sw-adapter-kind="shape"]').first().click();
