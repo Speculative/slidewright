@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { focusEditor, getEditorSource, openInsertionPicker } from './editor-helpers';
 
-async function draw(page: Page, reverse = false) {
+async function draw(page: Page, reverse = false, beforeUp?: () => Promise<void>) {
   const surface = await page.locator('.sw-canvas-stage [data-sw-component="Freeform"] > div').first().boundingBox();
   const canvas = await page.locator('.sw-canvas-stage .presentation-canvas').boundingBox();
   if (!surface || !canvas) throw new Error('Canvas not visible');
@@ -12,6 +12,7 @@ async function draw(page: Page, reverse = false) {
   await page.mouse.down();
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   await page.mouse.move(surface.x + end[0]! * scale, surface.y + end[1]! * scale, { steps: 10 });
+  await beforeUp?.();
   await page.mouse.up();
 }
 
@@ -145,4 +146,75 @@ test('Ellipse supports body dragging and corner resizing', async ({ page }) => {
   await page.mouse.move(handle.x + handle.width / 2 + 80 * scale, handle.y + handle.height / 2 + 60 * scale, { steps: 10 });
   await page.mouse.up();
   await expect.poll(() => getEditorSource(page)).toMatch(/width: 480\s+height: 360/);
+});
+
+for (const [key, component] of [['r', 'Box'], ['o', 'Ellipse']]) {
+  for (const reverse of [false, true]) {
+    test(`Shift draws a ${component} with equal sides (${reverse ? 'reverse' : 'forward'})`, async ({ page }) => {
+      await page.goto('/canvas.html?fixture=empty-freeform');
+      await getEditorSource(page);
+      await page.keyboard.press(key!);
+      await page.keyboard.down('Shift');
+      await draw(page, reverse);
+      await page.keyboard.up('Shift');
+      const source = await getEditorSource(page);
+      expect(source).toMatch(reverse
+        ? /x: 300\s+y: 100\s+width: 400\s+height: 400/
+        : /x: 300\s+y: 200\s+width: 400\s+height: 400/);
+    });
+  }
+}
+
+for (const [dx, dy, expectedDx, expectedDy] of [
+  [300, 50, 300, 0], [300, 200, 250, 250],
+  [50, 300, 0, 300], [-200, 300, -250, 250],
+  [-300, -50, -300, 0], [-300, -200, -250, -250],
+  [-50, -300, 0, -300], [200, -300, 250, -250],
+]) {
+  test(`Shift snaps a line toward (${dx}, ${dy}) to a compass angle`, async ({ page }) => {
+    await page.goto('/canvas.html?fixture=empty-freeform');
+    await getEditorSource(page);
+    await page.keyboard.press('e');
+    const surface = await page.locator('.sw-canvas-stage [data-sw-component="Freeform"] > div').first().boundingBox();
+    const canvas = await page.locator('.sw-canvas-stage .presentation-canvas').boundingBox();
+    if (!surface || !canvas) throw new Error('Canvas not visible');
+    const scale = canvas.width / 1920;
+    await page.mouse.move(surface.x + 700 * scale, surface.y + 500 * scale);
+    await page.mouse.down();
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await page.mouse.move(surface.x + (700 + dx!) * scale, surface.y + (500 + dy!) * scale, { steps: 5 });
+    // Shift can be pressed and released with the pointer stationary.
+    const preview = page.locator('.sw-canvas-stage line[stroke-dasharray="6 4"]');
+    await page.keyboard.down('Shift');
+    await expect.poll(async () => Number(await preview.getAttribute('x2'))).toBeCloseTo(700 + expectedDx!, 2);
+    await expect.poll(async () => Number(await preview.getAttribute('y2'))).toBeCloseTo(500 + expectedDy!, 2);
+    await page.keyboard.up('Shift');
+    await expect.poll(async () => Number(await preview.getAttribute('x2'))).toBeCloseTo(700 + dx!, 2);
+    await expect.poll(async () => Number(await preview.getAttribute('y2'))).toBeCloseTo(500 + dy!, 2);
+    await page.keyboard.down('Shift');
+    await page.mouse.up();
+    await page.keyboard.up('Shift');
+    expect(await getEditorSource(page)).toMatch(new RegExp(
+      `x1: 700\\s+y1: 500\\s+x2: ${700 + expectedDx!}\\s+y2: ${500 + expectedDy!}`,
+    ));
+  });
+}
+
+test('releasing Shift before pointerup saves unconstrained geometry', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=empty-freeform');
+  await getEditorSource(page);
+  await page.keyboard.press('Shift+e');
+  await page.keyboard.down('Shift');
+  await draw(page, true, () => page.keyboard.up('Shift'));
+  expect(await getEditorSource(page)).toMatch(/x1: 700\s+y1: 500\s+x2: 300\s+y2: 200/);
+});
+
+test('Shift also constrains arrow drawing', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=empty-freeform');
+  await getEditorSource(page);
+  await page.keyboard.press('Shift+e');
+  await page.keyboard.down('Shift');
+  await draw(page, true);
+  await page.keyboard.up('Shift');
+  expect(await getEditorSource(page)).toMatch(/x1: 700\s+y1: 500\s+x2: 350\s+y2: 150/);
 });

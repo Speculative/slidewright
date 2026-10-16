@@ -366,9 +366,30 @@ interface CreatePreview {
   scale: number;
   designStartX: number;
   designStartY: number;
-  // Live cursor in freeform-design space.
+  shift: boolean;
+  // Unconstrained cursor in freeform-design space.
   designCurrentX: number;
   designCurrentY: number;
+}
+
+// Use the same constrained endpoint for the preview and source insertion.
+function createEndpoint(preview: CreatePreview): { x: number; y: number } {
+  const { designStartX: x, designStartY: y, designCurrentX, designCurrentY } = preview;
+  if (!preview.shift || preview.previewShape === 'point') {
+    return { x: designCurrentX, y: designCurrentY };
+  }
+  const dx = designCurrentX - x;
+  const dy = designCurrentY - y;
+  if (preview.previewShape === 'line') {
+    const angle = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
+    const ux = Math.round(Math.cos(angle));
+    const uy = Math.round(Math.sin(angle));
+    // Project onto the nearest compass direction, keeping axes exact.
+    const distance = (dx * ux + dy * uy) / (ux * ux + uy * uy);
+    return { x: x + distance * ux, y: y + distance * uy };
+  }
+  const size = Math.max(Math.abs(dx), Math.abs(dy));
+  return { x: x + (dx < 0 ? -size : size), y: y + (dy < 0 ? -size : size) };
 }
 
 // ─── Marquee state ────────────────────────────────────────────────
@@ -1879,12 +1900,15 @@ export function App({
       const designCurrentX = (e.clientX - pointerStartX) / scale + designStartX;
       const designCurrentY = (e.clientY - pointerStartY) / scale + designStartY;
       setCreatePreview((prev) =>
-        prev ? { ...prev, designCurrentX, designCurrentY } : null,
+        prev ? { ...prev, designCurrentX, designCurrentY, shift: e.shiftKey } : null,
       );
     };
 
     let cancelled = false;
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') {
+        setCreatePreview(prev => prev ? { ...prev, shift: e.shiftKey } : null);
+      }
       if (e.key !== 'Escape') return;
       cancelled = true;
       setCreatePreview(null);
@@ -1895,8 +1919,12 @@ export function App({
 
     const onUp = (e: PointerEvent) => {
       if (cancelled) return;
-      const designCurrentX = (e.clientX - pointerStartX) / scale + designStartX;
-      const designCurrentY = (e.clientY - pointerStartY) / scale + designStartY;
+      const { x: designCurrentX, y: designCurrentY } = createEndpoint({
+        ...createPreview,
+        designCurrentX: (e.clientX - pointerStartX) / scale + designStartX,
+        designCurrentY: (e.clientY - pointerStartY) / scale + designStartY,
+        shift: e.shiftKey,
+      });
       const result = commitSourceEdit(sourceRef.current, '<create>', (ast) => {
         const freeform = findComponentAtSpan(ast, containerSpan.start, containerSpan.end);
         if (freeform?.name !== 'Freeform') return null;
@@ -1939,12 +1967,14 @@ export function App({
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
     document.addEventListener('keydown', onKey);
+    document.addEventListener('keyup', onKey);
     document.body.style.cursor = 'crosshair';
     document.body.style.userSelect = 'none';
     return () => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
       document.removeEventListener('keydown', onKey);
+      document.removeEventListener('keyup', onKey);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
@@ -3118,6 +3148,7 @@ function startCreate(
   if (!insertion) return;
   setCreatePreview({
     tool: activeTool,
+    shift: false,
     previewShape: insertion.modalPlacement === 'point' ? 'point' : insertion.modalPreview ?? 'rect',
     freeformDiv: target.containerEl,
     containerSpan: target.containerSpan,
@@ -3212,6 +3243,7 @@ function CreatePreviewOverlay({
   createPreview: CreatePreview | null;
 }): ReactNode {
   if (!createPreview || createPreview.previewShape === 'point') return null;
+  const endpoint = createEndpoint(createPreview);
   if (createPreview.previewShape === 'line') {
     return createPortal(
       <svg
@@ -3227,8 +3259,8 @@ function CreatePreviewOverlay({
         <line
           x1={createPreview.designStartX}
           y1={createPreview.designStartY}
-          x2={createPreview.designCurrentX}
-          y2={createPreview.designCurrentY}
+          x2={endpoint.x}
+          y2={endpoint.y}
           stroke="rgba(0, 102, 255, 0.85)"
           strokeWidth={4}
           strokeDasharray="6 4"
@@ -3238,10 +3270,10 @@ function CreatePreviewOverlay({
       createPreview.freeformDiv,
     );
   }
-  const left = Math.min(createPreview.designStartX, createPreview.designCurrentX);
-  const top = Math.min(createPreview.designStartY, createPreview.designCurrentY);
-  const width = Math.abs(createPreview.designCurrentX - createPreview.designStartX);
-  const height = Math.abs(createPreview.designCurrentY - createPreview.designStartY);
+  const left = Math.min(createPreview.designStartX, endpoint.x);
+  const top = Math.min(createPreview.designStartY, endpoint.y);
+  const width = Math.abs(endpoint.x - createPreview.designStartX);
+  const height = Math.abs(endpoint.y - createPreview.designStartY);
   return createPortal(
     <div
       style={{
