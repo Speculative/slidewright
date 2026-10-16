@@ -2267,19 +2267,8 @@ export function App({
         return;
       }
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        // Slide-strip deletion takes priority when the focused
-        // element is a slide thumb. A bulk delete is one commit /
-        // one undo entry. Single-slide deletion via this path is
-        // also supported (e.g., a single thumb focused by clicking
-        // it), since deleting "the focused slide" with the strip
-        // visibly selected is the natural strip-focus action.
-        const focused = document.activeElement as HTMLElement | null;
-        const onStrip = focused?.closest('.sw-thumb') != null;
-        if (onStrip && slideSelection.length > 0) {
-          handleDeleteSlides(slideSelection);
-          e.preventDefault();
-          return;
-        }
+        // Canvas selection owns deletion even if a previously
+        // clicked thumbnail still has keyboard focus.
         if (selected.length > 0) {
           const targets = selected;
           const result = commitSourceEdit(
@@ -2303,7 +2292,16 @@ export function App({
             setSelected([]);
           }
           e.preventDefault();
+          return;
         }
+        // Without a canvas selection, delete the active slide.
+        // Preserve bulk slide deletion when focus is in the strip.
+        const focused = document.activeElement as HTMLElement | null;
+        const onStrip = focused?.closest('.sw-thumb') != null;
+        handleDeleteSlides(onStrip && slideSelection.length > 0
+          ? slideSelection
+          : [activeIdxRef.current]);
+        e.preventDefault();
       }
     };
     window.addEventListener('keydown', onKey);

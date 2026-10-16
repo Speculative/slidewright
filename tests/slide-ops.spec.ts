@@ -93,6 +93,46 @@ test('cmd+click toggles individual slides in the selection', async ({ page }) =>
 
 // ─── Delete multi-selection ──────────────────────────────────────
 
+for (const key of ['Delete', 'Backspace']) {
+  test(`${key} removes the selected element despite thumbnail focus`, async ({ page }) => {
+    await page.goto('/canvas.html?fixture=three-slides');
+    await page.locator('.sw-thumb').nth(0).click();
+    await page.locator('.sw-canvas-stage [data-sw-component="Box"] > div').click();
+    await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
+    // Canvas pointer handling can leave the thumbnail focused.
+    await page.locator('.sw-thumb').nth(0).focus();
+    await page.keyboard.press(key);
+    await expect(page.locator('.sw-thumb')).toHaveCount(3);
+    await expect(page.locator('.sw-canvas-stage [data-sw-component="Box"]')).toHaveCount(0);
+    const source = await getSource(page);
+    expect(source).toMatch(/Alpha/);
+    expect(source.match(/Box\s*\{/g)).toHaveLength(2);
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+z' : 'Control+z');
+    await expect(page.locator('.sw-canvas-stage [data-sw-component="Box"]')).toHaveCount(1);
+    await expect(page.locator('.sw-thumb')).toHaveCount(3);
+  });
+
+  test(`${key} without an element selection deletes the active slide from the canvas`, async ({ page }) => {
+    await page.goto('/canvas.html?fixture=three-slides');
+    await page.locator('.sw-thumb').nth(1).click();
+    await page.locator('.sw-canvas-stage [data-sw-component="Box"] > div').click();
+    await expect(page.locator('.sw-selection-outline')).toHaveCount(1);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.sw-selection-outline')).toHaveCount(0);
+    // Remove thumbnail focus to exercise the canvas fallback.
+    await page.evaluate(() => (document.activeElement as HTMLElement)?.blur());
+    await page.keyboard.press(key);
+    await expect(page.locator('.sw-thumb')).toHaveCount(2);
+    const source = await getSource(page);
+    expect(source).not.toMatch(/Beta/);
+    expect(source).toMatch(/Alpha/);
+    expect(source).toMatch(/Gamma/);
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+z' : 'Control+z');
+    await expect(page.locator('.sw-thumb')).toHaveCount(3);
+    expect(await activeIdx(page)).toBe(1);
+  });
+}
+
 test('delete with multi-selection removes all selected slides in one undo', async ({ page }) => {
   await page.goto('/canvas.html?fixture=three-slides');
   // Select slides 0 + 2 via cmd-click.
