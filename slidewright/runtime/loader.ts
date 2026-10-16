@@ -23,6 +23,7 @@ type SlideFrameProps = {
   label?: string;
   notes?: string;
   chromeless?: boolean;
+  actLabel?: string;
   children?: ReactNode;
 };
 const SlideFrame = SlideFrameRaw as unknown as (props: SlideFrameProps) => ReactElement;
@@ -444,6 +445,7 @@ function renderDeckSlides(deck: Component, ctx: LoadCtx): ReactElement[] {
   }
   const out: ReactElement[] = [];
   let idx = 0;
+  let chapter: string | undefined;
   for (const item of slidesFill.value.items) {
     if (item.kind !== 'component') {
       emit(
@@ -455,19 +457,25 @@ function renderDeckSlides(deck: Component, ctx: LoadCtx): ReactElement[] {
       continue;
     }
     ctx.currentSlideIdx = idx;
-    const el = renderSlide(item, ctx, idx);
+    // A chapter boundary belongs to its first Slide, not every member.
+    // Hidden footers still advance the chapter for subsequent slides.
+    if (item.name === 'Slide') {
+      const title = readString(byName(item.fills).get('chapter'), ctx);
+      if (title !== undefined) chapter = title;
+    }
+    const el = renderSlide(item, ctx, idx, chapter);
     if (el) out.push(el);
     idx += 1;
   }
   return out;
 }
 
-function renderSlide(comp: Component, ctx: LoadCtx, idx: number): ReactElement | null {
+function renderSlide(comp: Component, ctx: LoadCtx, idx: number, chapter?: string): ReactElement | null {
   // The top-level slide invocation can be either:
   //   - a Slide built-in (frame + content), or
   //   - a custom slide component (we wrap it ourselves).
   if (comp.name === 'Slide') {
-    return renderBuiltinSlide(comp, ctx, idx);
+    return renderBuiltinSlide(comp, ctx, idx, chapter);
   }
   // Custom slide component: validate it produces 'slide', wrap in Slide.
   const loaded = ctx.components[comp.name];
@@ -498,11 +506,11 @@ function renderSlide(comp: Component, ctx: LoadCtx, idx: number): ReactElement |
   if (!inner) return null;
   return wrapWithSpan(
     comp,
-    createElement(SlideFrame, { key: idx, idx: idx + 1, label: comp.name, children: inner }),
+    createElement(SlideFrame, { key: idx, idx: idx + 1, label: comp.name, actLabel: chapter, children: inner }),
   );
 }
 
-function renderBuiltinSlide(comp: Component, ctx: LoadCtx, idx: number): ReactElement | null {
+function renderBuiltinSlide(comp: Component, ctx: LoadCtx, idx: number, chapter?: string): ReactElement | null {
   const fills = byName(comp.fills);
   validateAgainstMeta(comp, BUILTIN_META.Slide!, ctx);
   // Record the slide's AST + meta so the inspector can render its
@@ -542,6 +550,7 @@ function renderBuiltinSlide(comp: Component, ctx: LoadCtx, idx: number): ReactEl
       key: idx,
       idx: idx + 1,
       label: label ?? '',
+      actLabel: chapter,
       notes: typeof notes === 'string' ? notes : '',
       chromeless: chromeless ?? false,
       children: content,

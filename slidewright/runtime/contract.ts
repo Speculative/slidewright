@@ -356,6 +356,7 @@ export const BUILTIN_META: Record<string, ComponentMeta> = {
     params: {
       label: { type: 'string' },
       chromeless: { type: 'boolean', default: false },
+      chapter: { type: 'string' },
     },
   },
 };

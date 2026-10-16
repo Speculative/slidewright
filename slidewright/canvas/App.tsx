@@ -139,10 +139,7 @@ interface RenderState {
   colorTokens: Record<string, string>;
 }
 
-// Pre-Section slides in the existing scaffold show "Setup" in the
-// chrome's act position. v0.1's canvas doesn't model Section
-// dividers / acts, so all slides land in the pre-Section "Setup"
-// act. v0.2+ will track acts when navigation lands.
+// Slides before the first source-declared chapter use the scaffold default.
 const DEFAULT_ACT_LABEL = 'Setup';
 
 const STRIP_WIDTH_KEY = 'slidewright.canvas.stripWidth';
@@ -187,7 +184,7 @@ const DESIGN_W = 1920;
 
 // Inject the props that Presentation.jsx normally adds (active=true
 // so styles.css's .slide.active visibility rule kicks in, actLabel
-// so the chrome's third crumb isn't blank). The slide arrives pre-
+// as a fallback before a source-declared chapter). The slide arrives pre-
 // wrapped by the loader for selection sync; we clone the *inner*
 // SlideFrame, not the wrapper div, and rewrap so React doesn't get
 // active/actLabel as unknown DOM attrs.
@@ -198,7 +195,7 @@ export function prepareSlide(wrappedSlide: ReactElement): ReactElement {
   }
   const preparedInner = cloneElement(inner, {
     active: true,
-    actLabel: DEFAULT_ACT_LABEL,
+    actLabel: (inner.props as { actLabel?: string }).actLabel ?? DEFAULT_ACT_LABEL,
   } as Record<string, unknown>);
   return cloneElement(wrappedSlide, undefined, preparedInner);
 }

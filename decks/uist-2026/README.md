@@ -21,6 +21,17 @@ cp inspiration/talk/static/{agg_filter,computed,stack_trace,stepping,streams}.mp
 These files remain on disk in the existing working checkout. Keep a separate
 copy when moving to another machine; a Git clone does not contain the headshot or videos.
 
+The footer reads `UIST 2026 // Chapter Name`. “Chapter 1” is a temporary
+chapter title until the talk outline is settled. Select the first slide's
+Slide row in the hierarchy and edit its `chapter` property to rename it.
+All following slides inherit that title until the next slide with a
+`chapter` property. To start another chapter, select its first slide and
+fill in `chapter (default)` with a quoted title, such as `"Demo"`. Chapter
+boundaries belong to slides, so moving a boundary slide moves the boundary.
+Set a slide's `chromeless` property to `true` to hide its footer; this does
+not stop chapter inheritance. Footers are otherwise shown by default.
+The deck's empty `subtitle` keeps the breadcrumb to two parts.
+
 `deck.sw` contains the 20 slides from the actual presentation, including
 speaker notes. The PLATEAU talk supplies the editing baseline for UIST 2026.
 The source is canonical structured text. Headings, prose, code examples,

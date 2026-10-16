@@ -80,7 +80,8 @@ export function Slide({
       {chromeless ? null : (
         <div className="chrome">
           <div className="crumb">
-            {name} <span className="sep">//</span> {subtitle}{' '}
+            {name}{' '}
+            {subtitle ? <><span className="sep">//</span> {subtitle}{' '}</> : null}
             <span className="sep">//</span> {actLabel}
           </div>
           <div className="page">
