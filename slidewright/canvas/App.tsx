@@ -2314,10 +2314,12 @@ export function App({
   useEffect(() => {
     let cancelled = false;
     const canHandle = (event: ClipboardEvent) => {
-      const target = event.target as HTMLElement | null;
+      // Clipboard events can target the previous DOM selection, including
+      // a blurred CodeMirror editor. Ownership follows actual focus.
+      const focused = document.activeElement as HTMLElement | null;
       return !event.defaultPrevented && !!event.clipboardData && !presenting &&
         !richEditing && !editing && !gestureMeta && !createPreview && !marquee && !toolDrag &&
-        !target?.isContentEditable && !target?.closest('input, textarea, select, .sw-rich-text-editor, .sw-text-session-actions');
+        !focused?.isContentEditable && !focused?.closest('input, textarea, select, .sw-rich-text-editor, .sw-text-session-actions');
     };
     const onCopy = (event: ClipboardEvent) => {
       if (!canHandle(event)) return;
@@ -2326,6 +2328,7 @@ export function App({
       event.clipboardData!.setData(ELEMENT_CLIPBOARD_TYPE, content);
       event.clipboardData!.setData('text/plain', content);
       event.preventDefault();
+      event.stopPropagation();
     };
     const onPaste = (event: ClipboardEvent) => {
       if (!canHandle(event) || !host.setSource) return;
@@ -2333,6 +2336,7 @@ export function App({
       const result = pasteElements(sourceRef.current, selected, activeIdxRef.current, content, sourceSnapshotRef.current);
       if (result) {
         event.preventDefault();
+        event.stopPropagation();
         setClipboardError(null);
         commitToHost(result.newSource, result.newSelections, result.changes, result.baseRevision);
         return;
@@ -2340,6 +2344,7 @@ export function App({
       const files = clipboardImageFiles(event.clipboardData!);
       if (!files.length) return;
       event.preventDefault();
+      event.stopPropagation();
       setClipboardError(null);
       const source = sourceRef.current;
       const slideIdx = activeIdxRef.current;
@@ -2354,12 +2359,14 @@ export function App({
         if (!cancelled) setClipboardError(error instanceof Error ? error.message : 'Could not paste the image.');
       });
     };
-    window.addEventListener('copy', onCopy);
-    window.addEventListener('paste', onPaste);
+    // Route canvas clipboard commands before a stale editor target can
+    // consume them using CodeMirror's linewise copy/paste behavior.
+    window.addEventListener('copy', onCopy, true);
+    window.addEventListener('paste', onPaste, true);
     return () => {
       cancelled = true;
-      window.removeEventListener('copy', onCopy);
-      window.removeEventListener('paste', onPaste);
+      window.removeEventListener('copy', onCopy, true);
+      window.removeEventListener('paste', onPaste, true);
     };
   }, [selected, presenting, richEditing, editing, gestureMeta, createPreview, marquee, toolDrag, host, commitToHost]);
 

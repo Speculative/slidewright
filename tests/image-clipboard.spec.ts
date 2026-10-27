@@ -85,6 +85,9 @@ test('image paste leaves source text editing alone and reports unreadable images
   await page.keyboard.press('Control+v');
   expect(await getEditorSource(page)).toBe(before);
   await expect(images(page)).toHaveCount(0);
+  // The unreadable-file case belongs to the canvas. Move focus there
+  // before dispatching paste; the preceding assertion leaves it in source.
+  await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
   await page.evaluate(() => {
     const data = new DataTransfer();
     data.items.add(new File(['not an image'], 'broken.png', { type: 'image/png' }));

@@ -90,3 +90,62 @@ test('source editor keeps native text copy/paste and unrelated clipboard text do
   await expect.poll(() => getEditorSource(page)).toContain('// pasted text');
   await expect(rows(page, 'Box')).toHaveCount(2);
 });
+
+for (const mode of ['deck', 'notes'] as const) {
+  for (const surface of ['canvas', 'hierarchy'] as const) {
+    test(`${mode}: selecting an element in ${surface} after editing routes Ctrl+C/V to shapes`, async ({ page }) => {
+      await page.goto('/canvas.html?fixture=two-boxes');
+      if (mode === 'notes') {
+        const source = await getEditorSource(page);
+        await setHostSource(page, source.replace('notes: ""', 'notes: "First line of notes\\nSecond line"'));
+        await page.locator('[data-editor-mode="notes"]').click();
+      }
+      await focusEditor(page);
+      await page.keyboard.press('Control+Home');
+      const before = await getEditorSource(page);
+      if (surface === 'canvas') await page.locator('.sw-canvas-stage [data-sw-component="Box"] > div').first().click();
+      else await rows(page, 'Box').first().click();
+      await expect(rows(page, 'Box').first()).toHaveClass(/selected/);
+      await page.keyboard.press('Control+c');
+      const copied = await page.evaluate(() => navigator.clipboard.readText());
+      expect(copied).toContain('Slidewright elements v1');
+      await page.keyboard.press('Control+v');
+      await expect(rows(page, 'Box')).toHaveCount(3);
+      if (mode === 'notes') await expect.poll(() => getEditorSource(page)).toBe(before);
+      else expect((await getEditorSource(page)).match(/Deck \{/g)).toHaveLength(1);
+    });
+  }
+}
+
+for (const mode of ['deck', 'notes'] as const) {
+  test(`${mode}: stale clipboard targets cannot give an unfocused editor ownership`, async ({ page }) => {
+    await page.goto('/canvas.html?fixture=two-boxes');
+    if (mode === 'notes') {
+      const source = await getEditorSource(page);
+      await setHostSource(page, source.replace('notes: ""', 'notes: "First line\\nSecond line"'));
+      await page.locator('[data-editor-mode="notes"]').click();
+    }
+    await focusEditor(page);
+    await page.keyboard.press('Control+Home');
+    await page.locator('.sw-canvas-stage [data-sw-component="Box"] > div').first().click();
+    await expect(rows(page, 'Box').first()).toHaveClass(/selected/);
+    const copied = await page.evaluate(() => {
+      const editor = document.querySelector('.cm-content')!;
+      if (document.activeElement === editor) throw new Error('Editor still focused');
+      const data = new DataTransfer();
+      // Some clipboard event paths target the previous text selection.
+      editor.dispatchEvent(new ClipboardEvent('copy', { bubbles: true, cancelable: true, clipboardData: data }));
+      const text = data.getData('text/plain');
+      editor.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data }));
+      return text;
+    });
+    expect(copied).toContain('Slidewright elements v1');
+    await expect(rows(page, 'Box')).toHaveCount(3);
+    // Explicit editor focus must restore normal text clipboard behavior,
+    // even though a canvas element remains selected.
+    await focusEditor(page);
+    await page.keyboard.press('Control+Home');
+    await page.keyboard.press('Control+c');
+    expect(await page.evaluate(() => navigator.clipboard.readText())).not.toContain('Slidewright elements v1');
+  });
+}
