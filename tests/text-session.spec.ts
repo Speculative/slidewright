@@ -18,6 +18,7 @@ test('continuous TextBox uses Enter for structure and commits once through Done/
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(editor).toHaveCount(0);
   await expect.poll(() => getEditorSource(page)).toContain('"newllo"');
+  await page.keyboard.press('Escape');
   await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
   await page.keyboard.press('ControlOrMeta+Z');
   await expect.poll(() => getEditorSource(page)).toBe(before);
@@ -427,6 +428,7 @@ test('whole-box settings join a text draft, preview, cancel, and commit with one
   expect(await getEditorSource(page)).toContain('fontSize: 48');
   expect(await getEditorSource(page)).toContain('wrap: false');
   expect(await getEditorSource(page)).toContain('Hello!');
+  await page.keyboard.press('Escape');
   await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
   await page.keyboard.press('ControlOrMeta+Z');
   await expect.poll(() => getEditorSource(page)).toBe(before);
