@@ -53,7 +53,7 @@ test('invalid imports preserve the current deck and fixture edits do not persist
   await expect.poll(() => getEditorSource(page)).toBe(before);
 });
 
-test('presentation view hides editor chrome and retains slide and opaque playback controls', async ({ page }) => {
+test('presentation view hides editor chrome and retains slide and opaque build navigation', async ({ page }) => {
   await page.goto('/canvas.html?deck=plateau-demo');
   await expect(page.getByLabel('Deck', { exact: true })).toHaveValue('plateau-demo');
   const before = await getEditorSource(page);
@@ -69,7 +69,8 @@ test('presentation view hides editor chrome and retains slide and opaque playbac
   await page.keyboard.press('ArrowRight');
   const demo = page.locator('.sw-canvas-stage [data-sw-debugger]');
   await expect(demo).toBeVisible();
-  await demo.getByRole('button', { name: 'Next demo step', exact: true }).click();
+  await expect(demo.getByRole('group', { name: 'Demo playback' })).toHaveCount(0);
+  await page.keyboard.press('ArrowRight');
   await expect(demo).toHaveAttribute('data-step', '1');
   await page.getByRole('button', { name: 'Edit slides', exact: true }).click();
   await expect(page.locator('.sw-editor-pane')).toBeVisible();

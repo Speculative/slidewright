@@ -10,6 +10,7 @@
 // cursor changes arrive as `cursor-changed` messages so the canvas
 // can highlight the matching slide.
 
+import { DeckDocument } from '../../../slidewright/runtime/document.js';
 import type { Host, HostState, SourceRange } from '../../../slidewright/canvas/host.js';
 
 interface SourceUpdatedMessage {
@@ -33,6 +34,8 @@ declare function acquireVsCodeApi(): {
 };
 
 export class VSCodeHost implements Host {
+  document?: DeckDocument;
+  private state?: HostState;
   private readonly vscode = acquireVsCodeApi();
   private stateSubscribers = new Set<(state: HostState) => void>();
   private cursorSubscribers = new Set<(offset: number) => void>();
@@ -43,6 +46,7 @@ export class VSCodeHost implements Host {
 
   subscribe(callback: (state: HostState) => void): () => void {
     this.stateSubscribers.add(callback);
+    if (this.state) callback(this.state);
     if (
       this.stateSubscribers.size === 1 &&
       this.cursorSubscribers.size === 0
@@ -79,11 +83,15 @@ export class VSCodeHost implements Host {
   private onMessage = (event: MessageEvent<ExtensionToWebview>): void => {
     const message = event.data;
     if (message?.type === 'source-updated') {
+      const documentUpdate = this.document?.updateSource(message.source, message.fileName, { origin: 'vscode' });
+      this.document ??= new DeckDocument(message.source, message.fileName);
       const state: HostState = {
+        documentUpdate,
         source: message.source,
         fileName: message.fileName,
         assets: message.assets,
       };
+      this.state = { ...state, documentUpdate: undefined };
       for (const cb of this.stateSubscribers) cb(state);
     } else if (message?.type === 'cursor-changed') {
       for (const cb of this.cursorSubscribers) cb(message.offset);

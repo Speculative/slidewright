@@ -29,11 +29,13 @@ import { createPortal } from 'react-dom';
 import { PresentationBuild, PresentationContext } from '../runtime/presentation.js';
 import { emit } from '../runtime/emitter.js';
 import {
-  loadDeck,
+  DeckResolver,
   type ShapeData,
   type SlideAstData,
 } from '../runtime/loader.js';
 import { parse } from '../runtime/parser.js';
+import { DeckDocument, type DocumentUpdate } from '../runtime/document.js';
+import { mapSelectionTargets } from './selection-mapping.js';
 import { numberLit, stringLit, booleanLit, nameRef, paragraphDocument } from '../runtime/ast-builders.js';
 import type { Value } from '../runtime/ast.js';
 import type { Diagnostic } from '../runtime/diagnostics.js';
@@ -128,6 +130,8 @@ interface DeckMeta {
 }
 
 interface RenderState {
+  revision: number;
+  resolution: { resolvedSlides: number; reusedSlides: number };
   scope: Scope;
   slides: ReactElement[];
   diagnostics: Diagnostic[];
@@ -856,7 +860,8 @@ export function App({
 }): ReactElement {
   const [state, setState] = useState<RenderState | null>(null);
   const [activeIdx, setActiveIdx] = useState(0);
-  const build = useMemo(() => new PresentationBuild(), [activeIdx, presenting]);
+  const activeSlideKey = state?.slides[activeIdx]?.key ?? activeIdx;
+  const build = useMemo(() => new PresentationBuild(), [activeSlideKey, presenting]);
   useEffect(() => { onPresentationBuildChange?.(build); }, [build, onPresentationBuildChange]);
   useEffect(() => { onActiveSlideChange?.(activeIdx); }, [activeIdx, onActiveSlideChange]);
   // Slide-strip multi-selection. Invariant: always contains
@@ -981,6 +986,7 @@ export function App({
   // each see the correct old→new mapping — `stateRef.current` only
   // updates via useEffect after React commits, which during a
   // rapid drag lags behind.
+  const lastSlidesDataRef = useRef<SlideAstData[]>([]);
   const lastShapesRef = useRef<ReadonlyMap<string, ShapeData> | undefined>(undefined);
 
   // activeIdx mirror — read inside long-lived closures (notably
@@ -1269,7 +1275,9 @@ export function App({
   }, [propertiesWidth]);
 
   useEffect(() => {
-    return host.subscribe(({ source, fileName, assets }) => {
+    const resolver = new DeckResolver();
+    let fallbackDocument: DeckDocument | undefined;
+    return host.subscribe(({ source, fileName, assets, documentUpdate }) => {
       // Source authority is synchronous: a pending blur/IME callback must
       // never commit a draft over an external replacement.
       sourceRef.current = source;
@@ -1284,13 +1292,10 @@ export function App({
       const scope = {
         bindings: { ...staticTokens, ...assets },
       };
-      const result = loadDeck({
-        source,
-        file: fileName,
-        components,
-        scope,
-        wrapShape,
-      });
+      const document = host.document ?? (fallbackDocument ??= new DeckDocument(source, fileName));
+      const update = documentUpdate ?? document.updateSource(source, fileName);
+      const result = resolver.resolve(document, { components, scope, wrapShape });
+      const resolution = { ...resolver.stats };
       // Distinguish internal source changes (canvas gesture commit,
       // canvas-side undo, canvas-side redo — all flow through
       // commitToHost / the keyboard undo handler, which set
@@ -1301,42 +1306,57 @@ export function App({
       const pending = pendingSelectionRef.current;
       pendingSelectionRef.current = null;
       const prevState = stateRef.current;
-      setState((prev) => {
-        const next: RenderState = {
-          scope,
-          slides: result.slides,
-          diagnostics: result.diagnostics,
-          fileName,
-          meta: { name: result.meta.name, subtitle: result.meta.subtitle },
-          source,
-          shapes: result.shapes,
-          slidesData: result.slidesData,
-          // Merge registry tokens with source-declared ones from
-          // `Deck.tokens`. Registry entries get wrapped as
-          // `var(--name)` here so all values in the map are ready-
-          // to-use CSS color strings — the palette doesn't need to
-          // know which origin each came from. Source-declared wins
-          // on name collision, matching loader resolution order.
-          colorTokens: {
-            ...Object.fromEntries(
-              Object.keys(staticTokens).map((n) => [n, `var(--${n})`]),
-            ),
-            ...result.tokens,
-          },
-        };
-        // Read activeIdx via ref (not closure) so this effect's
-        // deps don't include `activeIdx` — every slide-change
-        // would otherwise tear down + re-subscribe, which fires
-        // the host callback again with the current source. That
-        // synchronous re-fire was indistinguishable from an
-        // external edit and silently cleared the undo stack on
-        // every slide nav / cursor move.
-        const idx = activeIdxRef.current;
-        if (prev && next.slides.length > 0 && idx >= next.slides.length) {
-          queueMicrotask(() => setActiveIdx(next.slides.length - 1));
+      if (!isInternal && update && !update.replacement) {
+        const previous = lastSlidesDataRef.current[activeIdxRef.current]?.comp;
+        const owner = previous && update.before.occurrences.find(item =>
+          item.range.start === previous.span.start.offset && item.range.end === previous.span.end.offset);
+        const current = owner && document.occurrence(owner.handle);
+        const nextIdx = current ? result.slidesData.findIndex(slide => slide.comp.span.start.offset === current.range.start) : -1;
+        if (nextIdx >= 0 && nextIdx !== activeIdxRef.current) {
+          activeIdxRef.current = nextIdx;
+          setActiveIdx(nextIdx);
         }
-        return next;
-      });
+      }
+      lastSlidesDataRef.current = result.slidesData;
+      const next: RenderState = {
+        revision: result.revision,
+        resolution,
+        scope,
+        slides: result.slides,
+        diagnostics: result.diagnostics,
+        fileName,
+        meta: { name: result.meta.name, subtitle: result.meta.subtitle },
+        source,
+        shapes: result.shapes,
+        slidesData: result.slidesData,
+        // Merge registry tokens with source-declared ones from
+        // `Deck.tokens`. Registry entries get wrapped as
+        // `var(--name)` here so all values in the map are ready-
+        // to-use CSS color strings — the palette doesn't need to
+        // know which origin each came from. Source-declared wins
+        // on name collision, matching loader resolution order.
+        colorTokens: {
+          ...Object.fromEntries(
+            Object.keys(staticTokens).map((n) => [n, `var(--${n})`]),
+          ),
+          ...result.tokens,
+        },
+      };
+      // Read activeIdx via ref (not closure) so this effect's
+      // deps don't include `activeIdx` — every slide-change
+      // would otherwise tear down + re-subscribe, which fires
+      // the host callback again with the current source. That
+      // synchronous re-fire was indistinguishable from an
+      // external edit and silently cleared the undo stack on
+      // every slide nav / cursor move.
+      const idx = activeIdxRef.current;
+      if (prevState && next.slides.length > 0 && idx >= next.slides.length) {
+        queueMicrotask(() => setActiveIdx(next.slides.length - 1));
+      }
+      // Cursor notifications can immediately follow a source notification.
+      // Make the matching revision visible before React's next commit.
+      stateRef.current = next;
+      setState(next);
       if (isInternal) {
         // Canvas-driven (gesture commit / undo / redo). Selection:
         // gesture commits stash post-emit spans in pending; undo /
@@ -1353,11 +1373,8 @@ export function App({
         // position-key lookup as external-edit reconciliation to
         // re-derive selection spans against the new AST.
         //
-        // We read `lastShapesRef` (synchronously-tracked) rather
-        // than `prevState.shapes` (stateRef-tracked via useEffect),
-        // because rapid scrub previews can batch multiple subscribe
-        // calls inside a single React commit cycle. stateRef would
-        // be stale across all of them; lastShapesRef updates inline.
+        // Keep the previous source registry for scrub reconciliation even
+        // when multiple host callbacks arrive within one React commit.
         const prevShapesForPreserve = lastShapesRef.current;
         lastShapesRef.current = result.shapes;
         if (scrubPreSourceRef.current === null) {
@@ -1370,6 +1387,7 @@ export function App({
               prevSelected,
               prevShapesForPreserve,
               result.shapes,
+              update,
             ),
           );
         }
@@ -1397,6 +1415,7 @@ export function App({
           prevSelected,
           prevState?.shapes,
           result.shapes,
+          update,
         ),
       );
     });
@@ -1608,9 +1627,6 @@ export function App({
   // one whose top-level span contains the cursor offset.
   const stateRef = useRef(state);
   useEffect(() => {
-    stateRef.current = state;
-  }, [state]);
-  useEffect(() => {
     if (!host.onCursorChange) return;
     return host.onCursorChange((offset) => {
       const cur = stateRef.current;
@@ -1627,6 +1643,7 @@ export function App({
           offset >= s &&
           offset <= e
         ) {
+          activeIdxRef.current = i;
           setActiveIdx(i);
           return;
         }
@@ -2843,7 +2860,8 @@ export function App({
         onSelect={chooseInsertTool}
         onDragStart={handleToolDragStart}
       />
-      <div className="sw-authoring-workspace">
+      <div className="sw-authoring-workspace" data-sw-document-revision={state.revision}
+        data-sw-resolved-slides={state.resolution.resolvedSlides} data-sw-reused-slides={state.resolution.reusedSlides}>
         <div className="sw-main-workspace">
           <div className="sw-canvas-body">
             <SlideStrip
@@ -2938,18 +2956,18 @@ export function App({
                     }}
                     activeTool={activeTool}
                   >
-                    <PresentationContext.Provider key={`${activeIdx}-${presenting}`} value={presenting ? { build } : null}>
+                    <PresentationContext.Provider key={`${activeSlideKey}-${presenting}`} value={presenting ? { build } : null}>
                       {preparedSlide}
                     </PresentationContext.Provider>
                   </ScaledCanvas>
-                  {/* Key on activeIdx so DOM-tied hook state (cached
+                  {/* Key on the authored slide so DOM-tied hook state (cached
                     portal target, ResizeObserver subscriptions, layout
                     snapshots) resets on slide navigation. The standalone
                     canvas only mounts the active slide; without a remount,
                     observers stay subscribed to the previous slide's now-
                     detached DOM and never re-attach on nav-back. */}
                   <SelectionLayer
-                    key={`selection-${activeIdx}`}
+                    key={`selection-${activeSlideKey}`}
                     selected={selected}
                     shapes={state.shapes}
                     gestureDeltas={gestureDeltas}
@@ -2957,7 +2975,7 @@ export function App({
                     startGesture={startGesture}
                   />
                   <GestureOverlayLayer
-                    key={`gesture-${activeIdx}`}
+                    key={`gesture-${activeSlideKey}`}
                     activeSpans={gestureMeta?.spans ?? EMPTY_SPANS}
                     shapes={state.shapes}
                     gestureDeltas={gestureDeltas}
@@ -3122,7 +3140,9 @@ function preserveSelectionAcrossExternalEdit(
   prevSelected: SelectionTarget[],
   prevShapes: ReadonlyMap<string, ShapeData> | undefined,
   nextShapes: ReadonlyMap<string, ShapeData>,
+  update?: DocumentUpdate,
 ): SelectionTarget[] {
+  if (update) return mapSelectionTargets(prevSelected, update);
   if (!prevShapes || prevSelected.length === 0) return [];
   // Build a (slideIdx + childIdx + componentName) → newSpan index
   // for the new registry.

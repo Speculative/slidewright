@@ -3,8 +3,8 @@
 `DeckDocument` owns source, a frozen parse result, and component occurrences for
 one editing session. It currently parses the full source once per accepted
 transaction. It does not resolve or render components. `DeckResolver` consumes
-these snapshots without reparsing them; the canvas host subscription still uses
-the one-shot `loadDeck` path and will migrate in the next integration slice.
+these snapshots without reparsing them. Both built-in hosts own a persistent
+document, and the interactive canvas uses a retained resolver per host session.
 
 A transaction names its base revision and origin and supplies sorted,
 non-overlapping changes in base-document UTF-16 coordinates. Invalid requests
@@ -79,6 +79,38 @@ source-bearing props, as `ShapeProjection` does; the default wrapper already doe
 `DeckResolver.stats` exposes deterministic per-call resolved/reused slide counts.
 Run `npm run test:slide-cache` for identity, source-target/diagnostic parity with
 fresh loading, invalidation, structural edits, recovery, and bound-adapter tests.
-The canvas is not yet wired to this cache; browser remount/render-count acceptance
-must accompany that integration. Host history and draft cancellation semantics
-remain owned by the existing canvas code.
+The canvas uses this cache. `tests/document-cache.spec.ts` covers 100-slide
+resolution/render counts, DOM retention, source jumps and editing after position
+shifts, active-slide/thumbnail retention through insertion/deletion, diagnostic
+locations, replacements, and syntax recovery. Host history and draft cancellation
+semantics remain owned by the existing canvas code.
+
+## Host integration
+
+Both hosts update their shared `Host.document` before notifying subscribers.
+`HostState.documentUpdate` carries the transaction result only for that event;
+late subscriptions and same-source notifications do not replay an old mapping.
+The standalone host marks disk adoption, deck switching and source import as
+explicit replacements. File changes are automatically replacement barriers.
+VS Code messages reuse the document across edits and retain the last state for
+late subscribers. Hosts without a document use a persistent canvas fallback.
+
+`DeckDocument.updateSource` accepts optional precise change ranges and a base
+revision and verifies that they produce the supplied source before publishing a
+snapshot. Without ranges it derives a single common-prefix/suffix splice. This
+is a conservative fallback for disjoint edits, which may retire more occurrences
+than necessary. Same-source notifications do not parse or advance the revision;
+explicit equal-source replacements still do. Future host/editor synchronization
+will forward precise ranges instead of relying on this fallback.
+
+Canvas source state is synchronously available to cursor notifications that
+follow a source update. Selection follows retained occurrence handles, including
+slot-parent identity, rather than transferring to an adjacent sibling by index.
+External structural edits retain the active authored slide when possible.
+Presentation state, thumbnail keys, and DOM-observer layers use the authored
+slide key so index changes alone do not remount that slide.
+
+Current limitations: editor-owned commits still often parse/emit the full deck,
+and the source pane still replaces CodeMirror state for host-driven updates.
+These paths need bounded authored-owner commits and incremental synchronization
+before ordinary canvas edits fully meet the parent acceptance criteria.

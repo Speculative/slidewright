@@ -33,7 +33,27 @@ export interface DocumentTransaction {
   // when its source happens to equal the previous source.
   readonly replacement?: boolean;
   readonly file?: string;
+  readonly expectedSource?: string;
 }
+export interface DocumentSourceUpdate {
+  readonly baseRevision?: number;
+  readonly changes?: readonly SourceChange[];
+  readonly origin?: string;
+  readonly replacement?: boolean;
+}
+
+/** A fallback for hosts that only supply the final source. Hosts with precise
+ * change ranges should pass those instead, especially for disjoint edits. */
+export function sourceChanges(before: string, after: string): SourceChange[] {
+  if (before === after) return [];
+  let start = 0;
+  while (start < before.length && start < after.length && before[start] === after[start]) start++;
+  let oldEnd = before.length;
+  let newEnd = after.length;
+  while (oldEnd > start && newEnd > start && before[oldEnd - 1] === after[newEnd - 1]) { oldEnd--; newEnd--; }
+  return [{ start, end: oldEnd, insert: after.slice(start, newEnd) }];
+}
+
 export interface DocumentUpdate {
   readonly before: DocumentSnapshot;
   readonly snapshot: DocumentSnapshot;
@@ -151,6 +171,17 @@ export class DeckDocument {
     };
   }
 
+  updateSource(source: string, file = this.current.file, update: DocumentSourceUpdate = {}): DocumentUpdate | undefined {
+    if (update.baseRevision !== undefined && update.baseRevision !== this.current.revision) {
+      throw new Error('Stale document revision');
+    }
+    const replacement = update.replacement || file !== this.current.file;
+    if (source === this.current.source && !replacement && !update.changes?.length) return undefined;
+    return this.transact({ baseRevision: this.current.revision, origin: update.origin ?? 'host',
+      changes: update.changes ?? sourceChanges(this.current.source, source), replacement, file, expectedSource: source,
+    });
+  }
+
   transact(transaction: DocumentTransaction): DocumentUpdate {
     const before = this.current;
     if (transaction.baseRevision !== before.revision) throw new Error('Stale document revision');
@@ -184,6 +215,9 @@ export class DeckDocument {
       cursor = change.end;
     }
     source += before.source.slice(cursor);
+    if (transaction.expectedSource !== undefined && source !== transaction.expectedSource) {
+      throw new Error('Document changes do not produce the expected source');
+    }
     freeze(changes);
     const mapping = new SourceMapping(before.revision, before.revision + 1, before.source.length,
       changes, transaction.replacement ?? false);

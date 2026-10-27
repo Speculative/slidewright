@@ -32,7 +32,10 @@
 //     needs to drive it programmatically beyond what sendSelection
 //     already does.
 
+import type { DeckDocument, DocumentSourceUpdate, DocumentUpdate } from '../runtime/document.js';
+
 export interface HostState {
+  documentUpdate?: DocumentUpdate;
   source: string;
   fileName: string;
   // Map of name → URL string. The canvas merges these into the deck
@@ -46,6 +49,8 @@ export interface SourceRange {
 }
 
 export interface Host {
+  // Shared source-authoritative session, updated before notifying subscribers.
+  readonly document?: DeckDocument;
   // ── Canvas-facing API ───────────────────────────────────────────────
 
   // Subscribe to host-state updates. The host fires the callback once
@@ -73,7 +78,7 @@ export interface Host {
   // canvas re-renders. Only implemented by hosts whose editor surface
   // can write back to source — used by the v0.1f standalone pane
   // and (eventually) by VSCodeHost when v0.2 gestures emit edits.
-  setSource?(source: string): void;
+  setSource?(source: string, update?: DocumentSourceUpdate): void;
 
   // Subscribe to selection-set events that originated from the
   // canvas (the receiving end of `sendSelection`). Used by an

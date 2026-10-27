@@ -175,7 +175,7 @@ export function SlideStrip({
       aria-multiselectable
     >
       {slides.map((slide, i) => (
-        <div key={i} className="sw-thumb-slot">
+        <div key={slide.key ?? i} className="sw-thumb-slot">
           {drag?.insertionIndex === i ? <InsertionLine /> : null}
           <SlideThumb
             slide={slide}

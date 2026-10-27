@@ -1,0 +1,114 @@
+import { test, expect, type Page } from '@playwright/test';
+import { getEditorSource, getEditorSelection, setHostSource } from './editor-helpers';
+
+function deck(count = 100) {
+  return `Deck { name: "Cache" slides: [\n${Array.from({ length: count }, (_, i) =>
+    `Slide { label: "slide-${i}" content: Freeform { children: [TextBox { x: ${200 + i} y: 300 width: 500 height: 100 content: "content-${i}" }] } }`).join('\n')}\n] }`;
+}
+async function settle(page: Page) {
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+}
+async function navigate(page: Page, source: string, label: string) {
+  await page.evaluate(offset => (window as any).__slidewrightHost.setCursor(offset), source.indexOf(`label: "${label}"`));
+}
+const metrics = (page: Page) => page.locator('.sw-authoring-workspace');
+
+test('a length edit in slide 1 retains later resolution, render counts, DOM and accurate source targets', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/canvas.html?fixture=single-textbox');
+  await getEditorSource(page);
+  await page.evaluate(async () => {
+    const { components } = await import('/decks/v0-reference/registry.ts');
+    const entry = components.TextBox;
+    const original = entry.render;
+    (window as any).cacheRenderCounts = {};
+    components.TextBox = { ...entry, render(props: any) {
+      const counts = (window as any).cacheRenderCounts;
+      counts[props.params.x] = (counts[props.params.x] ?? 0) + 1;
+      return original(props);
+    } };
+  });
+  const before = deck();
+  await setHostSource(page, before);
+  await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '100');
+  await navigate(page, before, 'slide-99');
+  await expect(page.locator('.sw-canvas-status')).toContainText('slide 100 of 100');
+  await settle(page);
+  await page.evaluate(() => {
+    (window as any).retainedContent = document.querySelector('.sw-canvas-stage [data-sw-textbox-content]');
+    (window as any).retainedRenderCount = (window as any).cacheRenderCounts[299];
+  });
+  const after = before.replace('"content-0"', '"""a much longer first\nslide"""');
+  await setHostSource(page, after);
+  await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '1');
+  await expect(metrics(page)).toHaveAttribute('data-sw-reused-slides', '99');
+  await settle(page);
+  expect(await page.evaluate(() => document.querySelector('.sw-canvas-stage [data-sw-textbox-content]') === (window as any).retainedContent)).toBe(true);
+  expect(await page.evaluate(() => (window as any).cacheRenderCounts[299])).toBe(await page.evaluate(() => (window as any).retainedRenderCount));
+  const marker = page.locator('.sw-canvas-stage [data-sw-component="TextBox"]');
+  await expect(marker).toHaveAttribute('data-sw-span-start', String(after.lastIndexOf('TextBox')));
+  await page.locator('.sw-canvas-stage').getByText('content-99', { exact: true }).click({ modifiers: ['ControlOrMeta'] });
+  const selection = await getEditorSelection(page);
+  expect(after.slice(selection.start, selection.end)).toContain('content-99');
+  expect(selection.start).toBeGreaterThanOrEqual(after.lastIndexOf('TextBox'));
+  await page.locator('.sw-canvas-stage').getByText('content-99', { exact: true }).dblclick();
+  const editor = page.getByRole('textbox', { name: 'Edit text' });
+  await expect(editor).toBeVisible();
+  await editor.fill('edited later');
+  await page.keyboard.press('ControlOrMeta+Enter');
+  await expect.poll(() => getEditorSource(page)).toContain('edited later');
+  expect(await getEditorSource(page)).toContain('a much longer first');
+  expect(errors).toEqual([]);
+});
+
+test('insertion/deletion preserve the active authored slide and unaffected thumbnail DOM', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-textbox');
+  await getEditorSource(page);
+  const before = deck(3);
+  await setHostSource(page, before);
+  await navigate(page, before, 'slide-2');
+  await expect(page.locator('.sw-canvas-status')).toContainText('slide 3 of 3');
+  await page.locator('.sw-hierarchy-node[data-sw-component="TextBox"]').click();
+  await page.evaluate(() => {
+    (window as any).retainedThumb = document.querySelectorAll('.sw-thumb-slot [data-sw-textbox-content]')[2];
+    (window as any).retainedStage = document.querySelector('.sw-canvas-stage [data-sw-textbox-content]');
+  });
+  const after = before.replace('slides: [', 'slides: [Slide { content: TextBox { content: "inserted" } }');
+  await setHostSource(page, after);
+  await expect(page.locator('.sw-canvas-status')).toContainText('slide 4 of 4');
+  await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '1');
+  await expect(page.locator('.sw-selection-outline')).toBeVisible();
+  expect(await page.evaluate(() => document.querySelectorAll('.sw-thumb-slot [data-sw-textbox-content]')[3] === (window as any).retainedThumb)).toBe(true);
+  expect(await page.evaluate(() => document.querySelector('.sw-canvas-stage [data-sw-textbox-content]') === (window as any).retainedStage)).toBe(true);
+  await setHostSource(page, before);
+  await expect(page.locator('.sw-canvas-status')).toContainText('slide 3 of 3');
+  await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '0');
+  await expect(metrics(page)).toHaveAttribute('data-sw-reused-slides', '3');
+  await expect(page.locator('.sw-selection-outline')).toBeVisible();
+});
+
+test('retained diagnostics move correctly, while explicit replacements and syntax recovery invalidate', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/canvas.html?fixture=single-textbox');
+  await getEditorSource(page);
+  const before = deck(3).replace('"content-2"', 'missingLater');
+  await setHostSource(page, before);
+  const after = before.replace('"content-0"', '"""longer first\nslide"""');
+  await setHostSource(page, after);
+  await expect(metrics(page)).toHaveAttribute('data-sw-reused-slides', '2');
+  const offset = after.indexOf('missingLater');
+  const prefix = after.slice(0, offset);
+  const line = prefix.split('\n').length;
+  const column = offset - prefix.lastIndexOf('\n');
+  await expect(page.locator('.sw-canvas-diagnostics')).toContainText(`single-textbox.sw:${line}:${column}:`);
+  await page.evaluate(source => (window as any).__slidewrightHost.setSource(source, { replacement: true }), after);
+  await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '3');
+  const broken = after.slice(0, after.indexOf('missingLater'));
+  await setHostSource(page, broken);
+  await expect(page.locator('.sw-canvas-diagnostics')).toContainText('[parse]');
+  await setHostSource(page, after);
+  await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '3');
+  expect(errors).toEqual([]);
+});

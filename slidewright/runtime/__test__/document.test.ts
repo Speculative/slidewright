@@ -173,3 +173,23 @@ test('reorder expressed as deletion/insertion retires moved owners and preserves
   assert.ok(update.retired.includes(first!.handle));
   assert.notEqual(named(document, 'Slide')[1]!.handle, first!.handle);
 });
+
+test('host source updates infer minimal changes, accept precise ranges, and validate source atomically', () => {
+  const document = new DeckDocument(source, 'deck.sw');
+  const later = named(document, 'Slide')[1]!.handle;
+  const next = source.replace('hello', 'a longer first edit');
+  const update = document.updateSource(next)!;
+  assert.equal(update.mapping.fromRevision, 0);
+  assert.equal(document.occurrence(later)!.component.name, 'Slide');
+  assert.equal(document.updateSource(next), undefined);
+  const snapshot = document.snapshot;
+  assert.throws(() => document.updateSource(next + ' ', 'deck.sw', { changes: [] }), /expected source/);
+  assert.throws(() => document.updateSource(next, 'deck.sw', { changes: [{ start: 0, end: 1, insert: 'X' }] }), /expected source/);
+  assert.equal(document.snapshot, snapshot);
+  assert.throws(() => document.updateSource(next, 'deck.sw', { baseRevision: 0 }), /Stale/);
+  document.updateSource(next + '\n', 'deck.sw', { baseRevision: 1, changes: [{ start: next.length, end: next.length, insert: '\n' }] });
+  assert.equal(document.snapshot.revision, 2);
+  const replaced = document.updateSource(next + '\n', 'other.sw')!;
+  assert.ok(replaced.replacement);
+  assert.equal(document.occurrence(later), undefined);
+});

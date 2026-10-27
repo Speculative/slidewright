@@ -8,6 +8,7 @@
 // editor pane — sendSelection (canvas → pane) and setCursor
 // (pane → canvas) wire up bidirectional selection sync.
 //
+import { DeckDocument, type DocumentSourceUpdate, type DocumentUpdate } from '../slidewright/runtime/document.js';
 import { SourceSync } from './source-sync.js';
 import plateauDemoSource from '../decks/plateau-demo/deck.sw?raw';
 import uistSource from '../decks/uist-2026/deck.sw?raw';
@@ -62,6 +63,7 @@ function readDraft(deck: DeckChoice): Draft | null {
 }
 
 export class StandaloneHost implements Host {
+  readonly document: DeckDocument;
   private state: HostState;
   private stateSubscribers = new Set<(state: HostState) => void>();
   private cursorSubscribers = new Set<(offset: number) => void>();
@@ -91,6 +93,7 @@ export class StandaloneHost implements Host {
     this.unsaved = !this.fixture && this.serverBacked && draft?.pending === true;
     const initial = this.fixture ? { source: fixtures[fixture!]!, fileName: `tests/fixtures/${fixture}.sw` } : (this.serverBacked && !this.unsaved ? null : draft) ?? builtins[this.choice === 'custom' ? 'reference' : this.choice];
     this.state = { ...initial, assets: { headshotImg, ...plateauAssets } };
+    this.document = new DeckDocument(initial.source, initial.fileName);
   }
 
   connect(): () => void {
@@ -102,9 +105,9 @@ export class StandaloneHost implements Host {
     this.sync?.stop(); this.sync = null;
     if (this.serverBacked && this.connected) {
       this.sync = new SourceSync(this.choice, source => {
-        this.state = { ...this.state, source };
+        const update = this.updateState({ ...this.state, source }, { origin: 'disk', replacement: true });
         this.unsaved = false;
-        this.persist(); this.publish();
+        this.persist(); this.publish(update);
       }, () => {
         if (this.sync?.status === 'saved') { this.unsaved = false; this.persist(); }
         this.publishSync();
@@ -126,7 +129,14 @@ export class StandaloneHost implements Host {
     catch { this.persistenceAvailable = false; }
     if (this.choice === 'custom') this.custom = { source: this.state.source, fileName: this.state.fileName };
   }
-  private publish(): void { for (const cb of this.stateSubscribers) cb(this.state); }
+  private updateState(next: HostState, edit: DocumentSourceUpdate = {}): DocumentUpdate | undefined {
+    const update = this.document.updateSource(next.source, next.fileName, edit);
+    this.state = next;
+    return update;
+  }
+  private publish(update?: DocumentUpdate): void {
+    for (const cb of this.stateSubscribers) cb({ ...this.state, documentUpdate: update });
+  }
   private updateURL(): void {
     const url = new URL(window.location.href);
     url.searchParams.delete('fixture'); url.searchParams.set('deck', this.choice);
@@ -139,13 +149,13 @@ export class StandaloneHost implements Host {
     const next = (useDisk && !pending ? null : draft) ?? (choice === 'custom' ? this.custom : builtins[choice]);
     if (!next) return;
     this.fixture = false; this.choice = choice; this.unsaved = pending;
-    this.state = { ...this.state, ...next };
-    this.startSync(); this.updateURL(); this.publish();
+    const update = this.updateState({ ...this.state, ...next }, { origin: 'switch-deck', replacement: true });
+    this.startSync(); this.updateURL(); this.publish(update);
   }
   openSource(source: string, fileName: string): void {
     this.fixture = false; this.choice = 'custom'; this.unsaved = false;
-    this.state = { ...this.state, source, fileName };
-    this.startSync(); this.persist(); this.updateURL(); this.publish();
+    const update = this.updateState({ ...this.state, source, fileName }, { origin: 'open-source', replacement: true });
+    this.startSync(); this.persist(); this.updateURL(); this.publish(update);
   }
   saveDraft(): boolean { this.persist(); this.publish(); return this.persistenceAvailable; }
 
@@ -173,11 +183,11 @@ export class StandaloneHost implements Host {
 
   // ── Editor-pane-facing ─────────────────────────────────────────────
 
-  setSource(source: string): void {
-    if (source === this.state.source) return;
-    this.state = { ...this.state, source };
+  setSource(source: string, edit: DocumentSourceUpdate = {}): void {
+    const update = this.updateState({ ...this.state, source }, edit);
+    if (!update) return;
     this.unsaved = this.serverBacked;
-    this.persist(); this.publish();
+    this.persist(); this.publish(update);
     this.sync?.edit(source);
   }
 
