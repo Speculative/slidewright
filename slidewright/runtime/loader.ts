@@ -13,6 +13,8 @@
 // special-cased; all other invocations go through the registry.
 
 import { Fragment, createElement, type ReactElement, type ReactNode } from 'react';
+import { sourceElement, SourceLocationContext } from './source-location.js';
+import type { DeckDocument, DocumentSnapshot, OccurrenceHandle } from './document.js';
 import { Slide as SlideFrameRaw } from '../../src/Slide.jsx';
 
 // src/Slide.jsx is JS; typing it loosely here keeps the loader honest
@@ -49,8 +51,8 @@ import {
   type Diagnostic,
   type DiagnosticKind,
 } from './diagnostics.js';
-import { parse } from './parser.js';
-import { lookup, type Scope } from './scope.js';
+import { parse, type ParseResult } from './parser.js';
+import { lookup, type Scope, type ScopeValue } from './scope.js';
 
 export interface LoadDeckInput {
   source: string;
@@ -157,7 +159,18 @@ const DEFAULT_META: DeckMeta = {
 };
 
 export function loadDeck(input: LoadDeckInput): LoadDeckResult {
-  const { ast, diagnostics } = parse(input.source, input.file);
+  return resolveParsedDeck(input, parse(input.source, input.file));
+}
+
+// The resolver never mutates the AST. Copy diagnostics because document
+// snapshots are frozen and validation contributes additional diagnostics.
+export function resolveParsedDeck(input: LoadDeckInput, parsed: ParseResult): LoadDeckResult {
+  return resolveDeck(input, parsed);
+}
+
+function resolveDeck(input: LoadDeckInput, parsed: ParseResult, cache?: SlideCacheContext): LoadDeckResult {
+  const { ast } = parsed;
+  const diagnostics = [...parsed.diagnostics];
   const ctx: LoadCtx = {
     file: input.file,
     components: input.components,
@@ -170,6 +183,7 @@ export function loadDeck(input: LoadDeckInput): LoadDeckResult {
     shapes: new Map(),
     slidesData: [],
     currentSlideIdx: -1,
+    cache,
   };
 
   // Find the top-level Deck invocation. We accept exactly one for v0.0.
@@ -191,6 +205,11 @@ export function loadDeck(input: LoadDeckInput): LoadDeckResult {
   // resolution. Returns the merged token map (registry + source)
   // for the inspector palette.
   const tokens = processDeckTokens(deck, ctx);
+  if (cache) {
+    const tokensKey = JSON.stringify(tokens);
+    if (tokensKey !== cache.tokensKey) cache.entries.clear();
+    cache.tokensKey = tokensKey;
+  }
   const slides = renderDeckSlides(deck, ctx);
   // After rendering, populate each shape's childIdx — its position
   // in its parent Freeform's `children` list. Computed after
@@ -211,6 +230,132 @@ export function loadDeck(input: LoadDeckInput): LoadDeckResult {
     slidesData: ctx.slidesData,
     tokens,
   };
+}
+
+interface CachedSlide {
+  source: string;
+  baseStart: number;
+  frame: ReactElement<SlideFrameProps> | null;
+  diagnostics: Diagnostic[];
+  shapes: ShapeData[];
+  slidesData: SlideAstData[];
+}
+
+interface SlideCacheContext {
+  entries: Map<OccurrenceHandle, CachedSlide>;
+  tokensKey?: string;
+  document: DeckDocument;
+  snapshot: DocumentSnapshot;
+  handles: Map<number, OccurrenceHandle>;
+  components: Map<number, Component>;
+  adapters: Map<number, unknown>;
+  used: Set<OccurrenceHandle>;
+  counts: { resolvedSlides: number; reusedSlides: number };
+}
+
+/** Retained per-slide resolution, scoped to one interactive document session.
+ * Registry entries are immutable inputs; call invalidate() after an in-place
+ * registry mutation. Asset/scope values and source tokens are compared by value.
+ */
+export class DeckResolver {
+  private readonly entries = new Map<OccurrenceHandle, CachedSlide>();
+  private registry: unknown[] = [];
+  private bindings: [string, ScopeValue][] = [];
+  private wrapper?: WrapShape;
+  private tokensKey?: string;
+  private counts = { resolvedSlides: 0, reusedSlides: 0 };
+  get stats(): Readonly<{ resolvedSlides: number; reusedSlides: number }> { return this.counts; }
+
+  invalidate(): void { this.entries.clear(); }
+
+  resolve(document: DeckDocument, input: Omit<LoadDeckInput, 'source' | 'file'>): LoadDeckResult & { revision: number } {
+    const snapshot = document.snapshot;
+    const registry = Object.entries(input.components).sort(([a], [b]) => a.localeCompare(b))
+      .flatMap(([name, entry]) => [name, entry.render, entry.meta, entry.canvas]);
+    const bindings = Object.entries(input.scope?.bindings ?? {}).sort(([a], [b]) => a.localeCompare(b));
+    if (registry.length !== this.registry.length || registry.some((entry, i) => entry !== this.registry[i]) ||
+        bindings.length !== this.bindings.length || bindings.some(([key, value], i) =>
+          key !== this.bindings[i]?.[0] || !Object.is(value, this.bindings[i]?.[1])) || input.wrapShape !== this.wrapper) this.invalidate();
+    this.registry = registry;
+    this.bindings = bindings;
+    this.wrapper = input.wrapShape;
+    this.counts = { resolvedSlides: 0, reusedSlides: 0 };
+    const cache: SlideCacheContext = {
+      entries: this.entries, tokensKey: this.tokensKey, document, snapshot,
+      handles: new Map(snapshot.occurrences.map(item => [item.range.start, item.handle])),
+      // Resolution is read-only; mutable AST types remain for existing editor
+      // commands. Resolution treats every snapshot node as read-only.
+      components: new Map(snapshot.occurrences.map(item => [item.range.start, item.component as Component])),
+      adapters: new Map(), used: new Set(), counts: this.counts,
+    };
+    // Recovery nodes can have truncated/non-enclosing spans. They cannot be
+    // safe cache boundaries or owners of relative diagnostics. Keep source
+    // authoritative, but resolve that revision conservatively without caching.
+    const cacheable = !snapshot.diagnostics.some(diagnostic => diagnostic.severity === 'error');
+    if (!cacheable) this.invalidate();
+    const result = resolveDeck({ ...input, source: snapshot.source, file: snapshot.file }, {
+      ast: snapshot.ast as SourceFile, diagnostics: snapshot.diagnostics as Diagnostic[],
+    }, cacheable ? cache : undefined);
+    if (!cacheable) this.counts.resolvedSlides = result.slidesData.length;
+    this.tokensKey = cache.tokensKey;
+    for (const key of this.entries.keys()) if (!cache.used.has(key)) this.entries.delete(key);
+    return { ...result, revision: snapshot.revision };
+  }
+}
+
+function renderCachedSlide(comp: Component, ctx: LoadCtx, idx: number, chapter?: string): ReactElement | null {
+  const cache = ctx.cache!;
+  const handle = cache.handles.get(comp.span.start.offset)!;
+  cache.used.add(handle);
+  const source = cache.snapshot.source.slice(comp.span.start.offset, comp.span.end.offset);
+  let entry = cache.entries.get(handle);
+  if (!entry || entry.source !== source) {
+    const local: LoadCtx = { ...ctx, cache: undefined, diagnostics: [], shapes: new Map(),
+      slidesData: [], cellStore: new CellStore(), cellSeq: 0 };
+    const element = renderSlide(comp, local, idx, chapter);
+    entry = {
+      source, baseStart: comp.span.start.offset,
+      frame: element ? (element as ReactElement<{ children: ReactElement<SlideFrameProps> }>).props.children : null,
+      diagnostics: local.diagnostics, shapes: [...local.shapes.values()], slidesData: local.slidesData,
+    };
+    cache.entries.set(handle, entry);
+    cache.counts.resolvedSlides++;
+  } else cache.counts.reusedSlides++;
+  const delta = comp.span.start.offset - entry.baseStart;
+  for (const diagnostic of entry.diagnostics) {
+    const span = cache.document.locate(handle, {
+      start: diagnostic.span.start.offset - entry.baseStart,
+      end: diagnostic.span.end.offset - entry.baseStart,
+    })!;
+    ctx.diagnostics.push({ ...diagnostic, file: ctx.file, span });
+  }
+  for (const shape of entry.shapes) {
+    const current = cache.components.get(shape.comp.span.start.offset + delta)!;
+    const registered = ctx.components[current.name]?.canvas as {
+      bindChildren?: (children: readonly ShapeData[]) => unknown;
+    } | undefined;
+    const fill = current.fills.find(fill => fill.name === 'children');
+    const children = fill?.value.kind === 'list' ? fill.value.items : current.implicitChildren;
+    const canvas = registered?.bindChildren ? registered.bindChildren(children.flatMap(child => {
+      const data = ctx.shapes.get(`${child.span.start.offset}-${child.span.end.offset}`);
+      return data ? [data] : [];
+    })) : shape.canvas;
+    cache.adapters.set(current.span.start.offset, canvas);
+    ctx.shapes.set(`${current.span.start.offset}-${current.span.end.offset}`, { ...shape, canvas, comp: current, slideIdx: idx });
+  }
+  for (const slide of entry.slidesData) ctx.slidesData.push({ ...slide, comp });
+  if (!entry.frame) return null;
+  // Frame order/chapter and source location are current; the resolved content
+  // element below the provider retains its identity, including after shifts.
+  return createElement('div', {
+    key: handle, 'data-sw-component': comp.name,
+    'data-sw-span-start': comp.span.start.offset, 'data-sw-span-end': comp.span.end.offset,
+    style: { display: 'contents' },
+  }, createElement(SlideFrame, { ...entry.frame.props, key: handle, idx: idx + 1, actLabel: chapter,
+    children: createElement(SourceLocationContext.Provider, {
+      value: { delta, components: cache.components, adapters: cache.adapters }, children: entry.frame.props.children,
+    }),
+  }));
 }
 
 // Process the `tokens:` fill on Deck (if any). Each fill inside the
@@ -312,6 +457,7 @@ interface LoadCtx {
   // renderDeckSlides as it iterates; used to tag each shape with
   // its parent slide for canvas-side commit logic.
   currentSlideIdx: number;
+  cache?: SlideCacheContext;
   inlineSlotOverride?: { component: Component; name: string; content: ReactNode };
 }
 
@@ -332,13 +478,13 @@ export function renderEditorInline(input: {
     wrapShape: defaultWrapShape, shapes: new Map(), slidesData: [], currentSlideIdx: -1,
     ...(input.contentSlot ? { inlineSlotOverride: { component: input.component, name: input.contentSlot, content: input.content } } : {}),
   };
-  return renderComponent(input.component, ctx);
+  return createElement(SourceLocationContext.Provider, { value: null }, renderComponent(input.component, ctx));
 }
 
 // Default wrap: a span-only marker div for selection sync. No
 // gesture awareness — the canvas overrides via input.wrapShape.
 function defaultWrapShape(input: WrapShapeInput): ReactElement {
-  return createElement(
+  return sourceElement(
     input.loaded.meta.produces === 'text' ? 'span' : 'div',
     {
       key: `wrap-${input.comp.span.start.offset}`,
@@ -463,7 +609,7 @@ function renderDeckSlides(deck: Component, ctx: LoadCtx): ReactElement[] {
       const title = readString(byName(item.fills).get('chapter'), ctx);
       if (title !== undefined) chapter = title;
     }
-    const el = renderSlide(item, ctx, idx, chapter);
+    const el = ctx.cache ? renderCachedSlide(item, ctx, idx, chapter) : renderSlide(item, ctx, idx, chapter);
     if (el) out.push(el);
     idx += 1;
   }
@@ -569,7 +715,7 @@ function renderBuiltinSlide(comp: Component, ctx: LoadCtx, idx: number, chapter?
 // range. Used by ScaledCanvas's click handler to drive selection sync
 // (canvas.tsx → host.sendSelection → extension reveals the range).
 function wrapWithSpan(comp: Component, element: ReactNode): ReactElement {
-  return createElement(
+  return sourceElement(
     'div',
     {
       key: `wrap-${comp.span.start.offset}`,
@@ -593,7 +739,7 @@ function wrapEditableString(
   resolved: string,
 ): ReactNode {
   if (lit.multiline) return resolved;
-  return createElement(
+  return sourceElement(
     'span',
     {
       key: `text-${lit.span.start.offset}`,
@@ -670,7 +816,7 @@ function renderComponent(comp: Component, ctx: LoadCtx): ReactNode {
     // (image needs a different identification approach; scalars
     // are conceptually params, edited via inspector).
     if (isRenderableSlotType(schema.type)) {
-      slots[slotName] = createElement(
+      slots[slotName] = sourceElement(
         schema.type === 'text-document' || schema.type === 'array<text-document>' ? 'div' : 'span',
         {
           'data-sw-slot-name': slotName,
@@ -732,7 +878,7 @@ function renderComponent(comp: Component, ctx: LoadCtx): ReactNode {
     // attr, so this stays correctly non-selectable as a slot —
     // clicks select the parent component, as before.
     if (isRenderableSlotType(childrenSchema.type)) {
-      slots['children'] = createElement(
+      slots['children'] = sourceElement(
         'span',
         {
           'data-sw-slot-name': 'children',
@@ -854,7 +1000,7 @@ function renderSpanAsNode(comp: Component, ctx: LoadCtx): ReactNode {
       childIdx: -1,
     });
   }
-  return createElement(
+  return sourceElement(
     href ? 'a' : 'span',
     {
       style,
@@ -903,7 +1049,7 @@ function renderListAsNode(comp: Component, ctx: LoadCtx): ReactNode {
     }
   }
   const ordered = ORDERED_LIST_STYLES.has(style);
-  return createElement(
+  return sourceElement(
     ordered ? 'ol' : 'ul',
     {
       key: cellKey(comp),
@@ -936,7 +1082,7 @@ function renderListItemAsNode(comp: Component, ctx: LoadCtx): ReactNode {
       );
     }
   }
-  return createElement(
+  return sourceElement(
     'li',
     {
       key: cellKey(comp),
@@ -968,7 +1114,7 @@ function renderParagraphAsNode(comp: Component, ctx: LoadCtx): ReactNode {
   validateAgainstMeta(comp, BUILTIN_META.Paragraph!, ctx);
   const fills = byName(comp.fills);
   const content = fills.get('content');
-  return createElement('p', {
+  return sourceElement('p', {
     key: cellKey(comp),
     'data-sw-component': 'Paragraph',
     'data-sw-span-start': comp.span.start.offset,
@@ -1058,7 +1204,7 @@ function createEmptySlotPlaceholder(
         },
         slotName,
       );
-  return createElement(
+  return sourceElement(
     'span',
     {
       'data-sw-slot-name': slotName,
@@ -1194,7 +1340,7 @@ function resolveTextValue(value: Value, ctx: LoadCtx): ReactNode {
       emit(ctx, 'slot-type-mismatch', value.span, `reference \`${value.name}\` does not resolve to inline text`);
       return null;
     }
-    return createElement('span', {
+    return sourceElement('span', {
       key: cellKey(value),
       'data-sw-inline-reference': value.name,
       'data-sw-span-start': value.span.start.offset,

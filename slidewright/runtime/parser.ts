@@ -425,9 +425,12 @@ class Parser {
     const lbrack = this.advance();
     const items: Value[] = [];
     this.skipSeparators();
-    while (this.peek().kind !== 'rbrack' && this.peek().kind !== 'eof') {
+    while (this.peek().kind !== 'rbrack' && this.peek().kind !== 'rbrace' && this.peek().kind !== 'eof') {
       const v = this.parseValue();
       if (v) items.push(v);
+      // parseValue reports unexpected tokens without consuming them. Recovery
+      // must advance or an incomplete source edit can spin forever here.
+      else this.advance();
       this.skipSeparators();
     }
     const rbrack = this.peek();

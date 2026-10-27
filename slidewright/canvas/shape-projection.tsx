@@ -14,9 +14,10 @@
 // imperative DOM mutation during gestures.
 
 import { measureLayoutSnapshot } from './layout-measurement.js';
-import { createElement, useContext, useRef, type ReactElement } from 'react';
+import { createElement, useContext, useMemo, useRef, type ReactElement } from 'react';
 
 import type { WrapShape, WrapShapeInput } from '../runtime/loader.js';
+import { SourceLocationContext, useSourceAdapter, useSourceComponent } from '../runtime/source-location.js';
 import type { ComponentRenderProps } from '../runtime/contract.js';
 
 import { useShapeDelta } from './gesture-context.js';
@@ -25,13 +26,16 @@ import type { ShapeAdapter } from './shape-adapter.js';
 import { TextDocumentEditorContext, TextDocumentSessionContext } from './text-document-context.js';
 
 function ShapeProjection(input: WrapShapeInput): ReactElement {
-  const { comp, loaded, slots, params, slotsState, cellKey } = input;
+  const sourceLocation = useContext(SourceLocationContext);
+  const currentComp = useSourceComponent(input.comp);
+  const { comp, loaded, slots, params, slotsState } = { ...input, comp: currentComp };
+  const { cellKey } = input;
   const session = useContext(TextDocumentSessionContext);
   const editor = session?.span.start === comp.span.start.offset && session.span.end === comp.span.end.offset ? session.editor : null;
   // Accept either a ShapeAdapter (applyGesture required) or a
   // LayoutAdapter (applyGesture optional — only set when the layout
   // has a gesture that mutates its own params, e.g., gap-drag).
-  const adapter = loaded.canvas as ShapeAdapter | LayoutAdapter | undefined;
+  const adapter = useSourceAdapter(comp, loaded.canvas) as ShapeAdapter | LayoutAdapter | undefined;
   const delta = useShapeDelta({
     start: comp.span.start.offset,
     end: comp.span.end.offset,
@@ -49,21 +53,24 @@ function ShapeProjection(input: WrapShapeInput): ReactElement {
     adapter?.applyGesture && delta
       ? adapter.applyGesture(gestureParams, delta)
       : params;
+  const defaults = editor ? session?.defaults : undefined;
+  const rendered = useMemo(() => createElement(TextDocumentEditorContext.Provider, { value: editor },
+    createElement(loaded.render, {
+      slots: slots as ComponentRenderProps['slots'],
+      params: defaults ? { ...adjustedParams, ...defaults } : adjustedParams,
+      slotsState,
+      key: cellKey,
+    })), [loaded.render, slots, adjustedParams, slotsState, cellKey, editor, defaults]);
   return createElement(
     loaded.meta.produces === 'text' ? 'span' : 'div',
     {
-      key: `wrap-${comp.span.start.offset}`,
+      key: cellKey,
       'data-sw-component': comp.name,
       'data-sw-span-start': comp.span.start.offset,
       'data-sw-span-end': comp.span.end.offset,
       style: { display: 'contents' },
     },
-    createElement(TextDocumentEditorContext.Provider, { value: editor }, createElement(loaded.render, {
-      slots: slots as ComponentRenderProps['slots'],
-      params: editor ? { ...adjustedParams, ...session?.defaults } : adjustedParams,
-      slotsState,
-      key: cellKey,
-    })),
+    createElement(SourceLocationContext.Provider, { value: sourceLocation }, rendered),
   );
 }
 
