@@ -192,3 +192,42 @@ test('seeded list insertion, deletion, duplication and movement preserve grammar
     current = result.newSource;
   }
 });
+
+test('snapshot-backed commands perform bounded validation and preserve their immutable input', () => {
+  const document = new DeckDocument(source, 'test.sw');
+  const before = document.snapshot;
+  const box = before.occurrences.find(o => o.component.name === 'Box')!;
+  const result = commitSourceEdit(source, 'snapshot-edit', ast => {
+    findComponentAtSpan(ast, box.range.start, box.range.end)!.fills[0]!.value = numberLit(12345);
+    return {};
+  }, before)!;
+  assert.ok(result);
+  assert.equal(result.baseRevision, before.revision);
+  assert.deepEqual(result.parsing.input, { fullParses: 0, componentParses: 0, parsedCharacters: 0 });
+  assert.equal(result.parsing.output.fullParses, 0);
+  assert.equal(result.parsing.output.componentParses, 1);
+  assert.ok(result.parsing.output.parsedCharacters < 100);
+  assert.equal(before.source, source);
+  assert.equal(document.snapshot, before);
+  assert.deepEqual(result.ast, parse(result.newSource, 'test.sw').ast);
+  const update = document.updateSource(result.newSource, 'test.sw', { changes: result.changes, baseRevision: before.revision })!;
+  assert.deepEqual(update.snapshot.ast, result.ast);
+  assert.deepEqual(before.ast, parse(source, 'test.sw').ast);
+});
+
+test('snapshot-backed commands reject stale and invalid inputs and skip no-op output parsing', () => {
+  const document = new DeckDocument(source, 'test.sw');
+  let called = false;
+  assert.equal(commitSourceEdit(source + ' ', 'stale', () => { called = true; return {}; }, document.snapshot), null);
+  assert.equal(called, false);
+  const noOp = commitSourceEdit(source, 'no-op', () => ({}), document.snapshot)!;
+  assert.deepEqual(noOp.changes, []);
+  assert.deepEqual(noOp.parsing.output, { fullParses: 0, componentParses: 0, parsedCharacters: 0 });
+  const box = document.snapshot.occurrences.find(o => o.component.name === 'Box')!;
+  assert.equal(commitSourceEdit(source, 'invalid-output', ast => {
+    findComponentAtSpan(ast, box.range.start, box.range.end)!.fills[0]!.value = numberLit(Number.NaN);
+    return {};
+  }, document.snapshot), null);
+  const invalid = new DeckDocument('Deck { slides: [', 'invalid.sw');
+  assert.equal(commitSourceEdit(invalid.snapshot.source, 'invalid-input', () => ({}), invalid.snapshot), null);
+});

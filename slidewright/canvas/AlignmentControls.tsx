@@ -1,4 +1,4 @@
-import type { SourceChange } from '../runtime/document.js';
+import type { SourceChange, DocumentSnapshot } from '../runtime/document.js';
 import { measureLayoutSnapshot } from './layout-measurement.js';
 import {
   AlignHorizontalJustifyStart, AlignHorizontalJustifyCenter, AlignHorizontalJustifyEnd,
@@ -8,7 +8,6 @@ import {
 import { useLayoutEffect, useState } from 'react';
 import type { ShapeData } from '../runtime/loader.js';
 import { numberLit, slotFill } from '../runtime/ast-builders.js';
-import { parse } from '../runtime/parser.js';
 import type { SelectionTarget } from './selection-target.js';
 import type { Bounds, ShapeAdapter } from './shape-adapter.js';
 import type { SourceRange } from './host.js';
@@ -71,12 +70,13 @@ function translations(items: Item[], command: Command, reference: Bounds): { ite
   });
 }
 
-export function AlignmentControls({ selected, shapes, source, disabled, onCommit }: {
+export function AlignmentControls({ selected, shapes, source, snapshot, disabled, onCommit }: {
   selected: readonly SelectionTarget[];
   shapes: ReadonlyMap<string, ShapeData>;
   source: string;
+  snapshot?: DocumentSnapshot;
   disabled: boolean;
-  onCommit(source: string, selections?: SourceRange[], changes?: readonly SourceChange[]): void;
+  onCommit(source: string, selections?: SourceRange[], changes?: readonly SourceChange[], baseRevision?: number): void;
 }) {
   const [context, setContext] = useState<Context | null>(null);
   const [reference, setReference] = useState<'selection' | 'container'>('selection');
@@ -130,14 +130,14 @@ export function AlignmentControls({ selected, shapes, source, disabled, onCommit
         if (!actual || Math.abs(actual.left - item.bounds.left - dx) > 0.51 || Math.abs(actual.top - item.bounds.top - dy) > 0.51) return null;
       }
       return {};
-    });
+    }, snapshot);
     if (!result || result.newSource === source) { setMessage('These positions cannot be edited directly.'); return; }
-    const ast = parse(result.newSource, '<arrange-selection-after>').ast;
+    const ast = result.ast;
     const selections = paths.flatMap(path => {
       const node = componentByPath(ast, path);
       return node ? [{ start: node.span.start.offset, end: node.span.end.offset }] : [];
     });
-    onCommit(result.newSource, selections, result.changes);
+    onCommit(result.newSource, selections, result.changes, result.baseRevision);
   }
   if (!selected.some(target => target.kind === 'component')) return null;
   const unavailable = disabled || !context;

@@ -182,3 +182,29 @@ test('source and canvas local edits use bounded document parsing in a 100-slide 
   await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '100');
   expect((await parseWork()).fullParses).toBe(1);
 });
+
+test('a canvas nudge avoids full-deck parsing and emission across the entire application path', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-textbox');
+  const before = deck();
+  await setHostSource(page, before);
+  await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '100');
+  await page.locator('.sw-canvas-stage').getByText('content-0', { exact: true }).click();
+  await settle(page);
+  const readWork = () => page.evaluate(async () => {
+    const { readParserWork } = await import('/slidewright/runtime/parser.ts');
+    const { readEmitterWork } = await import('/slidewright/runtime/emitter.ts');
+    return { ...readParserWork(), ...readEmitterWork() };
+  });
+  const start = await readWork();
+  await page.keyboard.press('Shift+ArrowRight');
+  await expect.poll(() => getEditorSource(page)).toBe(before.replace('x: 200', 'x: 210'));
+  await settle(page);
+  const end = await readWork();
+  // Include command validation, host publication and source-dependent UI
+  // queries. Even one full-deck parse would exceed this bound by >20x.
+  expect(end.calls - start.calls).toBeGreaterThanOrEqual(2);
+  expect(end.parsedCharacters - start.parsedCharacters).toBeLessThan(500);
+  expect(end.sourceEmits - start.sourceEmits).toBe(0);
+  await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '1');
+  await expect(metrics(page)).toHaveAttribute('data-sw-reused-slides', '99');
+});

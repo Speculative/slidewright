@@ -32,8 +32,7 @@ import {
   type ShapeData,
   type SlideAstData,
 } from '../runtime/loader.js';
-import { parse } from '../runtime/parser.js';
-import { DeckDocument, type DocumentUpdate, type SourceChange } from '../runtime/document.js';
+import { DeckDocument, type DocumentUpdate, type SourceChange, type DocumentSnapshot } from '../runtime/document.js';
 import { mapSelectionTargets } from './selection-mapping.js';
 import { numberLit, stringLit, booleanLit, nameRef, paragraphDocument } from '../runtime/ast-builders.js';
 import type { Value } from '../runtime/ast.js';
@@ -72,7 +71,7 @@ import {
   addStringSlotFill,
   insertEmptySlide,
   duplicateSlideAtIndex,
-  commitSourceEdit,
+  commitSourceEdit as editSource,
   componentByPath,
   findComponentAtSpan,
   findStringAt,
@@ -129,6 +128,7 @@ interface DeckMeta {
 }
 
 interface RenderState {
+  snapshot: DocumentSnapshot;
   revision: number;
   resolution: { resolvedSlides: number; reusedSlides: number };
   scope: Scope;
@@ -953,6 +953,9 @@ export function App({
   // (which pushes the pre-commit source onto the undo stack).
   // Updated below on every state change.
   const sourceRef = useRef<string>('');
+  const sourceSnapshotRef = useRef<DocumentSnapshot | undefined>(undefined);
+  const commitSourceEdit = useCallback((source: string, label: string, mutate: Parameters<typeof editSource>[2]) =>
+    editSource(source, label, mutate, sourceSnapshotRef.current), []);
 
   // Canvas-side gesture undo stack. Each canvas commit pushes the
   // pre-commit source onto undoStack and clears redoStack. Cmd / Ctrl
@@ -1003,7 +1006,8 @@ export function App({
   // the undo stacks see the pre-change source and the subscribe
   // handler treats the round-trip as internal.
   const commitToHost = useCallback(
-    (newSource: string, newSelections?: SourceRange[], changes?: readonly SourceChange[]) => {
+    (newSource: string, newSelections?: SourceRange[], changes?: readonly SourceChange[], baseRevision?: number) => {
+      if (baseRevision !== undefined && baseRevision !== (host.document?.snapshot.revision ?? sourceSnapshotRef.current?.revision)) return;
       if (newSource === sourceRef.current) {
         if (newSelections?.length) setSelected(newSelections.map(componentTarget));
         return;
@@ -1022,7 +1026,7 @@ export function App({
         // resize / layout reorder).
         pendingSelectionRef.current = newSelections.map(componentTarget);
       }
-      host.setSource?.(newSource, { changes, origin: 'canvas', baseRevision: host.document?.snapshot.revision });
+      host.setSource?.(newSource, { changes, origin: 'canvas', baseRevision: baseRevision ?? host.document?.snapshot.revision });
     },
     [host],
   );
@@ -1030,7 +1034,9 @@ export function App({
   const startRichEditing = useCallback((target: TextDocumentEditTarget) => {
     const current = stateRef.current;
     if (!current) return;
-    const parsed = parse(sourceRef.current, '<text-session>');
+    const snapshot = sourceSnapshotRef.current;
+    if (!snapshot || snapshot.source !== sourceRef.current) return;
+    const parsed = { ast: structuredClone(snapshot.ast) as import('../runtime/ast.js').SourceFile, diagnostics: snapshot.diagnostics };
     if (parsed.diagnostics.some(d => d.severity === 'error')) return;
     const component = findComponentAtSpan(parsed.ast, target.span.start, target.span.end);
     if (!component || components[component.name]?.meta.slots.content?.type !== 'text-document') return;
@@ -1081,7 +1087,7 @@ export function App({
       return {};
     });
     if (!result) return;
-    const nextAst = parse(result.newSource, '<text-selection>').ast;
+    const nextAst = result.ast;
     const restored = selectionPaths.flatMap(path => {
       const comp = componentByPath(nextAst, path);
       return comp ? [{ start: comp.span.start.offset, end: comp.span.end.offset }] : [];
@@ -1090,7 +1096,7 @@ export function App({
       pendingSelectionRef.current = [];
       setSelected([]);
     }
-    commitToHost(result.newSource, restored, result.changes);
+    commitToHost(result.newSource, restored, result.changes, result.baseRevision);
   }, [commitToHost]);
 
   useEffect(() => {
@@ -1191,7 +1197,7 @@ export function App({
       });
       const newParentRange = result?.newSelections[0];
       if (!result || !newParentRange) return null;
-      commitToHost(result.newSource, result.newSelections, result.changes);
+      commitToHost(result.newSource, result.newSelections, result.changes, result.baseRevision);
       return newParentRange;
     },
     [commitToHost],
@@ -1271,6 +1277,7 @@ export function App({
       };
       const document = host.document ?? (fallbackDocument ??= new DeckDocument(source, fileName));
       const update = documentUpdate ?? document.updateSource(source, fileName);
+      sourceSnapshotRef.current = document.snapshot;
       const result = resolver.resolve(document, { components, scope, wrapShape });
       const resolution = { ...resolver.stats };
       // Distinguish internal source changes (canvas gesture commit,
@@ -1296,6 +1303,7 @@ export function App({
       }
       lastSlidesDataRef.current = result.slidesData;
       const next: RenderState = {
+        snapshot: document.snapshot,
         revision: result.revision,
         resolution,
         scope,
@@ -1470,7 +1478,7 @@ export function App({
     });
     if (!result) return;
     pendingInsertedSlideRef.current = { source: result.newSource, idx: newIdx };
-    commitToHost(result.newSource, undefined, result.changes);
+    commitToHost(result.newSource, undefined, result.changes, result.baseRevision);
   }, [commitToHost]);
 
   const handleDuplicateSlide = useCallback(() => {
@@ -1481,7 +1489,7 @@ export function App({
     });
     if (!result) return;
     pendingInsertedSlideRef.current = { source: result.newSource, idx: newIdx };
-    commitToHost(result.newSource, undefined, result.changes);
+    commitToHost(result.newSource, undefined, result.changes, result.baseRevision);
   }, [commitToHost]);
 
   // Activate the new slide after the host applies the updated source,
@@ -1506,7 +1514,7 @@ export function App({
         (ast) => (removeSlidesAtIndices(ast, indices) > 0 ? {} : null),
       );
       if (!result) return;
-      commitToHost(result.newSource, undefined, result.changes);
+      commitToHost(result.newSource, undefined, result.changes, result.baseRevision);
       // Pick the new active: smallest index that wasn't deleted
       // and is ≤ current activeIdx; if everything ≤ activeIdx
       // was deleted, pick the smallest survivor.
@@ -1564,7 +1572,7 @@ export function App({
         (ast) => (reorderSlides(ast, fromIndices, toIndex) ? {} : null),
       );
       if (!result) return;
-      commitToHost(result.newSource, undefined, result.changes);
+      commitToHost(result.newSource, undefined, result.changes, result.baseRevision);
       // Update selection + active to the new positions of the
       // moved slides. Active = the slide that was active before
       // the move (if it was in the moved set), else its new index
@@ -1650,8 +1658,8 @@ export function App({
         const step = e.shiftKey ? 10 : 1;
         const dx = k === 'ArrowLeft' ? -step : k === 'ArrowRight' ? step : 0;
         const dy = k === 'ArrowUp' ? -step : k === 'ArrowDown' ? step : 0;
-        const result = nudgeSelection(sourceRef.current, selectedRef.current, shapes, dx, dy);
-        if (result && result.newSource !== sourceRef.current) commitToHost(result.newSource, result.newSelections, result.changes);
+        const result = nudgeSelection(sourceRef.current, selectedRef.current, shapes, dx, dy, sourceSnapshotRef.current);
+        if (result && result.newSource !== sourceRef.current) commitToHost(result.newSource, result.newSelections, result.changes, result.baseRevision);
         return;
       }
       let handled = true;
@@ -1762,7 +1770,7 @@ export function App({
           target.value = newText;
           return {};
         });
-        if (result) commitToHost(result.newSource, undefined, result.changes);
+        if (result) commitToHost(result.newSource, undefined, result.changes, result.baseRevision);
       } else if (intent === 'cancel') {
         node.textContent = originalText;
       }
@@ -1880,7 +1888,7 @@ export function App({
         return { selectComponents };
       });
       if (result) {
-        commitToHost(result.newSource, result.newSelections, result.changes);
+        commitToHost(result.newSource, result.newSelections, result.changes, result.baseRevision);
       }
       setGestureMeta(null);
       setGestureLive(ZERO_LIVE);
@@ -1976,7 +1984,7 @@ export function App({
         return { selectComponents: [node] };
       });
       if (result) {
-        commitToHost(result.newSource, result.newSelections, result.changes);
+        commitToHost(result.newSource, result.newSelections, result.changes, result.baseRevision);
         setActiveTool(SELECT_TOOL);
         const span = result.newSelections[0];
         if (components[tool]?.meta.insertion?.modalPlacement === 'point' && span) {
@@ -2018,7 +2026,7 @@ export function App({
         const node = insertion.stub({ gesture: 'drag', targetSlotType: target.slotType });
         return parent && node && materializeSlotFill(parent, target.slotName, target.slotType, node) ? { selectComponents: [node] } : null;
       });
-      if (result) { commitToHost(result.newSource, result.newSelections, result.changes); return; }
+      if (result) { commitToHost(result.newSource, result.newSelections, result.changes, result.baseRevision); return; }
     }
     setToolDrag({ tool, committed: true, pointerStartX: 0, pointerStartY: 0,
       pointerCurrentX: 0, pointerCurrentY: 0, target: null, invalidHover: false });
@@ -2146,7 +2154,7 @@ export function App({
           return { selectComponents: [node] };
         },
       );
-      if (result) commitToHost(result.newSource, result.newSelections, result.changes);
+      if (result) commitToHost(result.newSource, result.newSelections, result.changes, result.baseRevision);
     };
 
     document.addEventListener('pointermove', onMove);
@@ -2335,7 +2343,7 @@ export function App({
       if (result) {
         event.preventDefault();
         setClipboardError(null);
-        commitToHost(result.newSource, result.newSelections, result.changes);
+        commitToHost(result.newSource, result.newSelections, result.changes, result.baseRevision);
         return;
       }
       const files = clipboardImageFiles(event.clipboardData!);
@@ -2349,7 +2357,7 @@ export function App({
       void Promise.all(files.map(readClipboardImage)).then(images => {
         if (cancelled || sourceRef.current !== source || activeIdxRef.current !== slideIdx) return;
         const pasted = pasteImages(source, selected, slideIdx, images);
-        if (pasted) commitToHost(pasted.newSource, pasted.newSelections, pasted.changes);
+        if (pasted) commitToHost(pasted.newSource, pasted.newSelections, pasted.changes, pasted.baseRevision);
         else setClipboardError('Select a Freeform canvas to paste images.');
       }).catch(error => {
         if (!cancelled) setClipboardError(error instanceof Error ? error.message : 'Could not paste the image.');
@@ -2480,7 +2488,7 @@ export function App({
             },
           );
           if (result) {
-            commitToHost(result.newSource, undefined, result.changes);
+            commitToHost(result.newSource, undefined, result.changes, result.baseRevision);
             setSelected([]);
           }
           e.preventDefault();
@@ -2728,8 +2736,8 @@ export function App({
       return {};
     });
     if (!result) return;
-    const restored = path ? componentByPath(parse(result.newSource, '<box-selection>').ast, path) : null;
-    commitToHost(result.newSource, restored ? [{ start: restored.span.start.offset, end: restored.span.end.offset }] : undefined, result.changes);
+    const restored = path ? componentByPath(result.ast, path) : null;
+    commitToHost(result.newSource, restored ? [{ start: restored.span.start.offset, end: restored.span.end.offset }] : undefined, result.changes, result.baseRevision);
   };
   const applyShapeChange = (field: ShapeStyleField, value: Value, preview: boolean) => {
     if (!shapeFormatting) return;
@@ -2747,7 +2755,7 @@ export function App({
       return {};
     });
     if (!result) return;
-    const ast = parse(result.newSource, '<shape-selection>').ast;
+    const ast = result.ast;
     const spans = paths.flatMap(path => {
       const restored = componentByPath(ast, path);
       return restored ? [{ start: restored.span.start.offset, end: restored.span.end.offset }] : [];
@@ -2755,7 +2763,7 @@ export function App({
     if (preview) {
       pendingSelectionRef.current = spans.map(componentTarget);
       applyScrubPreview(result.newSource);
-    } else commitToHost(result.newSource, spans, result.changes);
+    } else commitToHost(result.newSource, spans, result.changes, result.baseRevision);
   };
   const applyWholeTextChange = (changes: WholeTextChange[], preview: boolean) => {
     if (!textBoxFormatting) return;
@@ -2782,7 +2790,7 @@ export function App({
       return {};
     });
     if (!result) return;
-    const ast = parse(result.newSource, '<whole-text-selection>').ast;
+    const ast = result.ast;
     const spans = paths.flatMap(path => {
       const restored = componentByPath(ast, path);
       return restored ? [{ start: restored.span.start.offset, end: restored.span.end.offset }] : [];
@@ -2790,7 +2798,7 @@ export function App({
     if (preview) {
       pendingSelectionRef.current = spans.map(componentTarget);
       applyScrubPreview(result.newSource);
-    } else commitToHost(result.newSource, spans, result.changes);
+    } else commitToHost(result.newSource, spans, result.changes, result.baseRevision);
   };
   const slotInfo: SlotInfo | null = (() => {
     if (!singleTarget || singleTarget.kind !== 'slot') return null;
@@ -3006,8 +3014,8 @@ export function App({
         </div>
         <ResizeHandle axis="x" invert size={propertiesWidth} setSize={setPropertiesWidth} min={PROPERTIES_WIDTH_MIN} max={PROPERTIES_WIDTH_MAX} />
         <aside className="sw-properties-sidebar" aria-label="Element properties" style={{ width: propertiesWidth }}>
-          <GroupingControls selected={selected} shapes={state.shapes} disabled={!!richEditing || !!gestureMeta || !!createPreview || !!marquee || !!toolDrag} onCommit={commitToHost} source={state.source} />
-          <AlignmentControls selected={selected} shapes={state.shapes} disabled={!!richEditing} onCommit={commitToHost} source={state.source} />
+          <GroupingControls selected={selected} shapes={state.shapes} disabled={!!richEditing || !!gestureMeta || !!createPreview || !!marquee || !!toolDrag} onCommit={commitToHost} source={state.source} snapshot={state.snapshot} />
+          <AlignmentControls selected={selected} shapes={state.shapes} disabled={!!richEditing} onCommit={commitToHost} source={state.source} snapshot={state.snapshot} />
           <PropertiesPanel
             componentShape={selectedShape}
             slotInfo={slotInfo}
@@ -3064,6 +3072,7 @@ export function App({
                 result.newSource,
                 preserved.length > 0 ? preserved : undefined,
                 result.changes,
+                result.baseRevision,
               );
             }}
             shapes={state.shapes}

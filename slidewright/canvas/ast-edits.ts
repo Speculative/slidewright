@@ -27,7 +27,8 @@
 // the SVG-arithmetic noise out of React state-management code.
 
 import { SourceEditWriter, sameAuthoredValue } from './source-preserving.js';
-import type { SourceChange } from '../runtime/document.js';
+import { SourceMapping, type DocumentSnapshot, type SourceChange } from '../runtime/document.js';
+import { parseDocument, type ParseWork } from '../runtime/document-parser.js';
 import { parse } from '../runtime/parser.js';
 import { makeComponent, slotFill } from '../runtime/ast-builders.js';
 import type {
@@ -654,8 +655,12 @@ export interface PreserveSelection {
 }
 
 export interface CommitResult {
+  baseRevision?: number;
   changes: SourceChange[];
   newSource: string;
+  // Read-only validation output; it is never an authoritative host document.
+  ast: SourceFile;
+  parsing: { input: ParseWork; output: ParseWork };
   // Each preserved shape's new (start, end). Empty array if the
   // mutate callback did not request preservation.
   // Callers stash this in `pendingSelectionRef` so the host's
@@ -666,7 +671,7 @@ export interface CommitResult {
 
 // Source-mutation pipeline shared by every gesture-commit path
 // (drag, resize, create, delete, text-edit, group operations).
-// The mutate callback receives a freshly parsed AST and either:
+// The mutate callback receives a private mutable AST and either:
 //   - returns `null` to abort the commit (target not found, no
 //     visible change, etc.)
 //   - returns `{}` to commit without selection preservation
@@ -691,8 +696,13 @@ export function commitSourceEdit(
   mutate: (
     ast: SourceFile,
   ) => { preserveSelections?: PreserveSelection[]; selectComponents?: Component[] } | null,
+  snapshot?: DocumentSnapshot,
 ): CommitResult | null {
-  const result = parse(source, label);
+  if (snapshot && snapshot.source !== source) return null;
+  const input: ParseWork = { fullParses: snapshot ? 0 : 1, componentParses: 0,
+    parsedCharacters: snapshot ? 0 : source.length };
+  const result = snapshot ? { ast: structuredClone(snapshot.ast) as SourceFile, diagnostics: snapshot.diagnostics }
+    : parse(source, label);
   if (result.diagnostics.some((d) => d.severity === 'error')) return null;
   const writer = new SourceEditWriter(source, result.ast);
   const outcome = mutate(result.ast);
@@ -704,7 +714,12 @@ export function commitSourceEdit(
     selectedPaths.push(path);
   }
   const { newSource, changes } = writer.write(result.ast);
-  const reparsed = parse(newSource, `${label}-after`);
+  const reparsed = snapshot
+    ? changes.length ? parseDocument(newSource, snapshot.file, snapshot,
+        new SourceMapping(snapshot.revision, snapshot.revision + 1, source.length, changes))
+      : { ast: snapshot.ast as SourceFile, diagnostics: snapshot.diagnostics,
+          parsing: { fullParses: 0, componentParses: 0, parsedCharacters: 0 } }
+    : { ...parse(newSource, `${label}-after`), parsing: { fullParses: 1, componentParses: 0, parsedCharacters: newSource.length } };
   if (reparsed.diagnostics.some(d => d.severity === 'error') || !sameAuthoredValue(result.ast, reparsed.ast)) return null;
   const newSelections: SourceRange[] = [];
   if (outcome.preserveSelections?.length || selectedPaths.length) {
@@ -722,7 +737,7 @@ export function commitSourceEdit(
       if (component) newSelections.push({ start: component.span.start.offset, end: component.span.end.offset });
     }
   }
-  return { newSource, newSelections, changes };
+  return { baseRevision: snapshot?.revision, newSource, newSelections, changes, ast: reparsed.ast, parsing: { input, output: reparsed.parsing } };
 }
 
 // ─── Geometry ────────────────────────────────────────────────────

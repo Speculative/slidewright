@@ -147,10 +147,27 @@ entries and splice only intervening gaps. Stationary slides therefore retain
 occurrence handles through disjoint deletion and reorder. Moved entries receive
 new handles, as with other deletion/insertion transactions.
 
+The helper accepts an optional matching revision snapshot. Snapshot-backed
+commands clone its AST for isolated mutation, then validate source splices through
+the bounded document parser. Source mismatch and invalid input reject the edit;
+no-ops need no output parse. Legacy callers without a snapshot still parse input
+and output in full. The result includes validation work counts, the base revision,
+and the validated output AST for read-only selection recovery. This output is
+ephemeral validation data, never a second authoritative document.
+
 The helper returns base-document change ranges together with recovered source
 selections. Canvas commits forward these ranges and their base revision to the
-host document. It validates the emitted source by reparsing and comparing the
+host document, rejecting stale results before changing source or undo history. It validates the emitted source by reparsing and comparing the
 semantic AST before publishing. A no-op creates no canvas history entry.
+Direct App commands, nudging, alignment and grouping use the shared snapshot.
+Grouping availability also reads that snapshot instead of reparsing during render.
+Text-session startup and post-command selection recovery reuse parsed ASTs.
+`readParserWork()` and `readEmitterWork()` expose cumulative parser character/call
+and root-source emission counts. The browser nudge acceptance test subtracts
+these counters across the complete application path, including command validation,
+publication and UI queries: work stays below 500 parsed UTF-16 code units in 100
+slides, with no root-source emission.
+
 Run `npm run test:source-edits` for raw-source preservation, exact ranges,
 structural identity and seeded sequence-edit coverage. Browser cache tests cover
 canvas nudge/undo and slide insertion/deletion without rebuilding other slides.
@@ -178,11 +195,11 @@ Run `npm run test:editor-changes` and `tests/incremental-editor.spec.ts` for pre
 ranges, retained fields/folds, source selection mapping, feedback suppression,
 history barriers, rapid scoped edits, stale projections and invalid syntax.
 
-Current limitations: command input/output validation still parses the full deck.
-Document publication is bounded for successful component-local edits, while
-top-level structural edits use the full parser. Folding ranges are still lexed across the visible
-source document on edits, even though collapsed fold state now maps incrementally.
-VS Code source messages still need precise range forwarding. Shared parse
-snapshots, bounded authored-owner reparsing, bounded fold-index maintenance and
-VS Code synchronization remain necessary before ordinary edits fully meet the
-parent acceptance criteria.
+Current limitations: legacy command callers such as clipboard operations and
+inspector property materialization still need snapshot integration. Snapshot-backed
+commands avoid full parsing for local edits, but clone and compare the AST in
+full; document publication also walks and relocates the AST. Top-level structural
+edits retain full-parse fallback. Folding ranges are still lexed across the visible
+source document on edits, even though collapsed fold state maps incrementally.
+VS Code source messages still need precise range/version forwarding. These paths
+and the remaining browser audit must be completed before ending the parent goal.

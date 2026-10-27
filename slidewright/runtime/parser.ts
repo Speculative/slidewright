@@ -26,7 +26,17 @@ export interface ParseResult {
   diagnostics: Diagnostic[];
 }
 
+let calls = 0;
+let parsedCharacters = 0;
+// Cumulative work counters support deterministic integration checks. Subtract
+// snapshots to measure an action without resetting another consumer's counters.
+export function readParserWork(): { calls: number; parsedCharacters: number } {
+  return { calls, parsedCharacters };
+}
+
 export function parse(source: string, file: string): ParseResult {
+  calls++;
+  parsedCharacters += source.length;
   const { tokens, diagnostics } = tokenize(source, file);
   const parser = new Parser(tokens, diagnostics, file);
   const ast = parser.parseSourceFile();

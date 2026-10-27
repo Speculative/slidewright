@@ -1,4 +1,4 @@
-import type { SourceChange } from '../runtime/document.js';
+import type { SourceChange, DocumentSnapshot } from '../runtime/document.js';
 import { Group, Ungroup } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { ShapeData } from '../runtime/loader.js';
@@ -8,28 +8,29 @@ import { editGrouping, groupingAvailability } from './grouping.js';
 import { spanKey } from './gesture-context.js';
 import { isLayoutAdapter } from './layout-adapter.js';
 
-export function GroupingControls({ source, selected, shapes, disabled, onCommit }: {
+export function GroupingControls({ source, snapshot, selected, shapes, disabled, onCommit }: {
   source: string;
+  snapshot?: DocumentSnapshot;
   selected: readonly SelectionTarget[];
   shapes: ReadonlyMap<string, ShapeData>;
   disabled: boolean;
-  onCommit(source: string, selections?: SourceRange[], changes?: readonly SourceChange[]): void;
+  onCommit(source: string, selections?: SourceRange[], changes?: readonly SourceChange[], baseRevision?: number): void;
 }) {
   const availability = useMemo(() => {
-    const result = groupingAvailability(source, selected);
+    const result = groupingAvailability(source, selected, snapshot);
     const movable = selected.every(target => {
       const data = target.kind === 'component' && shapes.get(spanKey(target.span));
       return data && data.canvas && !isLayoutAdapter(data.canvas);
     });
     return { group: result.group && movable, ungroup: result.ungroup };
-  }, [source, selected, shapes]);
+  }, [source, selected, shapes, snapshot]);
   const [message, setMessage] = useState('');
   useEffect(() => setMessage(''), [source, selected]);
   function apply(ungroup: boolean) {
     if (disabled || !(ungroup ? availability.ungroup : availability.group)) return;
-    const result = editGrouping(source, selected, shapes, ungroup);
+    const result = editGrouping(source, selected, shapes, ungroup, snapshot);
     if (!result) { setMessage('Grouping requires directly editable positions on freely positioned siblings.'); return; }
-    onCommit(result.newSource, result.newSelections, result.changes);
+    onCommit(result.newSource, result.newSelections, result.changes, result.baseRevision);
   }
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {

@@ -57,7 +57,11 @@ function emitTrailingComments(
   return comments.map((c) => emitCommentLine(c, level)).join('\n') + '\n';
 }
 
+let sourceEmits = 0;
+export function readEmitterWork(): { sourceEmits: number } { return { sourceEmits }; }
+
 export function emit(file: SourceFile): string {
+  sourceEmits++;
   const parts: string[] = [];
   if (file.items.length === 0) {
     // Edge case: comment-only file. Emit comments and nothing else.

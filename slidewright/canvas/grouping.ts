@@ -1,3 +1,4 @@
+import type { DocumentSnapshot } from '../runtime/document.js';
 import { measureLayoutSnapshot } from './layout-measurement.js';
 import type { Component, SourceFile, Value } from '../runtime/ast.js';
 import type { ShapeData } from '../runtime/loader.js';
@@ -54,7 +55,7 @@ function translate(node: Component, shapes: ReadonlyMap<string, ShapeData>, dx: 
   return !!actual && Math.abs(actual.left - bounds.left - dx) < 0.001 && Math.abs(actual.top - bounds.top - dy) < 0.001;
 }
 
-export function editGrouping(source: string, selected: readonly SelectionTarget[], shapes: ReadonlyMap<string, ShapeData>, ungroup = false) {
+export function editGrouping(source: string, selected: readonly SelectionTarget[], shapes: ReadonlyMap<string, ShapeData>, ungroup = false, snapshot?: DocumentSnapshot) {
   return commitSourceEdit(source, '<grouping>', ast => {
     if (!selected.length || selected.some(target => target.kind !== 'component')) return null;
     const nodes = selected.flatMap(target => {
@@ -113,11 +114,12 @@ export function editGrouping(source: string, selected: readonly SelectionTarget[
       else if (item?.kind === 'component' && members.includes(item)) items.splice(i, 1);
     }
     return { selectComponents: [group] };
-  });
+  }, snapshot);
 }
 
-export function groupingAvailability(source: string, selected: readonly SelectionTarget[]) {
-  const ast = parse(source, '<grouping-availability>').ast;
+export function groupingAvailability(source: string, selected: readonly SelectionTarget[], snapshot?: DocumentSnapshot) {
+  if (snapshot && snapshot.source !== source) return { group: false, ungroup: false };
+  const ast = snapshot?.ast as SourceFile ?? parse(source, '<grouping-availability>').ast;
   const nodes = selected.flatMap(target => {
     if (target.kind !== 'component') return [];
     const node = findComponentAtSpan(ast, target.span.start, target.span.end);

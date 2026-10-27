@@ -1,3 +1,4 @@
+import type { DocumentSnapshot } from '../runtime/document.js';
 import type { ShapeData } from '../runtime/loader.js';
 import { numberLit, slotFill } from '../runtime/ast-builders.js';
 import { commitSourceEdit, componentByPath, findComponentAtSpan, pathToComponent } from './ast-edits.js';
@@ -6,7 +7,7 @@ import { isLayoutAdapter } from './layout-adapter.js';
 import type { SelectionTarget } from './selection-target.js';
 import type { ShapeAdapter } from './shape-adapter.js';
 
-export function nudgeSelection(source: string, selected: readonly SelectionTarget[], shapes: ReadonlyMap<string, ShapeData>, dx: number, dy: number) {
+export function nudgeSelection(source: string, selected: readonly SelectionTarget[], shapes: ReadonlyMap<string, ShapeData>, dx: number, dy: number, snapshot?: DocumentSnapshot) {
   return commitSourceEdit(source, '<nudge>', ast => {
     if (!selected.length) return null;
     const selectComponents = [];
@@ -45,5 +46,5 @@ export function nudgeSelection(source: string, selected: readonly SelectionTarge
       selectComponents.push(node);
     }
     return { selectComponents };
-  });
+  }, snapshot);
 }
