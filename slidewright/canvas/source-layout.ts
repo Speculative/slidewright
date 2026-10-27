@@ -1,7 +1,7 @@
 // Presentation-only source layout: keep authored text and offsets intact.
-import { StateField, countColumn, type Extension, type Text } from '@codemirror/state';
+import { countColumn, type Extension } from '@codemirror/state';
 import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate } from '@codemirror/view';
-import { foldService } from '@codemirror/language';
+export { sourceFolding, readSourceFoldingWork } from './source-folding.js';
 import { tokenize, type Token } from '../runtime/lexer.js';
 
 interface FoldRange { from: number; to: number }
@@ -27,26 +27,6 @@ export function sourceFoldRanges(source: string): FoldRange[] {
   }
   return ranges.sort((a, b) => a.from - b.from);
 }
-
-function foldIndex(doc: Text): Map<number, FoldRange> {
-  const index = new Map<number, FoldRange>();
-  for (const range of sourceFoldRanges(doc.toString())) {
-    const line = doc.lineAt(range.from).from;
-    // Where multiple structures start on one line, collapse the outer one.
-    if (!index.has(line)) index.set(line, range);
-  }
-  return index;
-}
-
-const folds = StateField.define<Map<number, FoldRange>>({
-  create: (state) => foldIndex(state.doc),
-  update: (value, transaction) => transaction.docChanged ? foldIndex(transaction.newDoc) : value,
-});
-
-export const sourceFolding: Extension = [
-  folds,
-  foldService.of((state, lineStart) => state.field(folds).get(lineStart) ?? null),
-];
 
 export function continuationColumns(text: string, tabSize: number, source: boolean): number {
   const whitespace = /^[ \t]*/.exec(text)![0];

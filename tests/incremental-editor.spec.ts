@@ -192,3 +192,44 @@ test('an explicit equal-source replacement is still an editor history barrier', 
   await page.keyboard.press('ControlOrMeta+Z');
   expect(await getEditorSource(page)).toBe(original + ' ');
 });
+
+test('folding lexes only local windows for disjoint edits in a large source document', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=two-slides');
+  const source = `Deck {\n slides: [\n${Array.from({ length: 100 }, (_, i) =>
+    `Slide {\n label: "slide-${i}"\n content: Box {\n x: ${i}\n }\n}`).join('\n')}\n ]\n}`;
+  await setHostSource(page, source);
+  await expect.poll(() => getEditorSource(page)).toBe(source);
+  const result = await page.evaluate(async source => {
+    const { EditorView, foldEffect, foldedRanges, foldable } = await import('/tests/editor-harness.ts');
+    const { readSourceFoldingWork, sourceFoldRanges } = await import('/slidewright/canvas/source-layout.ts');
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor')!)!;
+    const retained = source.indexOf('Slide {', source.indexOf('slide-98')) + 'Slide {'.length;
+    const close = source.indexOf('\n}', retained);
+    view.dispatch({ effects: foldEffect.of({ from: retained, to: close }) });
+    const before = readSourceFoldingWork();
+    const changes = ['slide-0', 'slide-50'].map(value => ({ from: source.indexOf(value),
+      to: source.indexOf(value) + value.length, insert: value + ' longer 🌍' }));
+    view.dispatch({ changes });
+    const after = readSourceFoldingWork();
+    const folded: { from: number; to: number }[] = [];
+    foldedRanges(view.state).between(0, view.state.doc.length, (from, to) => folded.push({ from, to }));
+    const current = view.state.doc.toString();
+    const expected = new Map<number, { from: number; to: number }>();
+    for (const range of sourceFoldRanges(current)) {
+      const line = view.state.doc.lineAt(range.from).from;
+      if (!expected.has(line)) expected.set(line, range);
+    }
+    const actual = Array.from({ length: view.state.doc.lines }, (_, i) => {
+      const line = view.state.doc.line(i + 1);
+      return foldable(view.state, line.from, line.to);
+    });
+    const desired = Array.from({ length: view.state.doc.lines }, (_, i) => expected.get(view.state.doc.line(i + 1).from) ?? null);
+    return { chars: after.lexedCharacters - before.lexedCharacters,
+      rebuilds: after.structureRebuilds - before.structureRebuilds, actual, desired, folded,
+      expectedFold: { from: retained + 20, to: close + 20 } };
+  }, source);
+  expect(result.chars).toBeLessThan(500);
+  expect(result.rebuilds).toBe(0);
+  expect(result.actual).toEqual(result.desired);
+  expect(result.folded).toEqual([result.expectedFold]);
+});

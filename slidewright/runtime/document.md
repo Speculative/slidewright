@@ -221,9 +221,21 @@ Run `npm run test:editor-changes` and `tests/incremental-editor.spec.ts` for pre
 ranges, retained fields/folds, source selection mapping, feedback suppression,
 history barriers, rapid scoped edits, stale projections and invalid syntax.
 
+Folding retains lexer tokens and matched bracket pairs in CodeMirror state.
+Each changed range re-lexes from a prior token boundary and expands until two
+unchanged suffix tokens agree, or EOF is reached. Disjoint changes repair
+independent windows. Token mergers, changed string/comment delimiters and invalid
+intermediate text use the same DSL lexer; they may conservatively scan a longer
+suffix. Scalar and whitespace changes map existing pairs, including single-line
+pairs that may become foldable after a newline edit. Changed bracket structure
+rebuilds pairs from cached tokens. Position mapping and the line lookup still
+walk cached entries; this does not yet bound all folding work independently of
+deck size. `readSourceFoldingWork()` reports lexical work and structure rebuilds.
+`npm run test:source-folding` checks bounded lexical work in 1,000 slides and
+compares folds with full lexing across delimiter edits and seeded invalid-source
+sequences. Browser tests cover mapped collapsed folds and bounded lexical work.
+
 Current limitations: snapshot-backed commands avoid full parsing for local edits, but clone and compare the AST in
 full; document publication also walks and relocates the AST. Top-level structural
-edits retain full-parse fallback. Folding ranges are still lexed across the visible
-source document on edits, even though collapsed fold state maps incrementally.
-VS Code source messages still need precise range/version forwarding. These paths
+edits retain full-parse fallback. VS Code source messages still need precise range/version forwarding. These paths
 and the remaining browser audit must be completed before ending the parent goal.
