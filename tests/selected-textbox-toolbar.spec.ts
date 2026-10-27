@@ -13,7 +13,11 @@ test('selected TextBox toolbar formats every run and list item without entering 
   const box = stage.locator('[data-sw-component="TextBox"]').first();
   const bounds = await box.locator('[data-sw-textbox-content]').boundingBox();
   const floating = await toolbar.boundingBox();
-  expect(floating!.y + floating!.height).toBeLessThan(bounds!.y);
+  // Above when space permits, otherwise below; neither placement covers text.
+  expect(floating!.y + floating!.height < bounds!.y || floating!.y > bounds!.y + bounds!.height).toBe(true);
+  const column = (await stage.boundingBox())!;
+  expect(floating!.x).toBeGreaterThanOrEqual(column.x);
+  expect(floating!.x + floating!.width).toBeLessThanOrEqual(column.x + column.width);
   await toolbar.getByLabel('Font size', { exact: true }).fill('36');
   await page.keyboard.press('Enter');
   await expect(toolbar).toBeVisible();
@@ -202,4 +206,29 @@ test('range presets preserve surrounding text, undo atomically, cancel and commi
   expect(source).toContain('"o"');
   await page.keyboard.press('ControlOrMeta+Z');
   await expect.poll(() => getEditorSource(page)).toBe(before);
+});
+
+test('floating controls stay within the canvas column after window and dock resizing', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-textbox');
+  const before = await getEditorSource(page);
+  const stage = page.locator('.sw-canvas-stage');
+  await stage.getByText('Hello', { exact: true }).click();
+  const toolbar = page.getByRole('toolbar', { name: 'TextBox formatting', exact: true });
+  const contained = async () => {
+    const control = (await toolbar.boundingBox())!;
+    const column = (await stage.boundingBox())!;
+    return control.x >= column.x + 7 && control.x + control.width <= column.x + column.width - 7;
+  };
+  await expect.poll(contained).toBe(true);
+  const divider = (await page.getByRole('separator', { name: 'Resize slide strip', exact: true }).first().boundingBox())!;
+  await page.mouse.move(divider.x + divider.width / 2, divider.y + divider.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(divider.x + 100, divider.y + divider.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(contained).toBe(true);
+  for (const width of [900, 1440]) {
+    await page.setViewportSize({ width, height: 800 });
+    await expect.poll(contained).toBe(true);
+  }
+  expect(await getEditorSource(page)).toBe(before);
 });
