@@ -336,3 +336,23 @@ for (const command of ['clipboard', 'inspector'] as const) {
     await expect(metrics(page)).toHaveAttribute('data-sw-reused-slides', '99');
   });
 }
+
+test('length-changing geometry commits retain resize handles in the same portal', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-textbox');
+  const before = deck(3).replace('TextBox { x: 200 y: 300 width: 500 height: 100 content: "content-0" }', 'Box { x: 100 y: 80 width: 200 height: 100 }');
+  await setHostSource(page, before);
+  const body = page.locator('.sw-canvas-stage [data-sw-component="Box"] > div');
+  const rect = (await body.boundingBox())!;
+  const canvas = (await page.locator('.sw-canvas-stage .presentation-canvas').boundingBox())!;
+  const scale = canvas.width / 1920;
+  await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
+  await page.mouse.down();
+  await settle(page);
+  await page.mouse.move(rect.x + rect.width / 2 + 40 * scale, rect.y + rect.height / 2 + 20 * scale, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(() => getEditorSource(page)).toBe(before.replace('x: 100 y: 80', 'x: 140 y: 100'));
+  await expect(page.locator('.sw-selection-outline')).toBeVisible();
+  await expect(page.locator('.sw-resize-ne')).toBeVisible();
+  await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '1');
+  await expect(metrics(page)).toHaveAttribute('data-sw-reused-slides', '2');
+});

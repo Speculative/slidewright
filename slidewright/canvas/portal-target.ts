@@ -24,7 +24,7 @@
 // spanning contexts use the slide canvas, with bounds converted by the
 // selection layer before combining them.
 
-import { useEffect, useState } from 'react';
+import { useLayoutEffect, useState } from 'react';
 
 import type { SourceRange } from './host.js';
 
@@ -55,31 +55,36 @@ export function useSelectionPortal(
 ): HTMLElement | null {
   const targets = !spans ? [] : 'start' in spans ? [spans] : spans;
   const targetsKey = targets.map(span => `${span.start}-${span.end}`).join(',');
-  const [el, setEl] = useState<HTMLElement | null>(null);
-  useEffect(() => {
+  const [state, setState] = useState<{ el: HTMLElement | null; key: string; wrappers: (Element | null)[] }>({ el: null, key: '', wrappers: [] });
+  useLayoutEffect(() => {
     if (!targets.length) {
-      setEl(null);
+      setState(prior => prior.el === null && prior.key === '' ? prior : { el: null, key: '', wrappers: [] });
       return;
     }
     // The selection's span lives on either a component wrapper
     // (`data-sw-span-*`) or a slot wrapper (`data-sw-slot-span-*`).
     // Try both — whichever matches gives a wrapper to walk up
     // from for the portal-ancestor lookup.
-    const portals = targets.map(span => {
-      const wrapper =
+    const wrappers = targets.map(span =>
         document.querySelector(
           `.sw-canvas-stage [data-sw-span-start="${span.start}"][data-sw-span-end="${span.end}"]`,
         ) ??
         document.querySelector(
           `.sw-canvas-stage [data-sw-slot-span-start="${span.start}"][data-sw-slot-span-end="${span.end}"]`,
-        );
-      return wrapper ? findPortalAncestor(wrapper) : null;
-    });
+        ));
+    const portals = wrappers.map(wrapper => wrapper ? findPortalAncestor(wrapper) : null);
     const first = portals[0];
     const canvas = document.querySelector('.sw-canvas-stage .presentation-canvas');
-    setEl(portals.every(portal => portal === first)
+    const el = portals.every(portal => portal === first)
       ? first ?? null
-      : canvas instanceof HTMLElement ? canvas : null);
-  }, [targetsKey]);
-  return el;
+      : canvas instanceof HTMLElement ? canvas : null;
+    // A mapped span can change while the positioned portal stays identical.
+    // Publish that lookup after DOM commit so consumers retry source-marker
+    // reads they performed against the preceding revision. Also detect replaced
+    // wrappers/portals when registry or source changes retain the same offsets.
+    setState(prior => prior.el === el && prior.key === targetsKey &&
+      prior.wrappers.length === wrappers.length && prior.wrappers.every((wrapper, i) => wrapper === wrappers[i])
+      ? prior : { el, key: targetsKey, wrappers });
+  });
+  return state.el;
 }
