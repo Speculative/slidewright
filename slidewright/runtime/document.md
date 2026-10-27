@@ -172,6 +172,26 @@ Run `npm run test:source-edits` for raw-source preservation, exact ranges,
 structural identity and seeded sequence-edit coverage. Browser cache tests cover
 canvas nudge/undo and slide insertion/deletion without rebuilding other slides.
 
+## Canvas history ranges
+
+Canvas history still stores source snapshots and active-slide destinations. Each
+entry also stores its expected current source and precise inverse changes, in
+that source's UTF-16 coordinates. Undo/redo verify this expectation and publish
+those changes with the current document revision. The opposite history entry is
+created by inverting the same changes, preserving disjoint ranges through repeated
+cycles. Adjacent inverse ranges coalesce so adjacent deletions cannot produce
+ambiguous insertions at one position. Source snapshots remain authoritative;
+ranges must reproduce them exactly before an entry can be stored.
+
+Legacy callers and scrub history without explicit ranges derive a verified
+common-prefix/suffix splice. Existing external-edit barriers and slide navigation
+semantics remain intact. An asynchronous host still applying the previous request
+does not pop an entry whose expected source is not yet authoritative.
+`npm run test:source-history` covers inversion, immutable entries, invalid ranges,
+UTF-16/trivia round-trips and seeded edit cycles. Browser cache tests assert
+stationary occurrence/thumbnail retention and deterministic resolution counts
+through disjoint slide deletion and reorder undo/redo.
+
 ## Incremental standalone source synchronization
 
 The standalone source pane publishes CodeMirror changes in global UTF-16 source

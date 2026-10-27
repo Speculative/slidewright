@@ -34,6 +34,7 @@ import {
 } from '../runtime/loader.js';
 import { DeckDocument, type DocumentUpdate, type SourceChange, type DocumentSnapshot } from '../runtime/document.js';
 import { mapSelectionTargets } from './selection-mapping.js';
+import { sourceUndoEntry, type SourceUndoEntry as UndoEntry } from './source-history.js';
 import { numberLit, stringLit, booleanLit, nameRef, paragraphDocument } from '../runtime/ast-builders.js';
 import type { Value } from '../runtime/ast.js';
 import type { Diagnostic } from '../runtime/diagnostics.js';
@@ -283,10 +284,6 @@ const ZERO_LIVE: GestureLive = { dx: 0, dy: 0 };
 // Each commit captures the pre-commit source plus the slide the
 // commit was made on. On pop, the active slide is restored alongside
 // the source so the user sees the change being applied/reverted.
-interface UndoEntry {
-  source: string;
-  slideIdx: number;
-}
 
 // ─── Tool-drag gesture (drag from toolbar onto a slot) ────────────
 //
@@ -1012,10 +1009,7 @@ export function App({
         if (newSelections?.length) setSelected(newSelections.map(componentTarget));
         return;
       }
-      undoStackRef.current.push({
-        source: sourceRef.current,
-        slideIdx: activeIdxRef.current,
-      });
+      undoStackRef.current.push(sourceUndoEntry(sourceRef.current, newSource, activeIdxRef.current, changes));
       redoStackRef.current = [];
       internalSourceChangeRef.current = true;
       if (newSelections && newSelections.length > 0) {
@@ -1158,10 +1152,7 @@ export function App({
         return;
       }
       // Real change. One undo entry for the whole drag.
-      undoStackRef.current.push({
-        source: pre,
-        slideIdx: activeIdxRef.current,
-      });
+      undoStackRef.current.push(sourceUndoEntry(pre, final, activeIdxRef.current));
       redoStackRef.current = [];
       internalSourceChangeRef.current = true;
       pendingSelectionRef.current = selectedRef.current;
@@ -2416,31 +2407,22 @@ export function App({
         // owned undo is the single source of truth from this
         // handler's perspective.
         e.preventDefault();
-        if (e.shiftKey) {
-          const entry = redoStackRef.current.pop();
-          if (entry === undefined) return;
-          undoStackRef.current.push({
-            source: sourceRef.current,
-            slideIdx: activeIdxRef.current,
-          });
-          internalSourceChangeRef.current = true;
-          if (entry.slideIdx !== activeIdxRef.current) {
-            setActiveIdx(entry.slideIdx);
-          }
-          host.setSource?.(entry.source);
-          return;
-        }
-        const entry = undoStackRef.current.pop();
-        if (entry === undefined) return;
-        redoStackRef.current.push({
-          source: sourceRef.current,
-          slideIdx: activeIdxRef.current,
-        });
+        const from = e.shiftKey ? redoStackRef.current : undoStackRef.current;
+        const to = e.shiftKey ? undoStackRef.current : redoStackRef.current;
+        const entry = from.at(-1);
+        // An asynchronous host may still be applying the preceding history
+        // request. Leave this entry intact until its source is authoritative.
+        if (!entry || entry.fromSource !== sourceRef.current) return;
+        const reverse = sourceUndoEntry(sourceRef.current, entry.source, activeIdxRef.current, entry.changes);
+        from.pop();
+        to.push(reverse);
         internalSourceChangeRef.current = true;
         if (entry.slideIdx !== activeIdxRef.current) {
+          activeIdxRef.current = entry.slideIdx;
           setActiveIdx(entry.slideIdx);
         }
-        host.setSource?.(entry.source);
+        host.setSource?.(entry.source, { changes: entry.changes, origin: e.shiftKey ? 'canvas-redo' : 'canvas-undo',
+          baseRevision: host.document?.snapshot.revision });
         return;
       }
 

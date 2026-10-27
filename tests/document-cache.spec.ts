@@ -208,3 +208,91 @@ test('a canvas nudge avoids full-deck parsing and emission across the entire app
   await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '1');
   await expect(metrics(page)).toHaveAttribute('data-sw-reused-slides', '99');
 });
+
+test('disjoint slide deletion undo and redo retain stationary handles, thumbnail DOM and cached resolution', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-textbox');
+  const before = deck(8);
+  await setHostSource(page, before);
+  await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '8');
+  await page.evaluate(() => {
+    const doc = (window as any).__slidewrightHost.document;
+    const slides = doc.snapshot.occurrences.filter((o: any) => o.component.name === 'Slide');
+    const nodes = document.querySelectorAll('.sw-thumb-slot [data-sw-textbox-content]');
+    (window as any).historyRetained = [1, 7].map(i => ({ handle: slides[i].handle, node: nodes[i] }));
+  });
+  await page.locator('.sw-thumb').nth(0).click();
+  await page.locator('.sw-thumb').nth(2).click({ modifiers: ['ControlOrMeta'] });
+  await page.keyboard.press('Delete');
+  await expect(page.locator('.sw-thumb')).toHaveCount(6);
+  const deleted = await getEditorSource(page);
+  const retained = () => page.evaluate(() => {
+    const doc = (window as any).__slidewrightHost.document;
+    const nodes = Array.from(document.querySelectorAll('.sw-thumb-slot [data-sw-textbox-content]'));
+    return (window as any).historyRetained.every(({ handle, node }: any) => {
+      const current = doc.occurrence(handle);
+      const span = current && doc.locate(handle, { start: 0, end: 5 });
+      return current && nodes.includes(node) && doc.snapshot.source.slice(span.start.offset, span.end.offset) === 'Slide';
+    });
+  });
+  await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '0');
+  await expect.poll(retained).toBe(true);
+  for (let i = 0; i < 3; i++) {
+    await page.keyboard.press('ControlOrMeta+Z');
+    await expect.poll(() => getEditorSource(page)).toBe(before);
+    await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '2');
+    await expect(metrics(page)).toHaveAttribute('data-sw-reused-slides', '6');
+    await expect.poll(retained).toBe(true);
+    await page.keyboard.press('ControlOrMeta+Shift+Z');
+    await expect.poll(() => getEditorSource(page)).toBe(deleted);
+    await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '0');
+    await expect(metrics(page)).toHaveAttribute('data-sw-reused-slides', '6');
+    await expect.poll(retained).toBe(true);
+  }
+});
+
+test('slide reorder undo and redo preserve stationary source targets and thumbnail identity', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-textbox');
+  const before = deck(4);
+  await setHostSource(page, before);
+  await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '4');
+  await page.evaluate(() => {
+    const doc = (window as any).__slidewrightHost.document;
+    const slides = doc.snapshot.occurrences.filter((o: any) => o.component.name === 'Slide');
+    const nodes = document.querySelectorAll('.sw-thumb-slot [data-sw-textbox-content]');
+    (window as any).reorderRetained = [1, 3].map(i => ({ handle: slides[i].handle, node: nodes[i] }));
+  });
+  const thumb = (await page.locator('.sw-thumb').nth(0).boundingBox())!;
+  const target = (await page.locator('.sw-thumb').nth(2).boundingBox())!;
+  await page.mouse.move(thumb.x + thumb.width / 2, thumb.y + thumb.height / 2);
+  await page.mouse.down();
+  await settle(page);
+  await page.mouse.move(thumb.x + thumb.width / 2 + 8, thumb.y + thumb.height / 2 + 8);
+  await settle(page);
+  await page.mouse.move(target.x + target.width / 2, target.y + target.height - 2, { steps: 10 });
+  await settle(page);
+  await page.mouse.up();
+  await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '1');
+  const after = await getEditorSource(page);
+  expect(after.indexOf('label: "slide-0"')).toBeGreaterThan(after.indexOf('label: "slide-2"'));
+  const retained = () => page.evaluate(() => {
+    const doc = (window as any).__slidewrightHost.document;
+    const nodes = Array.from(document.querySelectorAll('.sw-thumb-slot [data-sw-textbox-content]'));
+    return (window as any).reorderRetained.every(({ handle, node }: any) => {
+      const current = doc.occurrence(handle);
+      return current && nodes.includes(node) && doc.snapshot.source.slice(current.range.start, current.range.end).startsWith('Slide {');
+    });
+  });
+  await expect.poll(retained).toBe(true);
+  for (let i = 0; i < 2; i++) {
+    await page.keyboard.press('ControlOrMeta+Z');
+    await expect.poll(() => getEditorSource(page)).toBe(before);
+    await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '1');
+    await expect(metrics(page)).toHaveAttribute('data-sw-reused-slides', '3');
+    await expect.poll(retained).toBe(true);
+    await page.keyboard.press('ControlOrMeta+Shift+Z');
+    await expect.poll(() => getEditorSource(page)).toBe(after);
+    await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '1');
+    await expect(metrics(page)).toHaveAttribute('data-sw-reused-slides', '3');
+    await expect.poll(retained).toBe(true);
+  }
+});
