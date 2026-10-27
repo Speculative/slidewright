@@ -169,12 +169,33 @@ the intended edited structure. Canonical formatting may change whitespace.
 Comments, references, and unaffected authored structure remain meaningful parts
 of the document.
 
-The [source-edit pipeline](slidewright/canvas/ast-edits.ts) parses authoritative
-source, applies a bounded AST mutation, and emits source. Mutation failure aborts
-the edit. Post-edit selection ranges come from reparsing the new source, not
-reusing old offsets. Emitted edits must satisfy the round-trip invariant and
-intended component contracts; literal splices have the same source-authority
-requirements.
+The [source-edit pipeline](slidewright/canvas/ast-edits.ts) mutates a clone of the
+matching document snapshot and emits exact source splices, preserving untouched
+authored text. It validates the result by reparsing complete authored owners,
+with a full-parser fallback for unsafe boundaries or invalid intermediate syntax.
+Mutation failure or a stale base revision aborts the edit. Post-edit selection
+ranges come from the validated new AST; emitted edits must satisfy round-trip
+invariants and intended component contracts.
+
+### Revisioned documents
+
+Interactive hosts share a `DeckDocument` containing authoritative source,
+revisioned AST/diagnostic snapshots, and session-local occurrence handles.
+Transactions carry a base revision, origin, UTF-16 change ranges and affected
+owners. Cached results belong to that revision. `DeckResolver` retains unaffected
+slide results and relocates source markers/diagnostics; shared tokens, assets and
+registry changes invalidate conservatively. `loadDeck` remains the one-shot
+CLI/SSR adapter. Chapter/order frames are separate from retained slide content.
+
+CodeMirror receives mapped changes rather than replacing its state on ordinary
+updates. Its folding index repairs lexical windows with the real DSL lexer.
+External history barriers remain explicit. VS Code queues local writes against
+confirmed native document versions, checks ranges before applying them, and
+restores native authority on rejection or competing edits. Selection messages
+also carry versions so stale offsets cannot target newer source.
+
+The [document contract](slidewright/runtime/document.md) describes handle
+lifecycles, parsing boundaries, invalidation, synchronization and acceptance tests.
 
 ### Rendered-tree to AST mapping
 
@@ -190,8 +211,10 @@ TextBox's text editor rather than becoming separate canvas drill targets.
 ### IDs in source
 
 Source spans identify occurrences in a particular source snapshot; they are not
-stable IDs across emission. Edits must recover selection ranges from the new AST
-using retained structural identity or paths. They must respect a user's new or
+stable IDs across emission. Session-local occurrence handles survive mapped edits
+to retained components, and retire on deletion or explicit replacement. They do
+not require IDs in the DSL. Edits recover selection ranges from mapped handles
+or the validated new AST. They must respect a user's new or
 empty canvas selection rather than restoring an abandoned target.
 
 The language does not require or auto-insert a persistent ID on every primitive.

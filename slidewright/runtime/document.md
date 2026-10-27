@@ -267,5 +267,6 @@ is typechecked/bundled separately; these tests do not launch a VS Code process.
 
 Current limitations: snapshot-backed commands avoid full parsing for local edits,
 but clone and compare the AST in full; document publication also walks and
-relocates the AST. Top-level structural edits retain full-parse fallback. The
-remaining browser audit must be completed before ending the parent goal.
+relocates the AST. Top-level structural edits retain full-parse fallback. These walks remain linear
+in document size; ordinary component edits localize parsing, resolution and
+content rendering.
