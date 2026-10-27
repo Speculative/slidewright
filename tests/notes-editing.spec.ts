@@ -89,7 +89,7 @@ for (const placement of ['before-content', 'last-field', 'missing'] as const) {
     await page.locator('[data-editor-mode="notes"]').click();
     const saved = await page.evaluate(async ({ placement, original }) => {
       // Exercise two edits before React can refresh the source projection.
-      const { EditorView } = await import('/node_modules/@codemirror/view/dist/index.js');
+      const { EditorView } = await import('/tests/editor-harness.ts');
       const view = EditorView.findFromDOM(document.querySelector('.cm-editor')!)!;
       if (placement === 'missing') {
         view.dispatch({ changes: { from: 0, insert: original } });
@@ -134,7 +134,7 @@ test('an edit before React reconciles an external replacement cannot overwrite i
   const replacement = baseline.replace('notes: ""', 'notes: "External notes"');
   await page.locator('[data-editor-mode="notes"]').click();
   const saved = await page.evaluate(async (replacement) => {
-    const { EditorView } = await import('/node_modules/@codemirror/view/dist/index.js');
+    const { EditorView } = await import('/tests/editor-harness.ts');
     const view = EditorView.findFromDOM(document.querySelector('.cm-editor')!)!;
     const host = (window as any).__slidewrightHost;
     host.setSource(replacement);

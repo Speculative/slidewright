@@ -7,13 +7,16 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
-import { basicSetup, EditorView } from 'codemirror';
-import { keymap } from '@codemirror/view';
+import { EditorView, keymap } from '@codemirror/view';
 import {
+  Compartment,
   EditorSelection,
   EditorState,
   type Extension,
 } from '@codemirror/state';
+import { sourceEditorSetup, hostSourceSync, hostSourceTransactions } from './source-editor.js';
+import { projectedSourceChanges } from './editor-changes.js';
+import { sourceChanges, type DocumentUpdate, type SourceChange } from '../runtime/document.js';
 import { sourceFolding, hangingWrap } from './source-layout.js';
 import { tokenize } from '../runtime/lexer.js';
 import { indentWithTab } from '@codemirror/commands';
@@ -227,6 +230,8 @@ export function EditorPane({
     globalEnd: 0,
     notes: null,
   });
+  const undoRef = useRef(new Compartment());
+  const hostUpdateRef = useRef<DocumentUpdate | undefined>(undefined);
   const extensionsRef = useRef<(mode: EditorMode) => Extension[]>(() => []);
   const pendingSelectionRef = useRef<SourceRange | null>(null);
   const pendingNotesRef = useRef<{
@@ -251,7 +256,8 @@ export function EditorPane({
     // React has delivered the updated AST projection back to this pane.
     documentProjectionRef.current = edit.projection;
     sourceRef.current = edit.source;
-    host.setSource(edit.source);
+    host.setSource(edit.source, { changes: sourceChanges(pending.projection.source, edit.source),
+      origin: 'source-editor', baseRevision: host.document?.snapshot.revision });
   };
 
   projectionRef.current = projection;
@@ -273,18 +279,19 @@ export function EditorPane({
   // Track source authority synchronously; source-backed projections from
   // the canvas carry their own matching source snapshot.
   useEffect(() => {
-    return host.subscribe(({ source }) => {
+    return host.subscribe(({ source, documentUpdate }) => {
+      if (source !== sourceRef.current || documentUpdate?.replacement) hostUpdateRef.current = documentUpdate;
       // A replacement from outside this editor wins over any pending draft.
       // Our own flush clears the draft before notifying the host.
-      if (source !== sourceRef.current) cancelPendingNotes();
+      if (source !== sourceRef.current || documentUpdate?.replacement) cancelPendingNotes();
       sourceRef.current = source;
       if (modeRef.current === 'deck') setDisplayedSource(source);
     });
   }, [host]);
 
   // Create one EditorView for the lifetime of this pane. Host updates use
-  // setState below so an external replacement becomes a clean history
-  // barrier rather than a synthetic user edit.
+  // mapped transactions below; the history compartment alone is reset
+  // for incoming source edits so the existing history barrier survives.
   useEffect(() => {
     const parent = containerRef.current;
     if (!parent) return undefined;
@@ -296,7 +303,7 @@ export function EditorPane({
     );
     documentProjectionRef.current = initial;
     extensionsRef.current = (mode) => [
-      basicSetup,
+      sourceEditorSetup(undoRef.current),
       EditorView.lineWrapping,
       hangingWrap(mode !== 'notes'),
       ...(mode === 'notes' ? [] : [
@@ -310,7 +317,11 @@ export function EditorPane({
         blur: () => { flushNotesRef.current(); },
       }),
       EditorView.updateListener.of((update) => {
+        if (update.transactions.some(transaction => transaction.annotation(hostSourceSync))) return;
         const viewProjection = documentProjectionRef.current;
+        // Host authority can advance before React reconciles this view. Never
+        // publish an edit or caret using a projection from that older source.
+        if (viewProjection.source !== sourceRef.current) return;
         const main = update.state.selection.main;
         const nextSelection = {
           start: main.from,
@@ -319,7 +330,7 @@ export function EditorPane({
         const globalSelection = localToGlobal(nextSelection, viewProjection);
         if (update.selectionSet || update.docChanged) {
           setSelection(globalSelection);
-          host.setCursor?.(globalSelection.start);
+          if (!update.docChanged) host.setCursor?.(globalSelection.start);
         }
 
         if (!update.docChanged || host.setSource == null) return;
@@ -338,11 +349,18 @@ export function EditorPane({
           sourceRef.current,
           viewProjection,
         );
+        const changes: SourceChange[] = [];
+        update.changes.iterChanges((from, to, _newFrom, _newTo, inserted) => {
+          changes.push({ start: viewProjection.globalStart + from, end: viewProjection.globalStart + to, insert: inserted.toString() });
+        });
+        documentProjectionRef.current = { ...viewProjection, source: nextSource, text: nextDocument,
+          globalEnd: viewProjection.globalEnd + nextDocument.length - update.startState.doc.length };
         sourceRef.current = nextSource;
         setDisplayedSource(
           viewProjection.mode === 'deck' ? nextSource : nextDocument,
         );
-        host.setSource(nextSource);
+        host.setSource(nextSource, { changes, origin: 'source-editor', baseRevision: host.document?.snapshot.revision });
+        host.setCursor?.(globalSelection.start);
       }),
     ];
 
@@ -379,7 +397,7 @@ export function EditorPane({
 
   // Host source, active slide, or projection mode changed. Reconcile the
   // visible document while retaining the full source in sourceRef. A
-  // host-driven replacement resets CodeMirror history, which is the
+  // host-driven edit resets CodeMirror history, which is the
   // editor-side equivalent of the canvas's external-edit barrier.
   useEffect(() => {
     const next = currentDocumentProjection;
@@ -389,22 +407,27 @@ export function EditorPane({
     if (pendingNotesRef.current && next.mode === 'notes' &&
         next.globalStart === pendingNotesRef.current.projection.globalStart) return;
     flushNotesRef.current();
-    const previousMode = documentProjectionRef.current.mode;
+    const previous = documentProjectionRef.current;
+    const update = hostUpdateRef.current;
+    hostUpdateRef.current = undefined;
     documentProjectionRef.current = next;
     const view = viewRef.current;
     if (!view) return;
 
-    if (view.state.doc.toString() !== next.text || previousMode !== next.mode) {
+    if (previous.mode !== next.mode || (previous.mode !== 'deck' && previous.source === next.source &&
+        (previous.globalStart !== next.globalStart || previous.globalEnd !== next.globalEnd))) {
+      // Navigating to another projection is a new editing context.
       const cursor = clamp(view.state.selection.main.from, 0, next.text.length);
-      view.setState(
-        EditorState.create({
-          doc: next.text,
-          selection: EditorSelection.cursor(cursor),
-          extensions: extensionsRef.current(next.mode),
-        }),
-      );
+      view.setState(EditorState.create({ doc: next.text, selection: EditorSelection.cursor(cursor),
+        extensions: extensionsRef.current(next.mode) }));
+    } else if (view.state.doc.toString() !== next.text || update?.replacement) {
+      const before = { ...previous, text: view.state.doc.toString() };
+      const changes = projectedSourceChanges(before, next, update);
+      for (const transaction of hostSourceTransactions(undoRef.current, changes)) view.dispatch(transaction);
     }
     setDisplayedSource(next.text);
+    const mappedSelection = view.state.selection.main;
+    setSelection(localToGlobal({ start: mappedSelection.from, end: mappedSelection.to }, next));
 
     const pending = pendingSelectionRef.current;
     if (pending) {

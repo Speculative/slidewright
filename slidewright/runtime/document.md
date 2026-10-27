@@ -128,8 +128,33 @@ Run `npm run test:source-edits` for raw-source preservation, exact ranges,
 structural identity and seeded sequence-edit coverage. Browser cache tests cover
 canvas nudge/undo and slide insertion/deletion without rebuilding other slides.
 
+## Incremental standalone source synchronization
+
+The standalone source pane publishes CodeMirror changes in global UTF-16 source
+coordinates with the current base revision and `source-editor` origin. Scoped
+slide edits advance their projection synchronously, so consecutive transactions
+cannot reuse an obsolete end offset. Notes still batch decoded edits and emit a
+verified splice when flushed. Incoming host authority cancels pending notes and
+rejects edits from an obsolete editor projection.
+
+Incoming source changes dispatch mapped CodeMirror transactions. Matching host
+ranges remain disjoint; slide projections omit edits outside their range. A
+verified common-prefix/suffix splice handles batched events, decoded notes and
+hosts without precise ranges. Synchronization transactions suppress source and
+cursor feedback. Selection and collapsed folds map through the changes; language,
+layout and other editor state stay installed. Only the history compartment is
+removed and restored to preserve existing external-edit undo barriers. Explicit
+equal-source replacements also clear history. Switching projection mode or
+navigating to another same-source projection creates a new editor state.
+
+Run `npm run test:editor-changes` and `tests/incremental-editor.spec.ts` for precise
+ranges, retained fields/folds, source selection mapping, feedback suppression,
+history barriers, rapid scoped edits, stale projections and invalid syntax.
+
 Current limitations: command input/output validation and host document updates
-still parse the full deck. The source pane still replaces CodeMirror state for
-host-driven updates. Shared parse snapshots, bounded authored-owner reparsing,
-and incremental synchronization remain necessary before ordinary canvas edits
-fully meet the parent acceptance criteria.
+still parse the full deck. Folding ranges are still lexed across the visible
+source document on edits, even though collapsed fold state now maps incrementally.
+VS Code source messages still need precise range forwarding. Shared parse
+snapshots, bounded authored-owner reparsing, bounded fold-index maintenance and
+VS Code synchronization remain necessary before ordinary edits fully meet the
+parent acceptance criteria.
