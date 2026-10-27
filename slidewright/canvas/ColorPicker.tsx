@@ -11,8 +11,8 @@
 // is written to source, the browser clamps at render.
 //
 // Drag interactions on plane / slider / L-C-H labels feed the same
-// scrub channel the rest of the inspector uses — a multi-frame drag
-// becomes one undo entry, not N.
+// scrub channel. Canvas callers keep previews local and commit source
+// once on release; text sessions group previews in their draft history.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement, PointerEvent as ReactPointerEvent } from 'react';
@@ -35,7 +35,7 @@ interface ColorPickerProps {
   // Enter/blur path.
   onCommit: (text: string) => void;
   // Scrub channel — drag interactions begin a session, stream
-  // previews (the host applies them without pushing undo), and end
+  // local previews without writing source, and end
   // with a single undo entry for the whole drag.
   onScrubBegin: () => void;
   onScrubPreview: (text: string) => void;
@@ -61,6 +61,12 @@ const PLANE_H = 192;
 // Boundary curve sample density. ~64 samples gives a smooth curve
 // at the displayed plane size. Cached per hue (rounded to 1°).
 const BOUNDARY_SAMPLES = 64;
+
+function useDragCleanup() {
+  const cleanup = useRef<(() => void) | null>(null);
+  useEffect(() => () => cleanup.current?.(), []);
+  return cleanup;
+}
 
 export function ColorPicker({
   value,
@@ -148,7 +154,7 @@ export function ColorPicker({
             end: (v) => {
               const nv = v === null ? null : clamp(v, 0, 1);
               onScrubEnd(nv === null ? null : emitText(nv, c, h));
-              if (nv !== null) setLch({ l: nv, c, h });
+              setLch({ l: nv ?? l, c, h });
             },
           })}
         />
@@ -170,7 +176,7 @@ export function ColorPicker({
             end: (v) => {
               const nv = v === null ? null : Math.max(0, v);
               onScrubEnd(nv === null ? null : emitText(l, nv, h));
-              if (nv !== null) setLch({ l, c: nv, h });
+              setLch({ l, c: nv ?? c, h });
             },
           })}
         />
@@ -192,7 +198,7 @@ export function ColorPicker({
             end: (v) => {
               const nv = v === null ? null : wrapHue(v);
               onScrubEnd(nv === null ? null : emitText(l, c, nv));
-              if (nv !== null) setLch({ l, c, h: nv });
+              setLch({ l, c, h: nv ?? h });
             },
           })}
         />
@@ -228,6 +234,7 @@ function LCPlane({
 }): ReactElement {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const dragCleanup = useDragCleanup();
 
   // Repaint the canvas whenever the hue changes.
   useLayoutEffect(() => {
@@ -248,6 +255,7 @@ function LCPlane({
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
     if (e.button !== 0) return;
+    dragCleanup.current?.();
     e.preventDefault();
     // Drop focus from whatever was active (typically a stale L/C/H
     // number-field input) so its focus ring doesn't visually persist
@@ -267,13 +275,17 @@ function LCPlane({
       onScrubPreview(emitText(last.l, last.c, h));
     };
     const cleanup = (committed: boolean): void => {
+      if (!dragCleanup.current) return;
+      dragCleanup.current = null;
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
       document.removeEventListener('pointercancel', onCancel);
+      if (!committed) setLch({ l, c, h });
       onScrubEnd(committed ? emitText(last.l, last.c, h) : null);
     };
     const onUp = (): void => cleanup(true);
     const onCancel = (): void => cleanup(false);
+    dragCleanup.current = onCancel;
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
     document.addEventListener('pointercancel', onCancel);
@@ -337,6 +349,7 @@ function HueSlider({
   onScrubEnd: (finalText: string | null) => void;
 }): ReactElement {
   const ref = useRef<HTMLDivElement | null>(null);
+  const dragCleanup = useDragCleanup();
   const hueFromEvent = (e: PointerEvent | ReactPointerEvent): number => {
     const rect = ref.current!.getBoundingClientRect();
     const x = clamp((e.clientX - rect.left) / rect.width, 0, 1);
@@ -344,6 +357,7 @@ function HueSlider({
   };
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
     if (e.button !== 0) return;
+    dragCleanup.current?.();
     e.preventDefault();
     focusPicker(e.currentTarget);
     onScrubBegin();
@@ -356,13 +370,17 @@ function HueSlider({
       onScrubPreview(emitText(l, c, lastH));
     };
     const cleanup = (committed: boolean): void => {
+      if (!dragCleanup.current) return;
+      dragCleanup.current = null;
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
       document.removeEventListener('pointercancel', onCancel);
+      if (!committed) setLch({ l, c, h });
       onScrubEnd(committed ? emitText(l, c, lastH) : null);
     };
     const onUp = (): void => cleanup(true);
     const onCancel = (): void => cleanup(false);
+    dragCleanup.current = onCancel;
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
     document.addEventListener('pointercancel', onCancel);
@@ -410,6 +428,7 @@ function NumberField({
 }): ReactElement {
   const [draft, setDraft] = useState(fmt(value));
   const cancelBlur = useRef(false);
+  const dragCleanup = useDragCleanup();
   const formatted = fmt(value);
   useEffect(() => {
     setDraft(formatted);
@@ -417,6 +436,7 @@ function NumberField({
 
   const onLabelPointerDown = (e: ReactPointerEvent<HTMLSpanElement>): void => {
     if (e.button !== 0) return;
+    dragCleanup.current?.();
     e.preventDefault();
     // Same as plane/slider — drop focus from any stale input so
     // its draft commits and its focus ring goes away.
@@ -443,6 +463,8 @@ function NumberField({
       session.preview(stepped);
     };
     const cleanup = (committed: boolean): void => {
+      if (!dragCleanup.current) return;
+      dragCleanup.current = null;
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
       document.removeEventListener('pointercancel', onCancel);
@@ -453,6 +475,7 @@ function NumberField({
     };
     const onUp = (): void => cleanup(true);
     const onCancel = (): void => cleanup(false);
+    dragCleanup.current = onCancel;
     const onLockChange = (): void => {
       if (!document.pointerLockElement) cleanup(true);
     };

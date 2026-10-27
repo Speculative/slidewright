@@ -20,6 +20,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { ComponentPreviewContext } from './component-preview.js';
 import type {
   FocusEvent as ReactFocusEvent,
   PointerEvent as ReactPointerEvent,
@@ -614,6 +615,7 @@ function ComponentPropertiesView({
           row.kind === 'filled' ? (
             <PropertyRow
               key={`${shape.slideIdx}-${shape.childIdx}-${row.fill.name}`}
+              component={shape.comp}
               fill={row.fill}
               choices={row.choices}
               source={source}
@@ -1084,6 +1086,7 @@ function SlidePropertiesView({
           row.kind === 'filled' ? (
             <PropertyRow
               key={`${rowKeyPrefix(row)}-${row.fill.name}`}
+              component={unify && contentComp && rowBelongsTo(row, contentComp) ? contentComp : slide.comp}
               fill={row.fill}
               choices={row.choices}
               source={source}
@@ -1229,6 +1232,7 @@ function SlotPropertiesView({
         </div>
         <PropertyRow
           key={`${parentShape.slideIdx}-${parentShape.childIdx}-${slotName}`}
+          component={parentShape.comp}
           fill={fill}
           source={source}
           onCommit={wrappedCommit}
@@ -1247,6 +1251,7 @@ function SlotPropertiesView({
 // ─── Per-row editor ──────────────────────────────────────────────
 
 interface PropertyRowProps {
+  component: Component;
   choices?: readonly string[];
   fill: SlotFill;
   source: string;
@@ -1282,6 +1287,7 @@ interface PropertyRowProps {
 }
 
 function PropertyRow({
+  component,
   fill,
   choices,
   source,
@@ -1295,6 +1301,7 @@ function PropertyRow({
   onScrubPreview,
   onScrubEnd,
 }: PropertyRowProps): ReactElement {
+  const colorPreviews = useContext(ComponentPreviewContext);
   const isOmit = fill.value.kind === 'omit';
   const isNumber = fill.value.kind === 'number';
   const isColor = slotType === 'color-token' && !isOmit;
@@ -1514,6 +1521,16 @@ function PropertyRow({
       fill.value.span.end.offset,
       text,
     );
+  const previewColor = (text: string): void => {
+    if (!colorPreviews) { onScrubPreview(spliceValueText(text)); return; }
+    const value = parse(`Box { fill: ${text} }`, '<color-preview>').ast.items[0]?.fills[0]?.value;
+    if (!value) return;
+    const draft = structuredClone(component);
+    const target = draft.fills.find(candidate => candidate.name === fill.name);
+    if (!target) return;
+    target.value = value;
+    colorPreviews.stage([draft], () => commitColorValue(text));
+  };
 
   return (
     <div className="sw-property-row">
@@ -1581,15 +1598,16 @@ function PropertyRow({
                 value={fill.value}
                 colorTokens={paletteProps.colorTokens}
                 onCommit={commitColorValue}
-                onScrubBegin={onScrubBegin}
-                onScrubPreview={(text) =>
-                  onScrubPreview(spliceValueText(text))
-                }
-                onScrubEnd={(finalText) =>
-                  onScrubEnd(
-                    finalText === null ? null : spliceValueText(finalText),
-                  )
-                }
+                onScrubBegin={() => colorPreviews ? colorPreviews.begin() : onScrubBegin()}
+                onScrubPreview={previewColor}
+                onScrubEnd={finalText => {
+                  if (!colorPreviews) {
+                    onScrubEnd(finalText === null ? null : spliceValueText(finalText));
+                    return;
+                  }
+                  if (finalText !== null) previewColor(finalText);
+                  colorPreviews.finish(finalText === null ? 'cancel' : 'commit');
+                }}
               />
               <ColorPalette
                 tokens={paletteProps.colorTokens}

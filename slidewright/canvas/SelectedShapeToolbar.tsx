@@ -21,8 +21,8 @@ function ShapeColor({ label, value, mixed, colorTokens, slideColors, onChange, o
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const gesture = useRef(false);
-  // Pointer listeners outlive individual source renders. Always use the latest
-  // selection spans when lowering each preview after a source round-trip.
+  // Pointer listeners outlive individual renders. Use current callbacks when
+  // previewing locally and committing the final color at gesture end.
   const callbacks = useRef({ onChange, onGesture });
   callbacks.current = { onChange, onGesture };
   const authored = mixed ? '' : value.kind === 'name_ref' ? value.name : readColorValueCss(value, colorTokens) ?? '';

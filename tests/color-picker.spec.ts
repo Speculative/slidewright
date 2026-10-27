@@ -100,6 +100,45 @@ test('clicking the hue slider with an oklch value rotates the hue', async ({ pag
     .toBeGreaterThan(beforeHue);
 });
 
+for (const control of ['plane', 'hue'] as const) {
+  test(`dragging the ${control} previews continuously without errors and undoes once`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto('/canvas.html?fixture=two-boxes');
+    const before = await getSource(page);
+    await selectFirstBox(page);
+    await openFillPicker(page);
+    const target = page.locator(`.sw-color-picker-${control}`);
+    const rect = (await target.boundingBox())!;
+    const start = { x: rect.x + rect.width * 0.2, y: rect.y + rect.height * 0.25 };
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    const shape = page.locator('.sw-canvas-stage [data-sw-component="Box"] > div').first();
+    const initialPreview = await shape.evaluate(element => getComputedStyle(element).backgroundColor);
+    expect(await getSource(page)).toBe(before);
+    const dragRect = (await target.boundingBox())!;
+    const end = { x: dragRect.x + dragRect.width * 0.8, y: dragRect.y + dragRect.height * 0.75 };
+    await page.mouse.move(end.x, end.y, { steps: 30 });
+    const lastPreview = await shape.evaluate(element => getComputedStyle(element).backgroundColor);
+    expect(lastPreview).not.toBe(initialPreview);
+    expect(await getSource(page)).toBe(before);
+    await page.mouse.up();
+    await expect.poll(() => getSource(page)).toMatch(/fill: oklch\(/);
+    const channels = (await getSource(page)).match(/fill: oklch\((\S+)\s+(\S+)\s+(\S+)\)/)!;
+    if (control === 'plane') {
+      expect(Number(channels[1])).toBeCloseTo(0.25, 2);
+      expect(Number(channels[2])).toBeCloseTo(0.32, 2);
+    } else {
+      expect(Number(channels[3])).toBeCloseTo(288, 0);
+    }
+    await page.keyboard.press('Escape');
+    await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
+    await page.keyboard.press('ControlOrMeta+Z');
+    await expect.poll(() => getSource(page)).toBe(before);
+    expect(errors).toEqual([]);
+  });
+}
+
 test('entering a value in the L field commits a new oklch literal', async ({ page }) => {
   await page.goto('/canvas.html?fixture=two-boxes');
   await selectFirstBox(page);

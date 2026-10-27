@@ -20,7 +20,8 @@ import type { WrapShape, WrapShapeInput } from '../runtime/loader.js';
 import { SourceLocationContext, useSourceAdapter, useSourceComponent } from '../runtime/source-location.js';
 import type { ComponentRenderProps } from '../runtime/contract.js';
 
-import { useShapeDelta } from './gesture-context.js';
+import { useShapeDelta, spanKey } from './gesture-context.js';
+import { useComponentPreview } from './component-preview.js';
 import type { LayoutAdapter } from './layout-adapter.js';
 import type { ShapeAdapter } from './shape-adapter.js';
 import { TextDocumentEditorContext, TextDocumentSessionContext } from './text-document-context.js';
@@ -28,14 +29,16 @@ import { TextDocumentEditorContext, TextDocumentSessionContext } from './text-do
 function ShapeProjection(input: WrapShapeInput): ReactElement {
   const sourceLocation = useContext(SourceLocationContext);
   const currentComp = useSourceComponent(input.comp);
-  const { comp, loaded, slots, params, slotsState } = { ...input, comp: currentComp };
+  const preview = useComponentPreview(spanKey({ start: currentComp.span.start.offset, end: currentComp.span.end.offset }));
+  const { comp, loaded, slots, params, slotsState } = preview ?? { ...input, comp: currentComp };
   const { cellKey } = input;
   const session = useContext(TextDocumentSessionContext);
   const editor = session?.span.start === comp.span.start.offset && session.span.end === comp.span.end.offset ? session.editor : null;
   // Accept either a ShapeAdapter (applyGesture required) or a
   // LayoutAdapter (applyGesture optional — only set when the layout
   // has a gesture that mutates its own params, e.g., gap-drag).
-  const adapter = useSourceAdapter(comp, loaded.canvas) as ShapeAdapter | LayoutAdapter | undefined;
+  const currentAdapter = useSourceAdapter(comp, loaded.canvas);
+  const adapter = (preview ? loaded.canvas : currentAdapter) as ShapeAdapter | LayoutAdapter | undefined;
   const delta = useShapeDelta({
     start: comp.span.start.offset,
     end: comp.span.end.offset,
@@ -70,7 +73,7 @@ function ShapeProjection(input: WrapShapeInput): ReactElement {
       'data-sw-span-end': comp.span.end.offset,
       style: { display: 'contents' },
     },
-    createElement(SourceLocationContext.Provider, { value: sourceLocation }, rendered),
+    createElement(SourceLocationContext.Provider, { value: preview ? null : sourceLocation }, rendered),
   );
 }
 

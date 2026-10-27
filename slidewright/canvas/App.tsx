@@ -29,6 +29,8 @@ import { createPortal } from 'react-dom';
 import { PresentationBuild, PresentationContext } from '../runtime/presentation.js';
 import {
   DeckResolver,
+  renderEditorInline,
+  type WrapShapeInput,
   type ShapeData,
   type SlideAstData,
 } from '../runtime/loader.js';
@@ -36,7 +38,8 @@ import { DeckDocument, type DocumentUpdate, type SourceChange, type DocumentSnap
 import { mapSelectionTargets } from './selection-mapping.js';
 import { sourceUndoEntry, type SourceUndoEntry as UndoEntry } from './source-history.js';
 import { numberLit, stringLit, booleanLit, nameRef, paragraphDocument } from '../runtime/ast-builders.js';
-import type { Value } from '../runtime/ast.js';
+import type { Component, Value } from '../runtime/ast.js';
+import { ComponentPreviews, ComponentPreviewContext } from './component-preview.js';
 import type { Diagnostic } from '../runtime/diagnostics.js';
 import type { Scope } from '../runtime/scope.js';
 import { slotFill } from '../runtime/ast-builders.js';
@@ -855,6 +858,7 @@ export function App({
     | null;
 }): ReactElement {
   const [state, setState] = useState<RenderState | null>(null);
+  const colorPreviews = useMemo(() => new ComponentPreviews(), []);
   const [activeIdx, setActiveIdx] = useState(0);
   const activeSlideKey = state?.slides[activeIdx]?.key ?? activeIdx;
   const build = useMemo(() => new PresentationBuild(), [activeSlideKey, presenting]);
@@ -1108,6 +1112,9 @@ export function App({
     if (!ownsSelection) richSessionRef.current?.finish('commit');
   }, [selected, richEditing, activeIdx]);
 
+  useEffect(() => { colorPreviews.cancel(); }, [colorPreviews, selected, activeIdx, richEditing, presenting]);
+  useEffect(() => () => colorPreviews.cancel(), [colorPreviews]);
+
   // Scrub session: a single drag on the inspector's numeric key
   // emits a stream of source previews on pointermove and one
   // committed result on pointerup. To keep the undo stack clean
@@ -1252,6 +1259,7 @@ export function App({
     const resolver = new DeckResolver();
     let fallbackDocument: DeckDocument | undefined;
     return host.subscribe(({ source, fileName, assets, documentUpdate }) => {
+      colorPreviews.cancel();
       // Source authority is synchronous: a pending blur/IME callback must
       // never commit a draft over an external replacement.
       sourceRef.current = source;
@@ -1271,6 +1279,16 @@ export function App({
       sourceSnapshotRef.current = document.snapshot;
       const result = resolver.resolve(document, { components, scope, wrapShape });
       const resolution = { ...resolver.stats };
+      colorPreviews.resolve = component => {
+        let resolved: WrapShapeInput | null = null;
+        renderEditorInline({ component, components, scope, colorTokens: result.tokens,
+          wrapShape: input => {
+            if (input.comp === component) { resolved = input; return <></>; }
+            return wrapShape(input);
+          },
+        });
+        return resolved;
+      };
       // Distinguish internal source changes (canvas gesture commit,
       // canvas-side undo, canvas-side redo — all flow through
       // commitToHost / the keyboard undo handler, which set
@@ -2730,6 +2748,17 @@ export function App({
   };
   const applyShapeChange = (field: ShapeStyleField, value: Value, preview: boolean) => {
     if (!shapeFormatting) return;
+    if (preview) {
+      const drafts = selectedShapes.map(shape => {
+        const comp = structuredClone(shape.comp);
+        const param = shapeStyleParam(shape, field)!;
+        const fill = comp.fills.find(fill => fill.name === param);
+        if (fill) fill.value = value; else comp.fills.push(slotFill(param, value));
+        return comp;
+      });
+      colorPreviews.stage(drafts, () => applyShapeChange(field, value, false));
+      return;
+    }
     const paths: NonNullable<ReturnType<typeof pathToComponent>>[] = [];
     const result = commitSourceEdit(sourceRef.current, '<shape-formatting>', ast => {
       for (const shape of selectedShapes) {
@@ -2749,13 +2778,35 @@ export function App({
       const restored = componentByPath(ast, path);
       return restored ? [{ start: restored.span.start.offset, end: restored.span.end.offset }] : [];
     });
-    if (preview) {
-      pendingSelectionRef.current = spans.map(componentTarget);
-      applyScrubPreview(result.newSource);
-    } else commitToHost(result.newSource, spans, result.changes, result.baseRevision);
+    commitToHost(result.newSource, spans, result.changes, result.baseRevision);
   };
   const applyWholeTextChange = (changes: WholeTextChange[], preview: boolean) => {
     if (!textBoxFormatting) return;
+    const updateComponent = (comp: Component, change: WholeTextChange) => {
+      const content = comp.fills.find(fill => fill.name === 'content');
+      if (content) content.value = change.content; else comp.fills.push(slotFill('content', change.content));
+      const fields = { ...change.defaults, ...(change.field ? { [change.field]: change.value } : {}) };
+      for (const [field, value] of Object.entries(fields)) {
+        if (value == null) comp.fills = comp.fills.filter(fill => fill.name !== field);
+        else {
+          const next = typeof value === 'object' ? value : typeof value === 'number' ? numberLit(value) : typeof value === 'boolean' ? booleanLit(value)
+            : field === 'color' && value in state.colorTokens ? nameRef(value) : stringLit(value);
+          const fill = comp.fills.find(fill => fill.name === field);
+          if (fill) fill.value = next; else comp.fills.push(slotFill(field, next));
+        }
+      }
+    };
+    if (preview) {
+      const drafts = changes.flatMap(change => {
+        const shape = selectedTextBoxes.find(shape => shape.comp.span.start.offset === change.target.start && shape.comp.span.end.offset === change.target.end);
+        if (!shape) return [];
+        const comp = structuredClone(shape.comp);
+        updateComponent(comp, change);
+        return [comp];
+      });
+      if (drafts.length === changes.length) colorPreviews.stage(drafts, () => applyWholeTextChange(changes, false));
+      return;
+    }
     const paths: NonNullable<ReturnType<typeof pathToComponent>>[] = [];
     const result = commitSourceEdit(sourceRef.current, '<whole-text-formatting>', ast => {
       for (const change of changes) {
@@ -2763,18 +2814,7 @@ export function App({
         const path = comp && pathToComponent(ast, comp);
         if (!comp || !path) return null;
         paths.push(path);
-        const content = comp.fills.find(fill => fill.name === 'content');
-        if (content) content.value = change.content; else comp.fills.push(slotFill('content', change.content));
-        const fields = { ...change.defaults, ...(change.field ? { [change.field]: change.value } : {}) };
-        for (const [field, value] of Object.entries(fields)) {
-          if (value == null) comp.fills = comp.fills.filter(fill => fill.name !== field);
-          else {
-            const next = typeof value === 'object' ? value : typeof value === 'number' ? numberLit(value) : typeof value === 'boolean' ? booleanLit(value)
-              : field === 'color' && value in state.colorTokens ? nameRef(value) : stringLit(value);
-            const fill = comp.fills.find(fill => fill.name === field);
-            if (fill) fill.value = next; else comp.fills.push(slotFill(field, next));
-          }
-        }
+        updateComponent(comp, change);
       }
       return {};
     });
@@ -2784,10 +2824,7 @@ export function App({
       const restored = componentByPath(ast, path);
       return restored ? [{ start: restored.span.start.offset, end: restored.span.end.offset }] : [];
     });
-    if (preview) {
-      pendingSelectionRef.current = spans.map(componentTarget);
-      applyScrubPreview(result.newSource);
-    } else commitToHost(result.newSource, spans, result.changes, result.baseRevision);
+    commitToHost(result.newSource, spans, result.changes, result.baseRevision);
   };
   const slotInfo: SlotInfo | null = (() => {
     if (!singleTarget || singleTarget.kind !== 'slot') return null;
@@ -2816,6 +2853,7 @@ export function App({
     state.slidesData[activeIdx] ?? null;
 
   return (
+    <ComponentPreviewContext.Provider value={colorPreviews}>
     <DeckMetaContext.Provider
       value={{
         name: state.meta.name,
@@ -3071,12 +3109,12 @@ export function App({
             key={selectedShapes.map(shape => Array.from(state.shapes.values()).indexOf(shape)).sort((a, b) => a - b).join(':')}
             shapes={selectedShapes} colorTokens={state.colorTokens} slideColors={slideColors}
             onChange={applyShapeChange}
-            onColorGesture={phase => { if (phase === 'begin') beginScrub(); else endScrub(phase === 'cancel' ? null : sourceRef.current); }} />}
+            onColorGesture={colorPreviews.finish} />}
           {!richEditing && !presenting && !gestureMeta && textBoxFormatting && <SelectedTextBoxToolbar
             key={selectedTextBoxes.map(shape => Array.from(state.shapes.values()).indexOf(shape)).sort((a, b) => a - b).join(':')}
             shapes={selectedTextBoxes} scope={state.scope} registry={components}
             colorTokens={state.colorTokens} slideColors={slideColors} onChange={applyWholeTextChange}
-            onColorGesture={phase => { if (phase === 'begin') beginScrub(); else endScrub(phase === 'cancel' ? null : sourceRef.current); }} />}
+            onColorGesture={colorPreviews.finish} />}
           {(richEditing || boxShape?.comp.name === 'TextBox') && <div className="sw-text-session-actions" onKeyDown={event => event.stopPropagation()}
             onBlur={event => commitOnTextBlur(event.relatedTarget, () => richSessionRef.current?.finish('commit'))}>
             <BoxSettings onApply={applyBoxSetting} current={{ ...boxShape?.params, ...boxDraft }} />
@@ -3090,6 +3128,7 @@ export function App({
         </aside>
       </div>
     </DeckMetaContext.Provider>
+    </ComponentPreviewContext.Provider>
   );
 }
 

@@ -464,6 +464,7 @@ interface LoadCtx {
 // Render source-backed custom inline views inside an editor island using
 // the same registry resolution as the deck. Transparent node views supply
 // one DOM hole through their declared text slot; the engine owns its kids.
+// Canvas component previews reuse this resolver with a projection wrapper.
 export function renderEditorInline(input: {
   component: Component;
   components: ComponentRegistry;
@@ -471,11 +472,12 @@ export function renderEditorInline(input: {
   colorTokens?: Record<string, string>;
   contentSlot?: string;
   content?: ReactNode;
+  wrapShape?: WrapShape;
 }): ReactNode {
   const ctx: LoadCtx = {
     file: '<inline-editor>', components: input.components, scope: input.scope,
     colorTokens: input.colorTokens ?? {}, diagnostics: [], cellStore: new CellStore(), cellSeq: 0,
-    wrapShape: defaultWrapShape, shapes: new Map(), slidesData: [], currentSlideIdx: -1,
+    wrapShape: input.wrapShape ?? defaultWrapShape, shapes: new Map(), slidesData: [], currentSlideIdx: -1,
     ...(input.contentSlot ? { inlineSlotOverride: { component: input.component, name: input.contentSlot, content: input.content } } : {}),
   };
   return createElement(SourceLocationContext.Provider, { value: null }, renderComponent(input.component, ctx));
