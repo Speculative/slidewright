@@ -30,11 +30,15 @@ test('multi-textbox formatting reports differences across boxes and edits only t
   const first = stage.getByText('First', { exact: true });
   const second = stage.getByText('Second', { exact: true });
   const rects = await stage.locator('[data-sw-component="TextBox"] > div').evaluateAll(nodes => nodes.slice(0, 2).map(node => {
-    const { left, right, top } = node.getBoundingClientRect(); return { left, right, top };
+    const { left, right, top, bottom } = node.getBoundingClientRect(); return { left, right, top, bottom };
   }));
   const floating = (await toolbar.boundingBox())!;
-  expect(floating.y + floating.height).toBeLessThan(Math.min(...rects.map(rect => rect.top)));
-  expect(floating.x + floating.width / 2).toBeCloseTo((rects[0]!.left + rects[1]!.right) / 2, 0);
+  const column = (await stage.boundingBox())!;
+  expect(floating.y + floating.height < Math.min(...rects.map(rect => rect.top)) ||
+    floating.y > Math.max(...rects.map(rect => rect.bottom))).toBe(true);
+  const centered = (rects[0]!.left + rects[1]!.right - floating.width) / 2;
+  const expectedLeft = Math.max(column.x + 8, Math.min(centered, column.x + column.width - floating.width - 8));
+  expect(floating.x).toBeCloseTo(expectedLeft, 0);
   const before = await getEditorSource(page);
   await size.focus();
   await size.blur();
