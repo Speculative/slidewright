@@ -14,44 +14,8 @@
 
 import * as vscode from 'vscode';
 
-interface SourceUpdatedMessage {
-  type: 'source-updated';
-  source: string;
-  fileName: string;
-  // Asset URIs computed by the extension via webview.asWebviewUri(),
-  // mapped by deck-scope binding name. The webview merges these into
-  // the deck scope so name-references in the DSL (e.g. `headshotImg`)
-  // resolve to webview-loadable URLs. v0.1c hardcodes the v0-reference
-  // deck's asset list (just headshot.jpg); v0.2's on-the-fly deck
-  // loader will discover assets dynamically.
-  assets: Record<string, string>;
-}
-
-interface CursorChangedMessage {
-  type: 'cursor-changed';
-  offset: number;
-}
-
-interface WebviewReadyMessage {
-  type: 'ready';
-}
-
-interface SelectSourceRangeMessage {
-  type: 'select-source-range';
-  start: number;
-  end: number;
-}
-
-interface SetSourceMessage {
-  type: 'set-source';
-  source: string;
-}
-
-type ExtensionToWebview = SourceUpdatedMessage | CursorChangedMessage;
-type WebviewToExtension =
-  | WebviewReadyMessage
-  | SelectSourceRangeMessage
-  | SetSourceMessage;
+import { SourceSession } from './source-session.js';
+import type { ExtensionToWebview, WebviewToExtension } from './source-protocol.js';
 
 export class SlidewrightCanvasPanel {
   // One panel per source document URI. Reusing keeps the experience
@@ -114,6 +78,7 @@ export class SlidewrightCanvasPanel {
   private readonly document: vscode.TextDocument;
   private readonly workspaceUri: vscode.Uri | undefined;
   private webviewReady = false;
+  private readonly sourceSession: SourceSession;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
@@ -123,6 +88,23 @@ export class SlidewrightCanvasPanel {
   ) {
     this.document = document;
     this.workspaceUri = workspaceUri;
+    this.sourceSession = new SourceSession({
+      snapshot: () => ({ source: this.document.getText(), version: this.document.version,
+        fileName: this.document.fileName, assets: this.computeAssets() }),
+      post: message => { void this.panel.webview.postMessage(message); },
+      apply: async (changes, baseVersion) => {
+        // TextEditor.edit checks the captured document version at application,
+        // including races across the extension-host/main-thread boundary.
+        const editor = await vscode.window.showTextDocument(this.document, {
+          viewColumn: vscode.ViewColumn.One, preserveFocus: true, preview: false,
+        });
+        if (this.document.version !== baseVersion) return false;
+        return editor.edit(builder => {
+          for (const change of changes) builder.replace(new vscode.Range(
+            this.document.positionAt(change.start), this.document.positionAt(change.end)), change.insert);
+        }, { undoStopBefore: true, undoStopAfter: true });
+      },
+    });
     this.panel.webview.html = renderHtml(
       this.panel.webview,
       context.extensionUri,
@@ -133,11 +115,11 @@ export class SlidewrightCanvasPanel {
       (message: WebviewToExtension) => {
         if (message?.type === 'ready') {
           this.webviewReady = true;
-          this.pushSource();
+          this.sourceSession.start();
         } else if (message?.type === 'select-source-range') {
-          this.revealSourceRange(message.start, message.end);
+          void this.revealSourceRange(message.start, message.end, message.version);
         } else if (message?.type === 'set-source') {
-          void this.applySource(message.source);
+          void this.sourceSession.setSource(message);
         }
       },
       null,
@@ -163,38 +145,22 @@ export class SlidewrightCanvasPanel {
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
   }
 
-  // Apply a canvas-emitted source string to the document. v0.2 first
-  // gestures (text edit) replace the whole document with the new
-  // source via WorkspaceEdit; once round-trip emit lands and we can
-  // compute minimal diffs we'll narrow this to the specific edited
-  // range. Whole-document replace is fine for v0.2 — the document
-  // change fires onDidChangeTextDocument → existing pushSource path
-  // → webview re-renders.
-  private async applySource(source: string): Promise<void> {
-    if (source === this.document.getText()) return;
-    const edit = new vscode.WorkspaceEdit();
-    const fullRange = new vscode.Range(
-      this.document.positionAt(0),
-      this.document.positionAt(this.document.getText().length),
-    );
-    edit.replace(this.document.uri, fullRange, source);
-    await vscode.workspace.applyEdit(edit);
-  }
-
   // Reveal the given source range in the editor showing this panel's
   // document, opening it if it's not currently visible. The selection
   // is placed *inside* the range start so the caret lands at the
   // beginning of the matching component invocation rather than
   // sweeping across it (less disruptive when the user is in the
   // middle of typing somewhere else).
-  private async revealSourceRange(start: number, end: number): Promise<void> {
-    void end;
+  private async revealSourceRange(start: number, end: number, version: number): Promise<void> {
+    if (version !== this.document.version || !Number.isInteger(start) || !Number.isInteger(end) ||
+        start < 0 || end < start || end > this.document.getText().length) return;
     const startPos = this.document.positionAt(start);
     const editor = await vscode.window.showTextDocument(this.document, {
       viewColumn: vscode.ViewColumn.One,
       preserveFocus: true,
       preview: false,
     });
+    if (version !== this.document.version) return;
     editor.selection = new vscode.Selection(startPos, startPos);
     editor.revealRange(
       new vscode.Range(startPos, startPos),
@@ -203,28 +169,19 @@ export class SlidewrightCanvasPanel {
   }
 
   // Called externally (extension.ts) when the document changes. Safe to
-  // call before the webview is ready — pushSource reads current contents
+  // call before the webview is ready — the session reads current contents
   // when the ready handshake completes.
-  update(): void {
-    this.pushSource();
-  }
-
-  private pushSource(): void {
-    if (!this.webviewReady) return;
-    const message: ExtensionToWebview = {
-      type: 'source-updated',
-      source: this.document.getText(),
-      fileName: this.document.fileName,
-      assets: this.computeAssets(),
-    };
-    void this.panel.webview.postMessage(message);
+  update(event: vscode.TextDocumentChangeEvent): void {
+    this.sourceSession.update(event.contentChanges.map(change => ({
+      start: change.rangeOffset, end: change.rangeOffset + change.rangeLength, insert: change.text,
+    })).sort((a, b) => a.start - b.start));
   }
 
   private pushCursor(offset: number): void {
     if (!this.webviewReady) return;
     const message: ExtensionToWebview = {
       type: 'cursor-changed',
-      offset,
+      offset, version: this.document.version,
     };
     void this.panel.webview.postMessage(message);
   }

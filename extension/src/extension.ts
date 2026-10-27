@@ -42,7 +42,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.onDidChangeTextDocument((event) => {
       if (!isSlidewrightDocument(event.document)) return;
       const panel = SlidewrightCanvasPanel.forDocument(event.document);
-      if (panel) panel.update();
+      if (panel) panel.update(event);
     }),
   );
 

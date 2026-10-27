@@ -24,14 +24,6 @@
 //     co-located editor surface implement them):
 //       setSource, onSelection, setCursor
 //
-// Future:
-//   - VSCodeHost will gain setSource when v0.2 gestures land — it'll
-//     post upstream so the extension can apply a WorkspaceEdit.
-//     onSelection / setCursor probably stay no-ops there since VS
-//     Code's editor is the canonical surface and the webview never
-//     needs to drive it programmatically beyond what sendSelection
-//     already does.
-
 import type { DeckDocument, DocumentSourceUpdate, DocumentUpdate } from '../runtime/document.js';
 
 export interface HostState {
@@ -75,9 +67,9 @@ export interface Host {
   // ── Editor-pane-facing API (optional) ───────────────────────────────
 
   // Replace the current source. Fires `subscribe` callbacks so the
-  // canvas re-renders. Only implemented by hosts whose editor surface
-  // can write back to source — used by the v0.1f standalone pane
-  // and (eventually) by VSCodeHost when v0.2 gestures emit edits.
+  // canvas re-renders. Implementations publish their source/document revision
+  // synchronously. A remote authority may later reject a pending write and
+  // publish authoritative source as an external replacement/history barrier.
   setSource?(source: string, update?: DocumentSourceUpdate): void;
 
   // Subscribe to selection-set events that originated from the

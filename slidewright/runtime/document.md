@@ -235,7 +235,37 @@ deck size. `readSourceFoldingWork()` reports lexical work and structure rebuilds
 compares folds with full lexing across delimiter edits and seeded invalid-source
 sequences. Browser tests cover mapped collapsed folds and bounded lexical work.
 
-Current limitations: snapshot-backed commands avoid full parsing for local edits, but clone and compare the AST in
-full; document publication also walks and relocates the AST. Top-level structural
-edits retain full-parse fallback. VS Code source messages still need precise range/version forwarding. These paths
-and the remaining browser audit must be completed before ending the parent goal.
+## VS Code versioned source bridge
+
+The webview publishes local document transactions synchronously, including exact
+ranges, so canvas selection and history advance against one local source revision.
+Pending sources serialize against confirmed VS Code document versions. Native
+change events and request results carry versions and request IDs; own echoes
+confirm progress without replaying earlier source or clearing canvas history.
+Edits and undo/redo may queue before the first acknowledgement.
+
+The extension validates each request's base version and ranges against the live
+native source. It applies only those ranges through `TextEditor.edit`, whose
+native document-version check also covers races during application. Each request
+forms one native undo transaction. External source events forward sorted UTF-16
+content changes, allowing disjoint edits to retain stationary slide identities.
+Missed or invalid change information uses an explicit replacement fallback.
+
+A rejected request, native source transformation, or competing external edit
+restores authoritative source and discards queued writes as an external history
+barrier. Late results cannot revive canceled writes. Canvas source selections
+wait until local source is confirmed; both selection directions carry native
+versions, and stale cursor/selection offsets are ignored. Revealing a native
+selection rechecks its version after opening the editor.
+
+`npm run test:vscode-source` and `test:host-document` cover versions, exact ranges,
+queueing, delayed echoes, rejected writes, stale results and selection mapping.
+`tests/vscode-bridge.spec.ts` mounts the real canvas, VSCodeHost and SourceSession
+in a browser with a controlled native adapter, checking rapid edits and history,
+rejection/races and retained slides in 100-slide decks. The native VS Code adapter
+is typechecked/bundled separately; these tests do not launch a VS Code process.
+
+Current limitations: snapshot-backed commands avoid full parsing for local edits,
+but clone and compare the AST in full; document publication also walks and
+relocates the AST. Top-level structural edits retain full-parse fallback. The
+remaining browser audit must be completed before ending the parent goal.
