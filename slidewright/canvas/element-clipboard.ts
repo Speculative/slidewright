@@ -1,6 +1,7 @@
 import type { Component, SourceFile, Value } from '../runtime/ast.js';
 import { makeComponent, numberLit, slotFill, stringLit } from '../runtime/ast-builders.js';
 import { emit } from '../runtime/emitter.js';
+import type { DocumentSnapshot } from '../runtime/document.js';
 import { parse } from '../runtime/parser.js';
 import { commitSourceEdit, componentByPath, findComponentAtSpan, pathToComponent } from './ast-edits.js';
 import type { SelectionTarget } from './selection-target.js';
@@ -38,11 +39,12 @@ function enclosingElement(ast: SourceFile, target: SelectionTarget) {
   return null;
 }
 
-export function copyElements(source: string, selected: readonly SelectionTarget[]): string | null {
-  const parsed = parse(source, '<copy-elements>');
+export function copyElements(source: string, selected: readonly SelectionTarget[], snapshot?: DocumentSnapshot): string | null {
+  if (snapshot && snapshot.source !== source) return null;
+  const parsed = snapshot ?? parse(source, '<copy-elements>');
   if (parsed.diagnostics.some(d => d.severity === 'error')) return null;
   const nodes = [...new Set(selected.flatMap(target => {
-    const resolved = enclosingElement(parsed.ast, target);
+    const resolved = enclosingElement(parsed.ast as SourceFile, target);
     return resolved ? [resolved.node] : [];
   }))].sort((a, b) => a.span.start.offset - b.span.start.offset);
   // Selecting both a group and one of its descendants copies the group once.
@@ -51,11 +53,11 @@ export function copyElements(source: string, selected: readonly SelectionTarget[
   return items.length ? HEADER + emit({ kind: 'source_file', items, span: parsed.ast.span }) : null;
 }
 
-export function pasteElements(source: string, selected: readonly SelectionTarget[], slideIdx: number, clipboard: string) {
+export function pasteElements(source: string, selected: readonly SelectionTarget[], slideIdx: number, clipboard: string, snapshot?: DocumentSnapshot) {
   if (!clipboard.startsWith(HEADER)) return null;
   const parsed = parse(clipboard.slice(HEADER.length), '<paste-elements>');
   if (parsed.diagnostics.some(d => d.severity === 'error') || !parsed.ast.items.length) return null;
-  return insertElements(source, selected, slideIdx, parsed.ast.items);
+  return insertElements(source, selected, slideIdx, parsed.ast.items, snapshot);
 }
 
 // Prefer an explicit selection; otherwise search within the active slide so
@@ -76,7 +78,7 @@ function slideFreeform(ast: SourceFile, slideIdx: number): Component | null {
   return slide ? visit(slide) : null;
 }
 
-function insertElements(source: string, selected: readonly SelectionTarget[], slideIdx: number, nodes: Component[]) {
+function insertElements(source: string, selected: readonly SelectionTarget[], slideIdx: number, nodes: Component[], snapshot?: DocumentSnapshot) {
   return commitSourceEdit(source, '<paste-elements>', ast => {
     const target = selected[0];
     const node = target && selectedNode(ast, target);
@@ -88,7 +90,7 @@ function insertElements(source: string, selected: readonly SelectionTarget[], sl
     if (!items) return null;
     items.push(...nodes);
     return { selectComponents: nodes };
-  });
+  }, snapshot);
 }
 
 export interface ClipboardImage {
@@ -99,7 +101,7 @@ export interface ClipboardImage {
 
 // Embed bytes in the source rather than retaining a temporary blob URL.
 // Keep small images at native size and fit large ones within the slide.
-export function pasteImages(source: string, selected: readonly SelectionTarget[], slideIdx: number, images: readonly ClipboardImage[]) {
+export function pasteImages(source: string, selected: readonly SelectionTarget[], slideIdx: number, images: readonly ClipboardImage[], snapshot?: DocumentSnapshot) {
   if (!images.length) return null;
   const nodes = images.map((image, index) => {
     const scale = Math.min(1, 1440 / image.width, 810 / image.height);
@@ -111,5 +113,5 @@ export function pasteImages(source: string, selected: readonly SelectionTarget[]
       slotFill('src', stringLit(image.src)),
     ]);
   });
-  return insertElements(source, selected, slideIdx, nodes);
+  return insertElements(source, selected, slideIdx, nodes, snapshot);
 }

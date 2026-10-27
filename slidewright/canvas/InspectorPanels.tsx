@@ -12,6 +12,8 @@
 // Currently single-select only; multi-select shows a hint.
 
 import {
+  createContext,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -30,6 +32,7 @@ import {
   type SlideAstData,
 } from '../runtime/loader.js';
 import type { Component, SlotFill, Value } from '../runtime/ast.js';
+import type { DocumentSnapshot, SourceChange } from '../runtime/document.js';
 import { commitSourceEdit } from './ast-edits.js';
 import { parse } from '../runtime/parser.js';
 import type {
@@ -318,7 +321,12 @@ export function HierarchyPanel({
   );
 }
 
+const InspectorDocumentContext = createContext<DocumentSnapshot | undefined>(undefined);
+type InspectorCommit = (source: string, selections?: SourceRange[], changes?: readonly SourceChange[], baseRevision?: number) => void;
+type PropertyCommit = (source: string, changes?: readonly SourceChange[], baseRevision?: number) => void;
+
 interface PropertiesPanelProps {
+  snapshot?: DocumentSnapshot;
   // Resolved single-selected component shape — null for slot
   // selections, non-component targets, or no selection.
   componentShape: ShapeData | null;
@@ -341,7 +349,7 @@ interface PropertiesPanelProps {
   // select hint regardless of kind.
   multiCount: number;
   source: string;
-  onCommit: (newSource: string, newSelections?: SourceRange[]) => void;
+  onCommit: InspectorCommit;
   // Drag-to-scrub session lifecycle. PropertyRow calls onScrubBegin
   // when the user pointerdowns on a numeric key, onScrubPreview on
   // each pointermove (intermediate source that the host applies
@@ -408,7 +416,13 @@ export interface EmptySlotInfo {
   parentShape: ShapeData;
 }
 
-export function PropertiesPanel({
+export function PropertiesPanel({ snapshot, ...props }: PropertiesPanelProps): ReactElement {
+  return <InspectorDocumentContext.Provider value={snapshot}>
+    <PropertiesPanelContents {...props} />
+  </InspectorDocumentContext.Provider>;
+}
+
+function PropertiesPanelContents({
   componentShape,
   slotInfo,
   emptySlotInfo,
@@ -565,7 +579,7 @@ function ComponentPropertiesView({
 }: {
   shape: ShapeData;
   source: string;
-  onCommit: (newSource: string, newSelections?: SourceRange[]) => void;
+  onCommit: InspectorCommit;
   scrubProps: ScrubProps;
   paletteProps: PaletteProps;
   onSelectComponent: (range: SourceRange) => void;
@@ -577,13 +591,13 @@ function ComponentPropertiesView({
   // start offset is unchanged and the end shifts by the source-
   // length delta. Without this, the subscribe handler treats the
   // commit as having no pending selection and clears.
-  const wrappedCommit = (newSource: string): void => {
+  const wrappedCommit: PropertyCommit = (newSource, changes, baseRevision) => {
     const delta = newSource.length - source.length;
     const newRange: SourceRange = {
       start: shape.comp.span.start.offset,
       end: shape.comp.span.end.offset + delta,
     };
-    onCommit(newSource, [newRange]);
+    onCommit(newSource, [newRange], changes, baseRevision);
   };
   const rows = buildPropertyRowDescriptors(shape.comp, shape.meta);
   if (rows.length === 0) {
@@ -704,8 +718,9 @@ function MissingPropertyRow({
   defaultValue?: unknown;
   owner: Component;
   source: string;
-  onCommit: (newSource: string) => void;
+  onCommit: PropertyCommit;
 }): ReactElement {
+  const snapshot = useContext(InspectorDocumentContext);
   const editable =
     !slotType.startsWith('array<') &&
     !['block', 'slide', 'slide-content'].includes(slotType);
@@ -737,8 +752,8 @@ function MissingPropertyRow({
       if (!target || target.fills.some(fill => fill.name === name)) return null;
       target.fills.push({ ...probeFill, name });
       return {};
-    });
-    if (result) onCommit(result.newSource);
+    }, snapshot);
+    if (result) onCommit(result.newSource, result.changes, result.baseRevision);
   };
   return (
     <div className="sw-property-row sw-property-row-missing">
@@ -1007,7 +1022,7 @@ function SlidePropertiesView({
 }: {
   slide: SlideAstData;
   source: string;
-  onCommit: (newSource: string, newSelections?: SourceRange[]) => void;
+  onCommit: InspectorCommit;
   scrubProps: ScrubProps;
   paletteProps: PaletteProps;
   onSelectComponent: (range: SourceRange) => void;
@@ -1025,7 +1040,7 @@ function SlidePropertiesView({
   // no span identity, so we pass an empty newSelections to mean
   // "keep current". The wrapper-commit-shape-range trick used for
   // ComponentPropertiesView doesn't apply here.
-  const wrappedCommit = (newSource: string): void => onCommit(newSource);
+  const wrappedCommit: PropertyCommit = (newSource, changes, baseRevision) => onCommit(newSource, undefined, changes, baseRevision);
   const rowName = (r: PropertyRowDescriptor): string =>
     r.kind === 'filled' ? r.fill.name : r.name;
   // Speaker notes are deliberately absent from the inspector — a
@@ -1187,7 +1202,7 @@ function SlotPropertiesView({
 }: {
   slotInfo: SlotInfo;
   source: string;
-  onCommit: (newSource: string, newSelections?: SourceRange[]) => void;
+  onCommit: InspectorCommit;
   scrubProps: ScrubProps;
   paletteProps: PaletteProps;
   onSelectComponent: (range: SourceRange) => void;
@@ -1202,7 +1217,7 @@ function SlotPropertiesView({
   // since the only slot-level edits today are inline string /
   // primitive edits via PropertyRow, where focus survives on its
   // own.
-  const wrappedCommit = (newSource: string): void => onCommit(newSource);
+  const wrappedCommit: PropertyCommit = (newSource, changes, baseRevision) => onCommit(newSource, undefined, changes, baseRevision);
   return (
     <PanelFrame header={header}>
       <div className="sw-properties-rows">

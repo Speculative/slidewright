@@ -296,3 +296,43 @@ test('slide reorder undo and redo preserve stationary source targets and thumbna
     await expect.poll(retained).toBe(true);
   }
 });
+
+for (const command of ['clipboard', 'inspector'] as const) {
+  test(`${command} commands avoid full-deck parsing and preserve later slides`, async ({ page, context }) => {
+    if (command === 'clipboard') await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await page.goto('/canvas.html?fixture=single-textbox');
+    const before = deck().replaceAll(/TextBox \{[^}]+\}/g, 'Box { x: 200 y: 300 width: 100 height: 100 }');
+    await setHostSource(page, before);
+    await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '100');
+    await page.locator('.sw-hierarchy-node[data-sw-component="Box"]').click();
+    await settle(page);
+    const work = () => page.evaluate(async () => (await import('/slidewright/runtime/parser.ts')).readParserWork());
+    const start = await work();
+    if (command === 'clipboard') {
+      await page.keyboard.press('Control+c');
+      expect((await work()).parsedCharacters).toBe(start.parsedCharacters);
+      await page.keyboard.press('Control+v');
+      await expect(page.locator('.sw-hierarchy-node[data-sw-component="Box"]')).toHaveCount(2);
+      await expect(page.locator('.sw-hierarchy-node[data-sw-component="Box"]').last()).toHaveClass(/selected/);
+    } else {
+      const radius = page.getByRole('textbox', { name: 'radius (default)', exact: true });
+      await radius.fill('12');
+      await radius.press('Enter');
+      await expect.poll(() => getEditorSource(page)).toContain('radius: 12');
+      await expect(page.locator('.sw-hierarchy-node[data-sw-component="Box"]')).toHaveClass(/selected/);
+    }
+    await settle(page);
+    expect((await work()).parsedCharacters - start.parsedCharacters).toBeLessThan(800);
+    const after = await getEditorSource(page);
+    expect(after.slice(after.indexOf('Slide { label: "slide-1"'))).toBe(before.slice(before.indexOf('Slide { label: "slide-1"')));
+    await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '1');
+    await expect(metrics(page)).toHaveAttribute('data-sw-reused-slides', '99');
+    await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
+    await page.keyboard.press('ControlOrMeta+Z');
+    await expect.poll(() => getEditorSource(page)).toBe(before);
+    await expect(metrics(page)).toHaveAttribute('data-sw-reused-slides', '99');
+    await page.keyboard.press('ControlOrMeta+Shift+Z');
+    await expect.poll(() => getEditorSource(page)).toBe(after);
+    await expect(metrics(page)).toHaveAttribute('data-sw-reused-slides', '99');
+  });
+}

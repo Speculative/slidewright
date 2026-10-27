@@ -2321,7 +2321,7 @@ export function App({
     };
     const onCopy = (event: ClipboardEvent) => {
       if (!canHandle(event)) return;
-      const content = copyElements(sourceRef.current, selected);
+      const content = copyElements(sourceRef.current, selected, sourceSnapshotRef.current);
       if (!content) return;
       event.clipboardData!.setData(ELEMENT_CLIPBOARD_TYPE, content);
       event.clipboardData!.setData('text/plain', content);
@@ -2330,7 +2330,7 @@ export function App({
     const onPaste = (event: ClipboardEvent) => {
       if (!canHandle(event) || !host.setSource) return;
       const content = event.clipboardData!.getData(ELEMENT_CLIPBOARD_TYPE) || event.clipboardData!.getData('text/plain');
-      const result = pasteElements(sourceRef.current, selected, activeIdxRef.current, content);
+      const result = pasteElements(sourceRef.current, selected, activeIdxRef.current, content, sourceSnapshotRef.current);
       if (result) {
         event.preventDefault();
         setClipboardError(null);
@@ -2347,7 +2347,7 @@ export function App({
       // offsets after navigation, another edit, or leaving canvas mode.
       void Promise.all(files.map(readClipboardImage)).then(images => {
         if (cancelled || sourceRef.current !== source || activeIdxRef.current !== slideIdx) return;
-        const pasted = pasteImages(source, selected, slideIdx, images);
+        const pasted = pasteImages(source, selected, slideIdx, images, sourceSnapshotRef.current);
         if (pasted) commitToHost(pasted.newSource, pasted.newSelections, pasted.changes, pasted.baseRevision);
         else setClipboardError('Select a Freeform canvas to paste images.');
       }).catch(error => {
@@ -3005,9 +3005,8 @@ export function App({
             activeSlide={activeSlide}
             multiCount={selected.length}
             source={state.source}
-            onCommit={(newSource, newSelections) =>
-              commitToHost(newSource, newSelections)
-            }
+            snapshot={state.snapshot}
+            onCommit={commitToHost}
             onScrubBegin={beginScrub}
             onScrubPreview={applyScrubPreview}
             onScrubEnd={endScrub}

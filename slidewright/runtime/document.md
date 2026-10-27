@@ -162,6 +162,12 @@ semantic AST before publishing. A no-op creates no canvas history entry.
 Direct App commands, nudging, alignment and grouping use the shared snapshot.
 Grouping availability also reads that snapshot instead of reparsing during render.
 Text-session startup and post-command selection recovery reuse parsed ASTs.
+Clipboard reads use the matching snapshot without parsing. Element/image paste
+and inspector property materialization validate through that snapshot and forward
+precise changes and the base revision into canvas history and host publication.
+Clipboard fragments and inspector value probes still use the real parser; their
+work is bounded by the inserted content rather than the deck. Mismatched or
+invalid snapshots cannot supply clipboard content or authorize a commit.
 `readParserWork()` and `readEmitterWork()` expose cumulative parser character/call
 and root-source emission counts. The browser nudge acceptance test subtracts
 these counters across the complete application path, including command validation,
@@ -215,9 +221,7 @@ Run `npm run test:editor-changes` and `tests/incremental-editor.spec.ts` for pre
 ranges, retained fields/folds, source selection mapping, feedback suppression,
 history barriers, rapid scoped edits, stale projections and invalid syntax.
 
-Current limitations: legacy command callers such as clipboard operations and
-inspector property materialization still need snapshot integration. Snapshot-backed
-commands avoid full parsing for local edits, but clone and compare the AST in
+Current limitations: snapshot-backed commands avoid full parsing for local edits, but clone and compare the AST in
 full; document publication also walks and relocates the AST. Top-level structural
 edits retain full-parse fallback. Folding ranges are still lexed across the visible
 source document on edits, even though collapsed fold state maps incrementally.
