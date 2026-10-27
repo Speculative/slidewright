@@ -1,8 +1,9 @@
 // Source is authoritative. A snapshot and every occurrence in it belong to one
 // revision; consumers must never combine cached ASTs from different revisions.
-import type { Component, Pos, SourceFile, Span, Value } from './ast.js';
+import type { Component, SourceFile, Span, Value } from './ast.js';
 import type { Diagnostic } from './diagnostics.js';
-import { parse } from './parser.js';
+import { parseDocument, type ParseWork } from './document-parser.js';
+import { lineStarts, position } from './source-positions.js';
 
 type Immutable<T> = T extends string | number | boolean | null | undefined | ((...args: never[]) => unknown) ? T : T extends object ? { readonly [K in keyof T]: Immutable<T[K]> } : T;
 export type OccurrenceHandle = string & { readonly __occurrence: unique symbol };
@@ -20,6 +21,7 @@ export interface DocumentSnapshot {
   readonly file: string;
   readonly ast: Immutable<SourceFile>;
   readonly diagnostics: readonly Immutable<Diagnostic>[];
+  readonly parsing: Readonly<ParseWork>;
   readonly occurrences: readonly DocumentOccurrence[];
 }
 export interface DocumentTransaction {
@@ -130,8 +132,8 @@ function components(ast: SourceFile): { component: Component; parent: Component 
   return result;
 }
 
-/** Session-local document service. Parsing is deliberately full-document for
- * now; slide resolution caches can consume the snapshot without parsing again.
+/** Session-local document service. Complete component-local edits use bounded
+ * parsing, with full parsing for replacements, invalid syntax and boundary edits.
  * Handles survive mapped edits within an owner, but never a complete owner
  * replacement, deletion, absence from a recovered parse, or host replacement.
  */
@@ -240,7 +242,7 @@ export class DeckDocument {
   }
 
   private build(source: string, file: string, revision: number, mapping?: SourceMapping): DocumentSnapshot {
-    const parsed = parse(source, file);
+    const parsed = parseDocument(source, file, mapping ? this.current : undefined, mapping);
     const candidates = new Map<string, OccurrenceHandle>();
     if (mapping && !mapping.replacement) {
       for (const item of this.current.occurrences) {
@@ -262,21 +264,4 @@ export class DeckDocument {
     });
     return freeze({ revision, source, file, ...parsed, occurrences });
   }
-}
-
-function lineStarts(source: string): readonly number[] {
-  const starts = [0];
-  for (let i = 0; i < source.length; i++) if (source[i] === '\n') starts.push(i + 1);
-  return starts;
-}
-
-function position(starts: readonly number[], offset: number): Pos {
-  let low = 0;
-  let high = starts.length;
-  while (low + 1 < high) {
-    const mid = (low + high) >>> 1;
-    if (starts[mid]! <= offset) low = mid;
-    else high = mid;
-  }
-  return { offset, line: low + 1, column: offset - starts[low]! + 1 };
 }

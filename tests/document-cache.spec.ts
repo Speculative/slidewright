@@ -150,3 +150,35 @@ test('canvas slide insertion and deletion retain stationary slides and their thu
   await expect(metrics(page)).toHaveAttribute('data-sw-reused-slides', '8');
   expect(await page.evaluate(() => document.querySelectorAll('.sw-thumb-slot [data-sw-textbox-content]')[7] === (window as any).lastThumb)).toBe(true);
 });
+
+test('source and canvas local edits use bounded document parsing in a 100-slide deck', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-textbox');
+  const before = deck().replace('x: 200', 'x: 9');
+  await setHostSource(page, before);
+  await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '100');
+  const parseWork = () => page.evaluate(() => (window as any).__slidewrightHost.document.snapshot.parsing);
+  // The initial replacement has no complete prior component boundary.
+  expect((await parseWork()).fullParses).toBe(1);
+  await page.locator('.sw-canvas-stage').getByText('content-0', { exact: true }).click();
+  await page.keyboard.press('Shift+ArrowRight');
+  await expect.poll(() => getEditorSource(page)).toBe(before.replace('x: 9', 'x: 19'));
+  expect(await parseWork()).toEqual({ fullParses: 0, componentParses: 1,
+    parsedCharacters: 'TextBox { x: 19 y: 300 width: 500 height: 100 content: "content-0" }'.length });
+  await page.keyboard.press('ControlOrMeta+Z');
+  await expect.poll(() => getEditorSource(page)).toBe(before);
+  expect((await parseWork()).fullParses).toBe(0);
+  const updated = before.replace('content-0', 'a longer first content 🌍');
+  await setHostSource(page, updated);
+  await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '1');
+  await expect(metrics(page)).toHaveAttribute('data-sw-reused-slides', '99');
+  expect((await parseWork()).parsedCharacters).toBeLessThan(120);
+  expect((await parseWork()).fullParses).toBe(0);
+  // An incomplete edit must publish full-parser diagnostics and recover.
+  const broken = updated.slice(0, -1);
+  await setHostSource(page, broken);
+  await expect.poll(async () => (await parseWork()).fullParses).toBe(1);
+  expect(await page.evaluate(() => (window as any).__slidewrightHost.document.snapshot.diagnostics.length)).toBeGreaterThan(0);
+  await setHostSource(page, updated);
+  await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '100');
+  expect((await parseWork()).fullParses).toBe(1);
+});

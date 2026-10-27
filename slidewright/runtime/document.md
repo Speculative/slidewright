@@ -1,8 +1,9 @@
 # Revisioned document foundation
 
 `DeckDocument` owns source, a frozen parse result, and component occurrences for
-one editing session. It currently parses the full source once per accepted
-transaction. It does not resolve or render components. `DeckResolver` consumes
+one editing session. Complete component-local edits use bounded parsing;
+uncertain boundaries and invalid input use the full parser. It does not resolve
+or render components. `DeckResolver` consumes
 these snapshots without reparsing them. Both built-in hosts own a persistent
 document, and the interactive canvas uses a retained resolver per host session.
 
@@ -110,6 +111,32 @@ External structural edits retain the active authored slide when possible.
 Presentation state, thumbnail keys, and DOM-observer layers use the authored
 slide key so index changes alone do not remount that slide.
 
+## Bounded document parsing
+
+For a valid base snapshot, each change selects the smallest strictly enclosing
+component. Ancestor selections absorb nested ones; disjoint owners parse
+separately. The changed component must still parse as exactly one complete
+invocation covering the entire mapped slice, without diagnostics. Original
+leading comments belong to the surrounding grammar and keep their attachment.
+All other nodes retain their authored values while positions map to the new
+source. Unchanged subtrees with unchanged positions are shared; shifted nodes
+are copied so earlier snapshots stay immutable and accurate.
+
+Initial loads, explicit replacements, top-level edits, changes without a safe
+owner, invalid base snapshots and incomplete/invalid component parses use full
+parsing. Fallback always publishes the ordinary parser's AST and diagnostics.
+This bounds successful local parsing without inventing a second recovery grammar.
+
+`DocumentSnapshot.parsing` reports `fullParses`, `componentParses` and
+`parsedCharacters` for that revision. Characters are UTF-16 code units passed to
+the parser, including failed bounded attempts before fallback. These counters
+measure the document service, excluding command input/output validation and the
+source editor's fold-index lexer. `npm run test:document-parsing` compares exact
+ASTs/diagnostics against fresh parsing, covers raw trivia, CRLF/Unicode positions,
+disjoint owners, recovery and replacements, and includes seeded arbitrary edits
+and deterministic 1,000-slide work counts. Browser cache tests cover bounded
+host parsing for canvas nudge/undo and source updates in 100 slides.
+
 ## Source-preserving editor commits
 
 `commitSourceEdit` captures the parsed authored tree before a command mutates it.
@@ -151,8 +178,9 @@ Run `npm run test:editor-changes` and `tests/incremental-editor.spec.ts` for pre
 ranges, retained fields/folds, source selection mapping, feedback suppression,
 history barriers, rapid scoped edits, stale projections and invalid syntax.
 
-Current limitations: command input/output validation and host document updates
-still parse the full deck. Folding ranges are still lexed across the visible
+Current limitations: command input/output validation still parses the full deck.
+Document publication is bounded for successful component-local edits, while
+top-level structural edits use the full parser. Folding ranges are still lexed across the visible
 source document on edits, even though collapsed fold state now maps incrementally.
 VS Code source messages still need precise range forwarding. Shared parse
 snapshots, bounded authored-owner reparsing, bounded fold-index maintenance and
