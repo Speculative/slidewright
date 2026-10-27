@@ -146,7 +146,9 @@ export default function TextBox({ slots, params }: ComponentRenderProps) {
         left: `${x}px`,
         top: `${y}px`,
         width: fixedWidth ? `${width}px` : 'max-content',
-        minWidth: fixedWidth ? undefined : '16px',
+        // Keep editable content wider than its 16px horizontal padding so
+        // an empty auto-width box has a visible caret and editing surface.
+        minWidth: fixedWidth ? undefined : editor ? '32px' : '16px',
         height: fixedHeight ? `${height}px` : 'auto',
         boxSizing: 'border-box',
         color: color,

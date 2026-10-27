@@ -11,7 +11,7 @@ test('insertion search ranks names above description matches and confirms the be
   await expect(page.getByRole('option', { name: 'CardRow', exact: true })).toBeVisible();
   await expect(results.first()).toHaveAttribute('aria-selected', 'true');
   await search.press('Enter');
-  await expect(page.locator('.sw-tool-status')).toContainText('Draw TextBox');
+  await expect(page.locator('.sw-tool-status')).toContainText('Click to place TextBox');
   await openInsertionPicker(page);
   await search.fill(' BOX ');
   await expect(results.first()).toHaveText('Box');
@@ -74,9 +74,15 @@ for (const [component, selectFirst] of [
   ['Freeform', false], ['Freeform', true],
   ['ContentSlide', false], ['ContentSlide', true],
 ] as const) {
-test(`${component} fills a new slide content slot (${selectFirst ? 'slot first' : 'picker first'})`, async ({ page }) => {
+test(`${component} fills an empty slide content slot (${selectFirst ? 'slot first' : 'picker first'})`, async ({ page }) => {
   await page.goto('/canvas.html?fixture=three-slides');
   await page.locator('.sw-add-slide').click();
+  await expect(page.locator('.sw-thumb').nth(1)).toHaveClass(/active/);
+  // New slides have a drawing surface. Explicitly remove it to exercise
+  // insertion into a missing Slide.content slot in both interaction orders.
+  const added = await getEditorSource(page);
+  expect(added).toContain('content: Freeform {}');
+  await setHostSource(page, added.replace('content: Freeform {}', ''));
   const content = page.locator('.sw-canvas-stage [data-sw-slot-name="content"][data-sw-slot-empty="true"] > *').first();
   if (selectFirst) {
     await content.click();
@@ -147,11 +153,11 @@ test('distribution equalizes gaps for different sizes while retaining outer obje
   await rows.nth(1).click({ modifiers: ['Shift'] });
   await rows.nth(2).click({ modifiers: ['Shift'] });
   await page.getByRole('button', { name: 'Distribute horizontal space' }).click();
-  await expect.poll(() => getEditorSource(page)).toMatch(/Box\s*\{\s*x: 500\s+y: 250/);
-  await expect.poll(() => getEditorSource(page)).toMatch(/Box\s*\{\s*x: 1000\s+y: 800/);
+  await expect.poll(() => getEditorSource(page)).toMatch(/Box\s*\{\s*x: 500[,\s]+y: 250/);
+  await expect.poll(() => getEditorSource(page)).toMatch(/Box\s*\{\s*x: 1000[,\s]+y: 800/);
   await expect(page.locator('.sw-hierarchy-node.selected')).toHaveCount(3);
   await page.getByRole('button', { name: 'Distribute vertical space' }).click();
-  await expect.poll(() => getEditorSource(page)).toMatch(/Box\s*\{\s*x: 500\s+y: 400/);
+  await expect.poll(() => getEditorSource(page)).toMatch(/Box\s*\{\s*x: 500[,\s]+y: 400/);
 });
 
 test('flow layout selections explain why free positioning is disabled', async ({ page }) => {
@@ -208,7 +214,7 @@ test('picker opens from canvas focus, leaves Escape available, and ignores sourc
   await expect(search).toHaveCount(0);
 });
 
-test('TextBox drawing inserts into the nested PLATEAU Freeform in one undo step', async ({ page }) => {
+test('TextBox point placement targets the nested PLATEAU Freeform and starts editing', async ({ page }) => {
   await page.goto('/canvas.html?deck=uist-2026');
   const stage = page.locator('.sw-canvas-stage');
   const boxes = stage.locator('[data-sw-component="TextBox"]');
@@ -222,18 +228,20 @@ test('TextBox drawing inserts into the nested PLATEAU Freeform in one undo step'
   const canvas = await stage.locator('.presentation-canvas').boundingBox();
   if (!freeform || !canvas) throw new Error('Missing drawing surface');
   const scale = canvas.width / 1920;
-  await page.mouse.move(freeform.x + 1400 * scale, freeform.y + 850 * scale);
-  await page.mouse.down();
-  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-  await page.mouse.move(freeform.x + 1800 * scale, freeform.y + 1000 * scale, { steps: 10 });
-  await page.mouse.up();
+  await page.mouse.click(freeform.x + 1400 * scale, freeform.y + 850 * scale);
   await expect(boxes).toHaveCount(beforeCount + 1);
-  await expect.poll(() => getEditorSource(page)).toMatch(/TextBox\s*\{\s*x: 1400\s+y: 850\s+width: 400\s+height: 150/);
-  await expect(stage.getByText('Text', { exact: true })).toBeVisible();
+  await expect.poll(() => getEditorSource(page)).toMatch(/TextBox\s*\{\s*x: 1400[,\s]+y: 850[,\s]+sizing: "auto-width"/);
+  const editing = page.getByRole('textbox', { name: 'Edit text' });
+  await expect(editing).toBeVisible();
+  await editing.fill('Placed text');
+  await page.keyboard.press('ControlOrMeta+Enter');
+  await expect(stage.getByText('Placed text', { exact: true })).toBeVisible();
   const insertedStart = await boxes.last().getAttribute('data-sw-span-start');
   await expect(page.locator('.sw-hierarchy-node.selected')).toHaveAttribute('data-sw-span-start', insertedStart!);
   await expect(page.locator('.sw-selection-outline')).toHaveAttribute('data-sw-overlay-for-start', insertedStart!);
-  await page.keyboard.press('Control+z');
+  await page.keyboard.press('ControlOrMeta+Z');
+  await expect(boxes).toHaveCount(beforeCount + 1);
+  await page.keyboard.press('ControlOrMeta+Z');
   await expect.poll(() => getEditorSource(page)).toBe(before);
   await expect(boxes).toHaveCount(beforeCount);
 });
@@ -245,7 +253,7 @@ test('drawing targets the inner Freeform and preserves its implicit children', a
   ] } } ] }`);
   const stage = page.locator('.sw-canvas-stage');
   await openInsertionPicker(page);
-  await page.getByRole('combobox', { name: 'Insert element' }).fill('text');
+  await page.getByRole('combobox', { name: 'Insert element' }).fill('box');
   await page.keyboard.press('Enter');
   const freeform = await stage.locator('[data-sw-component="Freeform"] > div').last().boundingBox();
   const canvas = await stage.locator('.presentation-canvas').boundingBox();
@@ -256,8 +264,8 @@ test('drawing targets the inner Freeform and preserves its implicit children', a
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   await page.mouse.move(freeform.x + 700 * scale, freeform.y + 400 * scale, { steps: 10 });
   await page.mouse.up();
-  await expect(stage.getByText('Text', { exact: true })).toBeVisible();
-  await expect.poll(() => getEditorSource(page)).toMatch(/Freeform\s*\{\s*Box\s*\{[^}]*\}\s*TextBox\s*\{\s*x: 300\s+y: 200\s+width: 400\s+height: 200/s);
+  await expect(stage.locator('[data-sw-component="Box"]')).toHaveCount(2);
+  await expect.poll(() => getEditorSource(page)).toMatch(/Freeform\s*\{\s*Box\s*\{[^}]*\}\s*Box\s*\{\s*x: 300\s+y: 200\s+width: 400\s+height: 200/s);
   await expect(page.locator('.sw-canvas-diagnostics')).toHaveCount(0);
-  await expect(page.locator('.sw-hierarchy-node.selected')).toContainText('TextBox');
+  await expect(page.locator('.sw-hierarchy-node.selected')).toContainText('Box');
 });
