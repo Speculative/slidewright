@@ -114,6 +114,12 @@ function emitSlotFill(fill: SlotFill, level: number): string {
   return `${lead}${indent(level)}${fill.name}: ${emitValueInline(fill.value, level)}`;
 }
 
+// Emit one authored value without a source-file wrapper. The caller owns
+// the leading indentation and any leading component comments.
+export function emitValue(value: Value, level = 0): string {
+  return emitValueInline(value, level);
+}
+
 function emitValueInline(value: Value, level: number): string {
   switch (value.kind) {
     case 'string':

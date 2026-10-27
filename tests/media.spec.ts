@@ -22,10 +22,10 @@ test('image loads, moves, resizes, and retains its asset and styling', async ({ 
   await expect.poll(() => image.evaluate((node: HTMLImageElement) => node.naturalWidth)).toBe(160);
   await drag(page, image, 50, 30);
   let source = await getEditorSource(page);
-  expect(source).toMatch(/Image\s*\{\s*x:\s*350\s+y:\s*230/);
+  expect(source).toMatch(/Image\s*\{\s*x:\s*350[,\s]+y:\s*230/);
   await drag(page, page.locator('.sw-resize-se'), 80, 45);
   source = await getEditorSource(page);
-  expect(source).toMatch(/width:\s*480\s+height:\s*270/);
+  expect(source).toMatch(/width:\s*480[,\s]+height:\s*270/);
   expect(source).toContain('src: "/tests/fixtures/media.svg"');
   expect(source).toContain('alt: "Fixture logo"');
   expect(source).toContain('fit: "cover"');
@@ -48,7 +48,7 @@ test('video controls play, pause, restart without editing source; body moves and
   await drag(page, video, 60, 40);
   await drag(page, page.locator('.sw-resize-se'), 80, 45);
   const source = await getEditorSource(page);
-  expect(source).toMatch(/Video\s*\{\s*x:\s*960\s+y:\s*240\s+width:\s*720\s+height:\s*405/);
+  expect(source).toMatch(/Video\s*\{\s*x:\s*960[,\s]+y:\s*240[,\s]+width:\s*720[,\s]+height:\s*405/);
   expect(source).toContain('src: "/tests/fixtures/media.webm"');
 });
 
@@ -92,6 +92,6 @@ for (const name of ['Image', 'Video']) {
     await page.mouse.move(freeform.x + 700 * scale, freeform.y + 425 * scale, { steps: 8 });
     await page.mouse.up();
     await expect(page.locator('.sw-canvas-stage').getByText(`Set ${name.toLowerCase()} source`)).toBeVisible();
-    expect(await getEditorSource(page)).toMatch(new RegExp(`${name}\\s*\\{\\s*x:\\s*300\\s+y:\\s*200\\s+width:\\s*400\\s+height:\\s*225\\s+src:\\s*""`));
+    expect(await getEditorSource(page)).toMatch(new RegExp(`${name}\\s*\\{\\s*x:\\s*300[,\\s]+y:\\s*200[,\\s]+width:\\s*400[,\\s]+height:\\s*225[,\\s]+src:\\s*""`));
   });
 }

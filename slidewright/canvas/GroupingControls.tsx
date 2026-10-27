@@ -1,3 +1,4 @@
+import type { SourceChange } from '../runtime/document.js';
 import { Group, Ungroup } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { ShapeData } from '../runtime/loader.js';
@@ -12,7 +13,7 @@ export function GroupingControls({ source, selected, shapes, disabled, onCommit 
   selected: readonly SelectionTarget[];
   shapes: ReadonlyMap<string, ShapeData>;
   disabled: boolean;
-  onCommit(source: string, selections?: SourceRange[]): void;
+  onCommit(source: string, selections?: SourceRange[], changes?: readonly SourceChange[]): void;
 }) {
   const availability = useMemo(() => {
     const result = groupingAvailability(source, selected);
@@ -28,7 +29,7 @@ export function GroupingControls({ source, selected, shapes, disabled, onCommit 
     if (disabled || !(ungroup ? availability.ungroup : availability.group)) return;
     const result = editGrouping(source, selected, shapes, ungroup);
     if (!result) { setMessage('Grouping requires directly editable positions on freely positioned siblings.'); return; }
-    onCommit(result.newSource, result.newSelections);
+    onCommit(result.newSource, result.newSelections, result.changes);
   }
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {

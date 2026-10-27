@@ -44,7 +44,7 @@ for (const direction of ['se', 'nw'] as const) {
     await page.mouse.down();
     await page.mouse.move(handle.x + handle.width / 2 + dx * scale, handle.y + handle.height / 2 + dy * scale, { steps: 8 });
     await page.mouse.up();
-    await expect.poll(() => getEditorSource(page)).toMatch(direction === 'se' ? /width: 200\s+height: 130/ : /x: -170\s+y: -140/);
+    await expect.poll(() => getEditorSource(page)).toMatch(direction === 'se' ? /width: 200[,\s]+height: 130/ : /x: -170[,\s]+y: -140/);
     for (const index of [1, 0]) {
       await rows(page, 'Group').nth(index).click();
       await expectGroupBounds(page);
@@ -100,8 +100,8 @@ test('grouping preserves visual geometry, source content, selection and undo/red
   }));
   await page.getByRole('button', { name: 'Group', exact: true }).click();
   await expect(rows(page, 'Group')).toHaveClass(/selected/);
-  await expect.poll(() => getEditorSource(page)).toMatch(/Group\s*\{\s*x: 200\s+y: 200\s+width: 800\s+height: 450/);
-  await expect.poll(() => getEditorSource(page)).toMatch(/Box\s*\{\s*x: 600\s+y: 300/);
+  await expect.poll(() => getEditorSource(page)).toMatch(/Group\s*\{\s*x: 200[,\s]+y: 200[,\s]+width: 800[,\s]+height: 450/);
+  await expect.poll(() => getEditorSource(page)).toMatch(/Box\s*\{\s*x: 600[,\s]+y: 300/);
   const grouped = await getEditorSource(page);
   const after = await visuals(page, 'Box').evaluateAll(nodes => nodes.map(node => {
     const { x, y, width, height } = node.getBoundingClientRect();
@@ -116,7 +116,7 @@ test('grouping preserves visual geometry, source content, selection and undo/red
   await page.getByRole('button', { name: 'Ungroup', exact: true }).click();
   await expect(rows(page, 'Group')).toHaveCount(0);
   await expect(page.locator('.sw-hierarchy-node.selected')).toHaveCount(2);
-  await expect.poll(() => getEditorSource(page)).toMatch(/Box\s*\{\s*x: 800\s+y: 500/);
+  await expect.poll(() => getEditorSource(page)).toMatch(/Box\s*\{\s*x: 800[,\s]+y: 500/);
   await page.keyboard.press('Control+z');
   await expect.poll(() => getEditorSource(page)).toBe(grouped);
 });
@@ -134,11 +134,11 @@ test('keyboard grouping, group body drag and ungroup preserve member positions',
   await page.mouse.down();
   await page.mouse.move(box!.x + box!.width / 2 + 100 * scale, box!.y + box!.height / 2 + 50 * scale, { steps: 8 });
   await page.mouse.up();
-  await expect.poll(() => getEditorSource(page)).toMatch(/Group\s*\{\s*x: 300\s+y: 250/);
-  await expect.poll(() => getEditorSource(page)).toMatch(/Box\s*\{\s*x: 600\s+y: 300/);
+  await expect.poll(() => getEditorSource(page)).toMatch(/Group\s*\{\s*x: 300[,\s]+y: 250/);
+  await expect.poll(() => getEditorSource(page)).toMatch(/Box\s*\{\s*x: 600[,\s]+y: 300/);
   await page.keyboard.press('Control+Shift+g');
   await expect(rows(page, 'Group')).toHaveCount(0);
-  await expect.poll(() => getEditorSource(page)).toMatch(/Box\s*\{\s*x: 900\s+y: 550/);
+  await expect.poll(() => getEditorSource(page)).toMatch(/Box\s*\{\s*x: 900[,\s]+y: 550/);
 });
 
 for (const gesture of ['drag', 'small movement', 'return near start', 'Escape', 'pointercancel'] as const) {
@@ -177,9 +177,9 @@ for (const gesture of ['drag', 'small movement', 'return near start', 'Escape', 
       expect(await getEditorSource(page)).toBe(before);
     } else {
       await expect(rows(page, 'Group')).toHaveClass(/selected/);
-      await expect.poll(() => getEditorSource(page)).toMatch(/Box\s*\{\s*x: 50\s+y: 60/);
+      await expect.poll(() => getEditorSource(page)).toMatch(/Box\s*\{\s*x: 50[,\s]+y: 60/);
       if (gesture === 'drag') {
-        await expect.poll(() => getEditorSource(page)).toMatch(/Group\s*\{\s*x: 300\s+y: 250/);
+        await expect.poll(() => getEditorSource(page)).toMatch(/Group\s*\{\s*x: 300[,\s]+y: 250/);
         await page.keyboard.press('Control+z');
         await expect.poll(() => getEditorSource(page)).toBe(before);
       } else if (gesture !== 'return near start') {
@@ -213,8 +213,8 @@ test('nested groups and implicit children work with mixed shapes and retain comm
   await expect(rows(page, 'Group')).toHaveCount(0);
   const source = await getEditorSource(page);
   expect(source).toContain('// rectangle');
-  expect(source).toMatch(/Box\s*\{\s*x: 100.5\s+y: 80.25/);
-  expect(source).toMatch(/x1: 400\s+y1: 300\s+x2: 500\s+y2: 400/);
+  expect(source).toMatch(/Box\s*\{\s*x: 100.5[,\s]+y: 80.25/);
+  expect(source).toMatch(/x1: 400[,\s]+y1: 300[,\s]+x2: 500[,\s]+y2: 400/);
   expect(source).toContain('"Keep text"');
   await expect(page.locator('.sw-canvas-diagnostics')).toHaveCount(0);
 });
@@ -255,8 +255,8 @@ test('marquee selects a group as one unit and drill-in uses local member coordin
   expect(outline!.x).toBeCloseTo(member!.x - 4 * scale, 1);
   expect(outline!.y).toBeCloseTo(member!.y - 4 * scale, 1);
   await page.getByRole('button', { name: 'Align left', exact: true }).click();
-  await expect.poll(() => getEditorSource(page)).toMatch(/Box\s*\{\s*x: 0\s+y: 300/);
-  await expect.poll(() => getEditorSource(page)).toMatch(/Group\s*\{\s*x: 200\s+y: 200/);
+  await expect.poll(() => getEditorSource(page)).toMatch(/Box\s*\{\s*x: 0[,\s]+y: 300/);
+  await expect.poll(() => getEditorSource(page)).toMatch(/Group\s*\{\s*x: 200[,\s]+y: 200/);
 });
 
 test('multiple selected groups ungroup in sibling order', async ({ page }) => {
@@ -271,7 +271,7 @@ test('multiple selected groups ungroup in sibling order', async ({ page }) => {
   await expect(rows(page, 'Group')).toHaveCount(0);
   await expect(page.locator('.sw-hierarchy-node.selected')).toHaveCount(2);
   const source = await getEditorSource(page);
-  expect(source).toMatch(/Box\s*\{[^}]*x: 100\s+y: 200[^}]*\}\s*Box\s*\{[^}]*x: 500\s+y: 600/s);
+  expect(source).toMatch(/Box\s*\{[^}]*x: 100[,\s]+y: 200[^}]*\}\s*Box\s*\{[^}]*x: 500[,\s]+y: 600/s);
 });
 
 for (const order of ['inside first', 'outside first'] as const) {

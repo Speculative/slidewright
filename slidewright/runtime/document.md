@@ -110,7 +110,26 @@ External structural edits retain the active authored slide when possible.
 Presentation state, thumbnail keys, and DOM-observer layers use the authored
 slide key so index changes alone do not remount that slide.
 
-Current limitations: editor-owned commits still often parse/emit the full deck,
-and the source pane still replaces CodeMirror state for host-driven updates.
-These paths need bounded authored-owner commits and incremental synchronization
-before ordinary canvas edits fully meet the parent acceptance criteria.
+## Source-preserving editor commits
+
+`commitSourceEdit` captures the parsed authored tree before a command mutates it.
+`SourceEditWriter` descends unchanged owners and emits only changed fragments.
+Unchanged source, including comments, commas, CRLFs and string boundaries, stays
+verbatim. Structural edits retain a longest ordered subsequence of authored
+entries and splice only intervening gaps. Stationary slides therefore retain
+occurrence handles through disjoint deletion and reorder. Moved entries receive
+new handles, as with other deletion/insertion transactions.
+
+The helper returns base-document change ranges together with recovered source
+selections. Canvas commits forward these ranges and their base revision to the
+host document. It validates the emitted source by reparsing and comparing the
+semantic AST before publishing. A no-op creates no canvas history entry.
+Run `npm run test:source-edits` for raw-source preservation, exact ranges,
+structural identity and seeded sequence-edit coverage. Browser cache tests cover
+canvas nudge/undo and slide insertion/deletion without rebuilding other slides.
+
+Current limitations: command input/output validation and host document updates
+still parse the full deck. The source pane still replaces CodeMirror state for
+host-driven updates. Shared parse snapshots, bounded authored-owner reparsing,
+and incremental synchronization remain necessary before ordinary canvas edits
+fully meet the parent acceptance criteria.

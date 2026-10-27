@@ -568,7 +568,7 @@ for (const multiple of [false, true]) {
     await rows.nth(0).click();
     if (multiple) await rows.nth(1).click({ modifiers: ['Shift'] });
     await dragByDesign(page, boxes.first(), 50, 30);
-    await expect.poll(() => getSource(page)).toMatch(/x:\s*250\s+y:\s*230/);
+    await expect.poll(() => getSource(page)).toMatch(/x:\s*250[,\s]+y:\s*230/);
     const count = multiple ? 2 : 1;
     await expect(page.locator('.sw-hierarchy-node.selected')).toHaveCount(count);
     await expect(page.locator('.sw-selection-outline')).toHaveCount(count);
@@ -643,16 +643,16 @@ for (const component of ['Box', 'Ellipse', 'TextBox', 'Image', 'Video']) {
     await page.keyboard.down('Shift');
     await dragByDesign(page, page.locator('.sw-resize-se'), 80, 10);
     await page.keyboard.up('Shift');
-    expect(await getSource(page)).toMatch(/x: 400\s+y: 300\s+width: 280\s+height: 210/);
+    expect(await getSource(page)).toMatch(/x: 400[,\s]+y: 300[,\s]+width: 280[,\s]+height: 210/);
   });
 }
 
 for (const [direction, dx, dy, expected] of [
-  ['nw', 80, 10, /x: 480\s+y: 360\s+width: 120\s+height: 90/],
-  ['ne', 80, -10, /x: 400\s+y: 240\s+width: 280\s+height: 210/],
-  ['sw', -80, 10, /x: 320\s+y: 300\s+width: 280\s+height: 210/],
-  ['e', 80, 0, /x: 400\s+y: 270\s+width: 280\s+height: 210/],
-  ['n', 0, -60, /x: 360\s+y: 240\s+width: 280\s+height: 210/],
+  ['nw', 80, 10, /x: 480[,\s]+y: 360[,\s]+width: 120[,\s]+height: 90/],
+  ['ne', 80, -10, /x: 400[,\s]+y: 240[,\s]+width: 280[,\s]+height: 210/],
+  ['sw', -80, 10, /x: 320[,\s]+y: 300[,\s]+width: 280[,\s]+height: 210/],
+  ['e', 80, 0, /x: 400[,\s]+y: 270[,\s]+width: 280[,\s]+height: 210/],
+  ['n', 0, -60, /x: 360[,\s]+y: 240[,\s]+width: 280[,\s]+height: 210/],
 ] as const) {
   test(`Shift ${direction} resize keeps the opposite anchor fixed`, async ({ page }) => {
     await page.goto('/canvas.html?fixture=single-box');
@@ -681,7 +681,7 @@ test('Shift toggles an existing resize preview without pointer movement', async 
   await page.keyboard.up('Shift');
   await expect.poll(height).toBeCloseTo(160, 1);
   await page.mouse.up();
-  expect(await getSource(page)).toMatch(/width: 280\s+height: 160/);
+  expect(await getSource(page)).toMatch(/width: 280[,\s]+height: 160/);
 });
 
 for (const direction of ['se', 'e']) {
@@ -695,11 +695,11 @@ for (const direction of ['se', 'e']) {
     await page.keyboard.up('Shift');
     const source = await getSource(page);
     expect(source).toMatch(direction === 'se'
-      ? /x: 200\s+y: 200\s+width: 240\s+height: 180/
-      : /x: 200\s+y: 155\s+width: 240\s+height: 180/);
+      ? /x: 200[,\s]+y: 200[,\s]+width: 240[,\s]+height: 180/
+      : /x: 200[,\s]+y: 155[,\s]+width: 240[,\s]+height: 180/);
     expect(source).toMatch(direction === 'se'
-      ? /x: 920\s+y: 560\s+width: 240\s+height: 180/
-      : /x: 920\s+y: 515\s+width: 240\s+height: 180/);
+      ? /x: 920[,\s]+y: 560[,\s]+width: 240[,\s]+height: 180/
+      : /x: 920[,\s]+y: 515[,\s]+width: 240[,\s]+height: 180/);
   });
 }
 
@@ -713,8 +713,8 @@ for (const component of ['Arrow', 'Line']) {
       await dragByDesign(page, page.locator('.sw-arrow-endpoint').nth(endpoint), 80, -60);
       await page.keyboard.up('Shift');
       expect(await getSource(page)).toMatch(endpoint === 1
-        ? /x1: 400\s+y1: 300\s+x2: 760\s+y2: 660/
-        : /x1: 460\s+y1: 260\s+x2: 800\s+y2: 600/);
+        ? /x1: 400[,\s]+y1: 300[,\s]+x2: 760[,\s]+y2: 660/
+        : /x1: 460[,\s]+y1: 260[,\s]+x2: 800[,\s]+y2: 600/);
     });
   }
 }
@@ -756,5 +756,5 @@ test('Shift toggles an existing arrow endpoint preview and commits its snapped p
   await page.keyboard.down('Shift');
   await page.mouse.up();
   await page.keyboard.up('Shift');
-  expect(await getSource(page)).toMatch(/x1: 400\s+y1: 300\s+x2: 760\s+y2: 660/);
+  expect(await getSource(page)).toMatch(/x1: 400[,\s]+y1: 300[,\s]+x2: 760[,\s]+y2: 660/);
 });

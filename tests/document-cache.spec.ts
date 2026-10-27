@@ -112,3 +112,41 @@ test('retained diagnostics move correctly, while explicit replacements and synta
   await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '3');
   expect(errors).toEqual([]);
 });
+
+test('ordinary canvas commits preserve later source verbatim and resolve only the edited slide, including undo', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-textbox');
+  await getEditorSource(page);
+  const before = deck().replace('x: 200', 'x: 9');
+  await setHostSource(page, before);
+  await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '100');
+  await page.locator('.sw-hierarchy-node[data-sw-component="TextBox"]').click();
+  await page.keyboard.press('Shift+ArrowRight');
+  await expect.poll(() => getEditorSource(page)).toBe(before.replace('x: 9', 'x: 19'));
+  await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '1');
+  await expect(metrics(page)).toHaveAttribute('data-sw-reused-slides', '99');
+  await page.keyboard.press('Escape');
+  await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press('ControlOrMeta+Z');
+  await expect.poll(() => getEditorSource(page)).toBe(before);
+  await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '1');
+  await expect(metrics(page)).toHaveAttribute('data-sw-reused-slides', '99');
+});
+
+test('canvas slide insertion and deletion retain stationary slides and their thumbnail nodes', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=single-textbox');
+  await getEditorSource(page);
+  await setHostSource(page, deck(8));
+  await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '8');
+  await page.evaluate(() => { (window as any).lastThumb = document.querySelectorAll('.sw-thumb-slot [data-sw-textbox-content]')[7]; });
+  await page.locator('.sw-canvas-stage .presentation').click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press('ControlOrMeta+m');
+  await expect(page.locator('.sw-canvas-status')).toContainText('slide 2 of 9');
+  await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '1');
+  await expect(metrics(page)).toHaveAttribute('data-sw-reused-slides', '8');
+  expect(await page.evaluate(() => document.querySelectorAll('.sw-thumb-slot [data-sw-textbox-content]')[7] === (window as any).lastThumb)).toBe(true);
+  await page.keyboard.press('Delete');
+  await expect(page.locator('.sw-canvas-status')).toContainText('of 8');
+  await expect(metrics(page)).toHaveAttribute('data-sw-resolved-slides', '0');
+  await expect(metrics(page)).toHaveAttribute('data-sw-reused-slides', '8');
+  expect(await page.evaluate(() => document.querySelectorAll('.sw-thumb-slot [data-sw-textbox-content]')[7] === (window as any).lastThumb)).toBe(true);
+});

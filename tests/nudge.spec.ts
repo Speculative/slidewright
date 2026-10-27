@@ -16,10 +16,10 @@ test('arrows nudge selected siblings, preserve selection and undo each step', as
   await rows(page, 'Box').nth(1).click({ modifiers: ['Shift'] });
   const original = await getEditorSource(page);
   for (const [key, first, second] of [
-    ['ArrowRight', /x: 201.5\s+y: 200/, /x: 801\s+y: 500/],
-    ['ArrowDown', /x: 201.5\s+y: 201/, /x: 801\s+y: 501/],
-    ['Shift+ArrowLeft', /x: 191.5\s+y: 201/, /x: 791\s+y: 501/],
-    ['Shift+ArrowUp', /x: 191.5\s+y: 191/, /x: 791\s+y: 491/],
+    ['ArrowRight', /x: 201.5[,\s]+y: 200/, /x: 801[,\s]+y: 500/],
+    ['ArrowDown', /x: 201.5[,\s]+y: 201/, /x: 801[,\s]+y: 501/],
+    ['Shift+ArrowLeft', /x: 191.5[,\s]+y: 201/, /x: 791[,\s]+y: 501/],
+    ['Shift+ArrowUp', /x: 191.5[,\s]+y: 191/, /x: 791[,\s]+y: 491/],
   ] as const) {
     await page.keyboard.press(key);
     await expect.poll(() => getEditorSource(page)).toMatch(first);
@@ -42,7 +42,7 @@ test('nudging supports arrow endpoints, default positions and nested groups', as
   await rows(page, 'Arrow').click();
   await page.keyboard.press('Shift+ArrowRight');
   await page.keyboard.press('ArrowUp');
-  await expect.poll(() => getEditorSource(page)).toMatch(/x1: 410\s+y1: 299\s+x2: 810\s+y2: 599/);
+  await expect.poll(() => getEditorSource(page)).toMatch(/x1: 410[,\s]+y1: 299[,\s]+x2: 810[,\s]+y2: 599/);
   await setHostSource(page, `Deck { slides: [Slide { content: Freeform {
     Group { x: 300 y: 200 children: [ Box { width: 200 height: 150 } ] }
   } }] }`);
@@ -51,7 +51,7 @@ test('nudging supports arrow endpoints, default positions and nested groups', as
   await expect.poll(() => getEditorSource(page)).toMatch(/Box \{[^}]*x: -1/);
   await rows(page, 'Group').click();
   await page.keyboard.press('Shift+ArrowDown');
-  await expect.poll(() => getEditorSource(page)).toMatch(/Group \{\s+x: 300\s+y: 210/);
+  await expect.poll(() => getEditorSource(page)).toMatch(/Group \{\s+x: 300[,\s]+y: 210/);
   expect(await getEditorSource(page)).toMatch(/Box \{[^}]*x: -1/);
 });
 
@@ -89,7 +89,7 @@ test('held arrows repeat and flow-layout children remain positioned by their lay
   await page.keyboard.down('ArrowRight');
   await page.keyboard.down('ArrowRight');
   await page.keyboard.up('ArrowRight');
-  await expect.poll(() => getEditorSource(page)).toMatch(/x: 203\s+y: 200/);
+  await expect.poll(() => getEditorSource(page)).toMatch(/x: 203[,\s]+y: 200/);
   const source = `Deck { slides: [Slide { content: Freeform {
     Group { children: [VStack { children: [Box { width: 200 height: 150 }] }] }
   } }] }`;

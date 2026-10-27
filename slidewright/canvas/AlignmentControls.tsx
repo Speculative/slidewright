@@ -1,3 +1,4 @@
+import type { SourceChange } from '../runtime/document.js';
 import { measureLayoutSnapshot } from './layout-measurement.js';
 import {
   AlignHorizontalJustifyStart, AlignHorizontalJustifyCenter, AlignHorizontalJustifyEnd,
@@ -75,7 +76,7 @@ export function AlignmentControls({ selected, shapes, source, disabled, onCommit
   shapes: ReadonlyMap<string, ShapeData>;
   source: string;
   disabled: boolean;
-  onCommit(source: string, selections?: SourceRange[]): void;
+  onCommit(source: string, selections?: SourceRange[], changes?: readonly SourceChange[]): void;
 }) {
   const [context, setContext] = useState<Context | null>(null);
   const [reference, setReference] = useState<'selection' | 'container'>('selection');
@@ -136,7 +137,7 @@ export function AlignmentControls({ selected, shapes, source, disabled, onCommit
       const node = componentByPath(ast, path);
       return node ? [{ start: node.span.start.offset, end: node.span.end.offset }] : [];
     });
-    onCommit(result.newSource, selections);
+    onCommit(result.newSource, selections, result.changes);
   }
   if (!selected.some(target => target.kind === 'component')) return null;
   const unavailable = disabled || !context;

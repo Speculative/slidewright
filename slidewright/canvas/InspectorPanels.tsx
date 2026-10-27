@@ -30,7 +30,7 @@ import {
   type SlideAstData,
 } from '../runtime/loader.js';
 import type { Component, SlotFill, Value } from '../runtime/ast.js';
-import { emit } from '../runtime/emitter.js';
+import { commitSourceEdit } from './ast-edits.js';
 import { parse } from '../runtime/parser.js';
 import type {
   ComponentMeta,
@@ -719,7 +719,7 @@ function MissingPropertyRow({
     }
     if (!editable || candidate.length === 0) return;
     // Parse the candidate value through the real grammar, then graft that
-    // AST node into the real component and canonical-emit the whole deck.
+    // AST node into the real component and splice that authored owner.
     // This rejects malformed inspector text without ever creating a second
     // value parser or storing presentation-only state.
     const probe = parse(`Probe { value: ${candidate} }`, '<inspector-value>');
@@ -732,12 +732,13 @@ function MissingPropertyRow({
       setDraft(initial);
       return;
     }
-    const parsed = parse(source, '<inspector-materialize>');
-    if (parsed.diagnostics.some((d) => d.severity === 'error')) return;
-    const target = findComponentByExactSpan(parsed.ast.items, owner);
-    if (!target || target.fills.some((fill) => fill.name === name)) return;
-    target.fills.push({ ...probeFill, name });
-    onCommit(emit(parsed.ast));
+    const result = commitSourceEdit(source, '<inspector-materialize>', ast => {
+      const target = findComponentByExactSpan(ast.items, owner);
+      if (!target || target.fills.some(fill => fill.name === name)) return null;
+      target.fills.push({ ...probeFill, name });
+      return {};
+    });
+    if (result) onCommit(result.newSource);
   };
   return (
     <div className="sw-property-row sw-property-row-missing">

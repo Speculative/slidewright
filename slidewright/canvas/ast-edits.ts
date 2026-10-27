@@ -26,7 +26,8 @@
 // the same gesture-commit code, and pulling it out of App keeps
 // the SVG-arithmetic noise out of React state-management code.
 
-import { emit } from '../runtime/emitter.js';
+import { SourceEditWriter, sameAuthoredValue } from './source-preserving.js';
+import type { SourceChange } from '../runtime/document.js';
 import { parse } from '../runtime/parser.js';
 import { makeComponent, slotFill } from '../runtime/ast-builders.js';
 import type {
@@ -328,9 +329,7 @@ export function insertIntoArraySlot(
 
 // ─── Component-path identity ─────────────────────────────────────
 //
-// Source spans aren't stable across the canonical-emitter round-
-// trip — emit reformats the whole source, so even unchanged
-// components get new offsets. Operations that need to identify
+// Length-changing source edits shift later component offsets. Operations that need to identify
 // "the same logical component" before and after a commit (e.g.,
 // dblclick-on-empty-text-slot wants the materialized parent's new
 // span) walk the AST by a path of structural segments from the
@@ -645,9 +644,8 @@ export function projectReorderedIndices(
 // ─── Edit pipeline ───────────────────────────────────────────────
 
 // Position of a shape in its containing Freeform, used by drag and
-// resize to preserve selection across the emit cycle. Spans shift
-// when the canonical formatter rewrites whitespace, so the in-flight
-// (start, end) doesn't match anything in the post-emit tree — but
+// resize to preserve selection across source edits. A length-changing
+// splice can shift the in-flight (start, end) in the reparsed tree, but
 // child index *does* survive (the operation only mutates the
 // shape's own slot fills, never reorders siblings).
 export interface PreserveSelection {
@@ -656,10 +654,10 @@ export interface PreserveSelection {
 }
 
 export interface CommitResult {
+  changes: SourceChange[];
   newSource: string;
   // Each preserved shape's new (start, end). Empty array if the
-  // mutate callback didn't request preservation, or if the post-
-  // emit reparse failed and we couldn't recover any spans.
+  // mutate callback did not request preservation.
   // Callers stash this in `pendingSelectionRef` so the host's
   // subscribe handler can re-apply selection after `setSource`
   // flushes through.
@@ -682,8 +680,9 @@ export interface CommitResult {
 // each selected shape's onCommit contributes one PreserveSelection
 // to the list. Single-shape gestures pass a one-element array.
 //
-// On parse error (either before mutation or in the post-emit
-// reparse), the function returns null without calling setSource —
+// Emit changed authored fragments as source splices, retaining untouched
+// source verbatim. Reparse to validate syntax and semantic equivalence.
+// On parse error (either before mutation or in the output reparse), the function returns null without calling setSource —
 // the caller stays at the pre-edit source rather than emitting on
 // top of a partial AST.
 export function commitSourceEdit(
@@ -695,6 +694,7 @@ export function commitSourceEdit(
 ): CommitResult | null {
   const result = parse(source, label);
   if (result.diagnostics.some((d) => d.severity === 'error')) return null;
+  const writer = new SourceEditWriter(source, result.ast);
   const outcome = mutate(result.ast);
   if (!outcome) return null;
   const selectedPaths: PathSegment[][] = [];
@@ -703,27 +703,26 @@ export function commitSourceEdit(
     if (!path) return null;
     selectedPaths.push(path);
   }
-  const newSource = emit(result.ast);
-  let newSelections: SourceRange[] = [];
+  const { newSource, changes } = writer.write(result.ast);
+  const reparsed = parse(newSource, `${label}-after`);
+  if (reparsed.diagnostics.some(d => d.severity === 'error') || !sameAuthoredValue(result.ast, reparsed.ast)) return null;
+  const newSelections: SourceRange[] = [];
   if (outcome.preserveSelections?.length || selectedPaths.length) {
-    const reparsed = parse(newSource, `${label}-after`);
-    if (!reparsed.diagnostics.some((d) => d.severity === 'error')) {
-      for (const { slideIdx, childIdx } of outcome.preserveSelections ?? []) {
-        const newShape = findShapeAtChildIdx(reparsed.ast, slideIdx, childIdx);
-        if (newShape) {
-          newSelections.push({
-            start: newShape.span.start.offset,
-            end: newShape.span.end.offset,
-          });
-        }
-      }
-      for (const path of selectedPaths) {
-        const component = componentByPath(reparsed.ast, path);
-        if (component) newSelections.push({ start: component.span.start.offset, end: component.span.end.offset });
+    for (const { slideIdx, childIdx } of outcome.preserveSelections ?? []) {
+      const newShape = findShapeAtChildIdx(reparsed.ast, slideIdx, childIdx);
+      if (newShape) {
+        newSelections.push({
+          start: newShape.span.start.offset,
+          end: newShape.span.end.offset,
+        });
       }
     }
+    for (const path of selectedPaths) {
+      const component = componentByPath(reparsed.ast, path);
+      if (component) newSelections.push({ start: component.span.start.offset, end: component.span.end.offset });
+    }
   }
-  return { newSource, newSelections };
+  return { newSource, newSelections, changes };
 }
 
 // ─── Geometry ────────────────────────────────────────────────────
