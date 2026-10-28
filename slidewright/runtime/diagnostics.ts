@@ -8,6 +8,7 @@
 import type { Span } from './ast.js';
 
 export type DiagnosticKind =
+  | 'invalid-build'
   | 'parse'
   | 'lex'
   | 'duplicate-slot'

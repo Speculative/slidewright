@@ -53,6 +53,7 @@ import {
 } from './diagnostics.js';
 import { parse, type ParseResult } from './parser.js';
 import { lookup, type Scope, type ScopeValue } from './scope.js';
+import { buildObjects, objectId, resolveBuild, validateBuilds } from './builds.js';
 
 export interface LoadDeckInput {
   source: string;
@@ -67,6 +68,8 @@ export interface LoadDeckInput {
   // gesture). Other consumers (CLI validate, SSR smoke tests) use
   // the default and never see gesture state.
   wrapShape?: WrapShape;
+  // Zero is the initial frame. Slides keep their top-level indices.
+  buildIndices?: ReadonlyMap<number, number>;
 }
 
 export type WrapShape = (input: WrapShapeInput) => ReactElement;
@@ -119,7 +122,10 @@ export interface LoadDeckResult {
 }
 
 export interface SlideAstData {
+  // Effective scene for the selected frame, with authored owner spans.
   comp: Component;
+  authoredComp: Component;
+  buildIndex: number;
   meta: ComponentMeta;
 }
 
@@ -184,6 +190,7 @@ function resolveDeck(input: LoadDeckInput, parsed: ParseResult, cache?: SlideCac
     slidesData: [],
     currentSlideIdx: -1,
     cache,
+    buildIndices: input.buildIndices,
   };
 
   // Find the top-level Deck invocation. We accept exactly one for v0.0.
@@ -343,7 +350,7 @@ function renderCachedSlide(comp: Component, ctx: LoadCtx, idx: number, chapter?:
     cache.adapters.set(current.span.start.offset, canvas);
     ctx.shapes.set(`${current.span.start.offset}-${current.span.end.offset}`, { ...shape, canvas, comp: current, slideIdx: idx });
   }
-  for (const slide of entry.slidesData) ctx.slidesData.push({ ...slide, comp });
+  for (const slide of entry.slidesData) ctx.slidesData.push({ ...slide, comp, authoredComp: comp });
   if (!entry.frame) return null;
   // Frame order/chapter and source location are current; the resolved content
   // element below the provider retains its identity, including after shifts.
@@ -458,6 +465,7 @@ interface LoadCtx {
   // its parent slide for canvas-side commit logic.
   currentSlideIdx: number;
   cache?: SlideCacheContext;
+  buildIndices?: ReadonlyMap<number, number>;
   inlineSlotOverride?: { component: Component; name: string; content: ReactNode };
 }
 
@@ -611,7 +619,13 @@ function renderDeckSlides(deck: Component, ctx: LoadCtx): ReactElement[] {
       const title = readString(byName(item.fills).get('chapter'), ctx);
       if (title !== undefined) chapter = title;
     }
-    const el = ctx.cache ? renderCachedSlide(item, ctx, idx, chapter) : renderSlide(item, ctx, idx, chapter);
+    const hasBuilds = item.name === 'Slide' && item.fills.some(fill => fill.name === 'builds');
+    // Effective values can originate outside their object's span. The ordinary
+    // relative-location cache cannot remap those values safely.
+    const selected = ctx.buildIndices?.get(idx) ?? 0;
+    const el = ctx.cache && !hasBuilds && selected === 0
+      ? renderCachedSlide(item, ctx, idx, chapter) : renderSlide(item, ctx, idx, chapter);
+    if (ctx.cache && (hasBuilds || selected !== 0)) ctx.cache.counts.resolvedSlides++;
     if (el) out.push(el);
     idx += 1;
   }
@@ -649,7 +663,7 @@ function renderSlide(comp: Component, ctx: LoadCtx, idx: number, chapter?: strin
   // Record custom slide-producing components in slidesData too, so
   // the inspector treats them the same as builtin Slides. Their own
   // meta drives the property panel.
-  ctx.slidesData.push({ comp, meta: loaded.meta });
+  ctx.slidesData.push({ comp, authoredComp: comp, buildIndex: 0, meta: loaded.meta });
   const inner = renderComponent(comp, ctx);
   if (!inner) return null;
   return wrapWithSpan(
@@ -659,12 +673,30 @@ function renderSlide(comp: Component, ctx: LoadCtx, idx: number, chapter?: strin
 }
 
 function renderBuiltinSlide(comp: Component, ctx: LoadCtx, idx: number, chapter?: string): ReactElement | null {
+  const authoredComp = comp;
+  let buildIndex = ctx.buildIndices?.get(idx) ?? 0;
+  const errors = validateBuilds(authoredComp);
+  for (const error of errors) emit(ctx, 'invalid-build', comp.span, error);
+  validateBuildKeyframes(authoredComp, ctx);
+  if (errors.length) buildIndex = 0;
+  try {
+    if (authoredComp.fills.some(fill => fill.name === 'builds') || buildIndex !== 0) {
+      comp = resolveBuild(authoredComp, buildIndex);
+    }
+  } catch (error) {
+    emit(ctx, 'invalid-build', comp.span, (error as Error).message);
+    buildIndex = 0;
+    // A malformed build list must not prevent the initial scene rendering.
+    comp = { ...authoredComp, fills: authoredComp.fills.filter(fill => fill.name !== 'builds') };
+  }
+  // Keep the ordinary, build-free path's node identity and cache behavior.
+  if (!authoredComp.fills.some(fill => fill.name === 'builds') && buildIndex === 0) comp = authoredComp;
   const fills = byName(comp.fills);
   validateAgainstMeta(comp, BUILTIN_META.Slide!, ctx);
   // Record the slide's AST + meta so the inspector can render its
   // properties as the default panel state. Pushed in slide-index
   // order (matches `slides: ReactElement[]`).
-  ctx.slidesData.push({ comp, meta: BUILTIN_META.Slide! });
+  ctx.slidesData.push({ comp, authoredComp, buildIndex, meta: BUILTIN_META.Slide! });
   const contentFill = fills.get('content');
   const label = readString(fills.get('label'), ctx);
   const notes = readText(fills.get('notes'), ctx);
@@ -935,17 +967,21 @@ function renderComponent(comp: Component, ctx: LoadCtx): ReactNode {
     });
   }
 
-  return ctx.wrapShape({
+  return applyObjectPresentation(comp, loaded.meta, ctx.wrapShape({
     comp,
     loaded: canvas === loaded.canvas ? loaded : { ...loaded, canvas },
     slots,
     params,
     slotsState,
     cellKey: cellKey(comp),
-  });
+  }));
 }
 
 function renderSpanAsNode(comp: Component, ctx: LoadCtx): ReactNode {
+  return applyObjectPresentation(comp, BUILTIN_META.Span!, renderSpanAsNodeContent(comp, ctx));
+}
+
+function renderSpanAsNodeContent(comp: Component, ctx: LoadCtx): ReactNode {
   validateAgainstMeta(comp, BUILTIN_META.Span!, ctx);
   const fills = byName(comp.fills);
   const content = fills.get('content');
@@ -1026,6 +1062,10 @@ const ORDERED_LIST_STYLES = new Set([
 ]);
 
 function renderListAsNode(comp: Component, ctx: LoadCtx): ReactNode {
+  return applyObjectPresentation(comp, BUILTIN_META.List!, renderListAsNodeContent(comp, ctx));
+}
+
+function renderListAsNodeContent(comp: Component, ctx: LoadCtx): ReactNode {
   validateAgainstMeta(comp, BUILTIN_META.List!, ctx);
   const fills = byName(comp.fills);
   const style = readNameOrString(fills.get('style'), ctx) ?? 'disc';
@@ -1067,6 +1107,10 @@ function renderListAsNode(comp: Component, ctx: LoadCtx): ReactNode {
 }
 
 function renderListItemAsNode(comp: Component, ctx: LoadCtx): ReactNode {
+  return applyObjectPresentation(comp, BUILTIN_META.ListItem!, renderListItemAsNodeContent(comp, ctx));
+}
+
+function renderListItemAsNodeContent(comp: Component, ctx: LoadCtx): ReactNode {
   validateAgainstMeta(comp, BUILTIN_META.ListItem!, ctx);
   const fills = byName(comp.fills);
   const content = fills.get('content');
@@ -1113,6 +1157,10 @@ function paragraphStyle(comp: Component, ctx: LoadCtx): Record<string, string | 
 }
 
 function renderParagraphAsNode(comp: Component, ctx: LoadCtx): ReactNode {
+  return applyObjectPresentation(comp, BUILTIN_META.Paragraph!, renderParagraphAsNodeContent(comp, ctx));
+}
+
+function renderParagraphAsNodeContent(comp: Component, ctx: LoadCtx): ReactNode {
   validateAgainstMeta(comp, BUILTIN_META.Paragraph!, ctx);
   const fills = byName(comp.fills);
   const content = fills.get('content');
@@ -1391,6 +1439,91 @@ function resolveImageValue(value: Value, ctx: LoadCtx): string | null {
   return null;
 }
 
+// Visibility is applied after resolution so hidden objects and their children
+// remain addressable in shapes, while contributing no DOM or layout space.
+function applyObjectPresentation(comp: Component, meta: ComponentMeta, node: ReactNode): ReactNode {
+  const fills = byName(comp.fills);
+  const visible = fills.get('visible')?.value;
+  if (visible?.kind === 'boolean' && !visible.value) return null;
+  if (meta.params?.opacity || meta.slots.opacity) return node;
+  const opacity = fills.get('opacity')?.value;
+  if (opacity?.kind !== 'number' || opacity.value === 1) return node;
+  // A real box is necessary: opacity does not paint on display:contents.
+  // A static grid shrink-wraps flow content in stacks, and introduces no
+  // positioned containing block for absolute children inside Freeform.
+  return sourceElement(meta.produces === 'text' ? 'span' : 'div', {
+    key: `opacity-${comp.span.start.offset}`, 'data-sw-object-opacity': opacity.value,
+    style: { display: meta.produces === 'text' ? 'inline-block' : 'grid', opacity: opacity.value },
+  }, node);
+}
+
+function validateBuildKeyframes(slide: Component, ctx: LoadCtx): void {
+  const builds = byName(slide.fills).get('builds');
+  if (!builds) return;
+  if (slide.fills.filter(fill => fill.name === 'builds').length > 1) {
+    emit(ctx, 'duplicate-slot', builds.span, 'Duplicate Slide.builds metadata');
+  }
+  if (builds.value.kind !== 'list') return; // Core reports the structure error.
+  const objects = new Map(buildObjects(slide).flatMap(object => {
+    const id = objectId(object);
+    return id ? [[id, object] as const] : [];
+  }));
+  const validation: LoadCtx = { ...ctx, cache: undefined, shapes: new Map(), slidesData: [],
+    cellStore: new CellStore(), cellSeq: 0, currentSlideIdx: -1,
+    wrapShape: defaultWrapShape, buildIndices: undefined };
+  for (const build of builds.value.items) {
+    if (build.kind !== 'component' || build.name !== 'Build') continue;
+    validateAgainstMeta(build, { produces: 'block', slots: { changes: { type: 'array<block>' } },
+      params: { id: { type: 'string' }, label: { type: 'string' } } }, validation);
+    validateNoUnknown(build, ['id', 'label', 'changes'], validation);
+    const fields = byName(build.fills);
+    const label = fields.get('label');
+    if (label) readString(label, validation);
+    if (build.implicitChildren.length) emit(ctx, 'invalid-build', build.span, 'Build does not accept implicit children');
+    const changes = fields.get('changes')?.value;
+    if (changes?.kind !== 'list') continue;
+    for (const change of changes.items) {
+      if (change.kind !== 'component' || change.name !== 'Change') continue;
+      if (change.implicitChildren.length) emit(ctx, 'invalid-build', change.span, 'Change does not accept implicit children');
+      const target = byName(change.fills).get('target')?.value;
+      const object = target?.kind === 'string' ? objects.get(target.value) : undefined;
+      if (!object) continue; // Core reports unknown targets.
+      const meta = BUILTIN_META[object.name] ?? ctx.components[object.name]?.meta;
+      if (!meta) continue;
+      for (const fill of change.fills) {
+        if (fill.name === 'target') continue;
+        const schema = fill.name === 'visible' ? { type: 'boolean' as const }
+          : meta.slots[fill.name] ?? meta.params?.[fill.name]
+            ?? (fill.name === 'opacity' ? { type: 'number' as const } : undefined);
+        if (!schema) {
+          emit(ctx, 'unknown-slot', fill.span, `Build target \`${object.name}\` has no property \`${fill.name}\``);
+        } else if (fill.value.kind !== 'omit') {
+          validateKeyframedValue(schema.type, fill.value, validation);
+        }
+      }
+    }
+  }
+}
+
+// The ordinary block renderer accepts any registered component. A keyframe
+// must also satisfy the target slot's produced-type contract.
+function validateKeyframedValue(type: SlotType, value: Value, ctx: LoadCtx): void {
+  if (type.startsWith('array<') && value.kind === 'list') {
+    const inner = type.slice(6, -1) as SlotType;
+    value.items.forEach(item => validateKeyframedValue(inner, item, ctx));
+    return;
+  }
+  if (value.kind === 'component' && ['block', 'slide', 'slide-content'].includes(type)) {
+    const meta = BUILTIN_META[value.name] ?? ctx.components[value.name]?.meta;
+    if (meta && meta.produces !== type &&
+        !(type === 'slide-content' && ['block', 'slide'].includes(meta.produces))) {
+      emit(ctx, 'slot-type-mismatch', value.span, `Build value produces \`${meta.produces}\`, expected \`${type}\``);
+      return;
+    }
+  }
+  resolveSlotValue(type, value, ctx);
+}
+
 // ── Schema validation ──────────────────────────────────────────────────
 
 function validateAgainstMeta(
@@ -1401,6 +1534,7 @@ function validateAgainstMeta(
   const known = new Set([
     ...Object.keys(meta.slots),
     ...Object.keys(meta.params ?? {}),
+    'id', 'visible', 'opacity',
   ]);
   // Duplicates + unknowns.
   const seen = new Map<string, SlotFill>();
@@ -1425,6 +1559,17 @@ function validateAgainstMeta(
         knownHint(known),
       );
     }
+  }
+  const metadata = byName(comp.fills);
+  const id = metadata.get('id');
+  if (id && (id.value.kind !== 'string' || !id.value.value)) {
+    emit(ctx, 'slot-type-mismatch', id.value.span, 'Object IDs must be nonempty strings');
+  }
+  const visible = metadata.get('visible');
+  if (visible && visible.value.kind !== 'omit') readBoolean(visible, ctx);
+  if (!meta.params?.opacity && !meta.slots.opacity) {
+    const opacity = metadata.get('opacity');
+    if (opacity && opacity.value.kind !== 'omit') readNumber(opacity, ctx);
   }
   // Required slots.
   for (const [slotName, schema] of Object.entries(meta.slots)) {

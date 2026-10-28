@@ -21,6 +21,7 @@ import {
   useState,
 } from 'react';
 import { ComponentPreviewContext } from './component-preview.js';
+import { BuildObjectBadge, BuildPropertyControl } from './build-inspector.js';
 import type {
   FocusEvent as ReactFocusEvent,
   PointerEvent as ReactPointerEvent,
@@ -313,6 +314,7 @@ export function HierarchyPanel({
                 <span className="sw-hierarchy-node-name">
                   {node.comp.name}
                 </span>
+                <BuildObjectBadge object={node.comp} />
               </li>
             );
           })}
@@ -611,8 +613,10 @@ function ComponentPropertiesView({
   return (
     <PanelFrame header={header}>
       <div className="sw-properties-rows">
-        {rows.map((row) =>
-          row.kind === 'filled' ? (
+        {rows.map((row) => <BuildPropertyControl key={`${row.owner.span.start.offset}-${row.kind === 'filled' ? row.fill.name : row.name}`}
+          owner={row.owner} property={row.kind === 'filled' ? row.fill.name : row.name}
+          defaultValue={row.kind === 'missing' ? row.defaultValue : undefined}>
+          {row.kind === 'filled' ? (
             <PropertyRow
               key={`${shape.slideIdx}-${shape.childIdx}-${row.fill.name}`}
               component={shape.comp}
@@ -638,8 +642,8 @@ function ComponentPropertiesView({
               source={source}
               onCommit={wrappedCommit}
             />
-          ),
-        )}
+          )}
+        </BuildPropertyControl>)}
       </div>
     </PanelFrame>
   );
@@ -669,10 +673,12 @@ function buildPropertyRowDescriptors(
   meta: ComponentMeta,
 ): PropertyRowDescriptor[] {
   const filled = new Set(comp.fills.map((f) => f.name));
+  if (comp.fills.some(fill => fill.name === 'id')) meta = { ...meta, params: { visible: { type: 'boolean', default: true }, opacity: { type: 'number', default: 1 }, ...meta.params } };
   const rows: PropertyRowDescriptor[] = [];
   // Filled rows first, in source order — preserves the existing
   // visual ordering the user is used to.
   for (const fill of comp.fills) {
+    if (fill.name === 'id' || fill.name === 'builds') continue;
     rows.push({ kind: 'filled', fill, owner: comp, choices: meta.params?.[fill.name]?.choices });
   }
   // Missing slots, then missing params. Within each group, follow
@@ -695,7 +701,10 @@ function buildPropertyRowDescriptors(
       });
     }
   }
-  return meta.editor ? rows.filter(row => meta.editor!.inspector.includes(row.kind === 'filled' ? row.fill.name : row.name)) : rows;
+  return meta.editor ? rows.filter(row => {
+    const name = row.kind === 'filled' ? row.fill.name : row.name;
+    return meta.editor!.inspector.includes(name) || comp.fills.some(fill => fill.name === 'id') && ['visible', 'opacity'].includes(name);
+  }) : rows;
 }
 
 function rowBelongsTo(
@@ -723,6 +732,7 @@ function MissingPropertyRow({
   onCommit: PropertyCommit;
 }): ReactElement {
   const snapshot = useContext(InspectorDocumentContext);
+  const focusSnapshotRef = useRef(snapshot);
   const editable =
     !slotType.startsWith('array<') &&
     !['block', 'slide', 'slide-content'].includes(slotType);
@@ -754,7 +764,7 @@ function MissingPropertyRow({
       if (!target || target.fills.some(fill => fill.name === name)) return null;
       target.fills.push({ ...probeFill, name });
       return {};
-    }, snapshot);
+    }, focusSnapshotRef.current);
     if (result) onCommit(result.newSource, result.changes, result.baseRevision);
   };
   return (
@@ -762,6 +772,7 @@ function MissingPropertyRow({
       <span className="sw-property-key">{name}</span>
       {choices ? (
         <select className="sw-property-value" aria-label={name}
+          onFocus={() => { focusSnapshotRef.current = snapshot; }}
           value={typeof defaultValue === 'string' ? defaultValue : ''} onChange={event => commit(JSON.stringify(event.currentTarget.value))}>
           {choices.map(choice => <option key={choice} value={choice}>{choice}</option>)}
         </select>
@@ -771,6 +782,7 @@ function MissingPropertyRow({
           value={draft}
           spellCheck={false}
           aria-label={`${name} (default)`}
+          onFocus={() => { focusSnapshotRef.current = snapshot; }}
           onChange={(event) => setDraft(event.currentTarget.value)}
           onBlur={() => commit()}
           onKeyDown={(event) => {
@@ -1082,8 +1094,10 @@ function SlidePropertiesView({
   return (
     <PanelFrame header={header}>
       <div className="sw-properties-rows">
-        {rows.map((row) =>
-          row.kind === 'filled' ? (
+        {rows.map((row) => <BuildPropertyControl key={`${row.owner.span.start.offset}-${row.kind === 'filled' ? row.fill.name : row.name}`}
+          owner={row.owner} property={row.kind === 'filled' ? row.fill.name : row.name}
+          defaultValue={row.kind === 'missing' ? row.defaultValue : undefined}>
+          {row.kind === 'filled' ? (
             <PropertyRow
               key={`${rowKeyPrefix(row)}-${row.fill.name}`}
               component={unify && contentComp && rowBelongsTo(row, contentComp) ? contentComp : slide.comp}
@@ -1109,8 +1123,8 @@ function SlidePropertiesView({
               source={source}
               onCommit={wrappedCommit}
             />
-          ),
-        )}
+          )}
+        </BuildPropertyControl>)}
       </div>
     </PanelFrame>
   );

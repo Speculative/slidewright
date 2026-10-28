@@ -52,7 +52,12 @@ interface Props {
   onAddSlide: () => void;
   onReorder: (fromIndices: ReadonlyArray<number>, toIndex: number) => void;
   width: number;
+  builds?: ReadonlyMap<number, readonly BuildThumbnail[]>;
+  activeBuild?: number;
+  onSelectBuild?: (slideIndex: number, buildIndex: number) => void;
 }
+
+export interface BuildThumbnail { index: number; label: string; slide: ReactElement; summary: string }
 
 interface DragState {
   // The slide the user pointer-downed on. The "group" being moved
@@ -82,6 +87,9 @@ export function SlideStrip({
   onAddSlide,
   onReorder,
   width,
+  builds,
+  activeBuild = 0,
+  onSelectBuild,
 }: Props): ReactElement {
   const stripRef = useRef<HTMLDivElement>(null);
   const probeRef = useRef<HTMLDivElement>(null);
@@ -121,7 +129,7 @@ export function SlideStrip({
       // top-to-bottom; the gap above thumb i has the same Y as
       // thumb i's top edge.
       const thumbs = Array.from(
-        stripEl.querySelectorAll<HTMLElement>('.sw-thumb'),
+        stripEl.querySelectorAll<HTMLElement>(':scope > .sw-thumb-slot > .sw-thumb'),
       );
       let idx = thumbs.length; // after-last by default
       for (let i = 0; i < thumbs.length; i++) {
@@ -175,13 +183,13 @@ export function SlideStrip({
       aria-multiselectable
     >
       {slides.map((slide, i) => (
-        <div key={slide.key ?? i} className="sw-thumb-slot">
+        <div key={slide.key ?? i} className="sw-thumb-slot" data-slide-index={i}>
           {drag?.insertionIndex === i ? <InsertionLine /> : null}
           <SlideThumb
             slide={slide}
             idx={i}
-            active={i === activeIdx}
-            selected={selSet.has(i)}
+            active={i === activeIdx && activeBuild === 0}
+            selected={selSet.has(i) && (i !== activeIdx || activeBuild === 0)}
             dragging={
               drag !== null &&
               drag.insertionIndex !== null &&
@@ -203,8 +211,12 @@ export function SlideStrip({
                 insertionIndex: null,
               });
             }}
+            onSelect={mods => onSelect(i, mods)}
             frameRef={i === 0 ? probeRef : undefined}
           />
+          {builds?.get(i)?.map(frame => <BuildThumb key={frame.index} frame={frame} slideIndex={i}
+            active={i === activeIdx && activeBuild === frame.index}
+            onSelect={() => onSelectBuild?.(i, frame.index)} />)}
         </div>
       ))}
       {drag?.insertionIndex === slides.length ? (
@@ -232,6 +244,30 @@ export function SlideStrip({
   );
 }
 
+function BuildThumb({ frame, slideIndex, active, onSelect }: {
+  frame: BuildThumbnail; slideIndex: number; active: boolean; onSelect(): void;
+}): ReactElement {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const measure = () => node.style.setProperty('--thumb-scale', String((node.clientWidth - 2) / DESIGN_W));
+    const observer = new ResizeObserver(measure); observer.observe(node); measure();
+    return () => observer.disconnect();
+  }, []);
+  return <div ref={ref} tabIndex={0} role="option" aria-selected={active}
+    data-build-index={frame.index}
+    aria-label={`Slide ${slideIndex + 1} build ${frame.index}: ${frame.label}`}
+    className={`sw-thumb sw-build-thumb${active ? ' active selected' : ''}`} onClick={onSelect}
+    onKeyDown={event => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(); }
+    }}>
+    <div className="sw-thumb-frame" inert aria-hidden="true">{prepareSlide(frame.slide)}</div>
+    <div className="sw-thumb-num">{slideIndex + 1}.{frame.index} · {frame.label}</div>
+    {frame.summary && <div className="sw-build-thumb-summary">{frame.summary}</div>}
+  </div>;
+}
+
 function InsertionLine(): ReactElement {
   return <div className="sw-strip-insertion" aria-hidden />;
 }
@@ -243,6 +279,7 @@ function SlideThumb({
   selected,
   dragging,
   onPointerDown,
+  onSelect,
   frameRef,
 }: {
   slide: ReactElement;
@@ -250,7 +287,8 @@ function SlideThumb({
   active: boolean;
   selected: boolean;
   dragging: boolean;
-  onPointerDown: (e: PointerEvent<HTMLButtonElement>) => void;
+  onPointerDown: (e: PointerEvent<HTMLDivElement>) => void;
+  onSelect: (mods: SlideClickModifiers) => void;
   frameRef?: React.RefObject<HTMLDivElement | null>;
 }): ReactElement {
   const prepared = prepareSlide(slide);
@@ -260,19 +298,25 @@ function SlideThumb({
   if (dragging) cls.push('dragging');
   const style: CSSProperties = dragging ? { opacity: 0.5 } : {};
   return (
-    <button
-      type="button"
+    <div
+      tabIndex={0}
       className={cls.join(' ')}
       onPointerDown={onPointerDown}
+      onKeyDown={event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelect({ shift: event.shiftKey, meta: event.metaKey || event.ctrlKey });
+        }
+      }}
       aria-label={`Slide ${idx + 1}`}
       aria-selected={selected}
       role="option"
       style={style}
     >
-      <div className="sw-thumb-frame" ref={frameRef}>
+      <div className="sw-thumb-frame" ref={frameRef} inert aria-hidden="true">
         {prepared}
       </div>
       <div className="sw-thumb-num">{idx + 1}</div>
-    </button>
+    </div>
   );
 }

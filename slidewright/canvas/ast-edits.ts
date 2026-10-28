@@ -26,6 +26,7 @@
 // the same gesture-commit code, and pulling it out of App keeps
 // the SVG-arithmetic noise out of React state-management code.
 
+import { prepareBuildMutation } from './build-editing.js';
 import { SourceEditWriter, sameAuthoredValue } from './source-preserving.js';
 import { SourceMapping, type DocumentSnapshot, type SourceChange } from '../runtime/document.js';
 import { parseDocument, type ParseWork } from '../runtime/document-parser.js';
@@ -705,8 +706,21 @@ export function commitSourceEdit(
     : parse(source, label);
   if (result.diagnostics.some((d) => d.severity === 'error')) return null;
   const writer = new SourceEditWriter(source, result.ast);
-  const outcome = mutate(result.ast);
+  const build = prepareBuildMutation(snapshot, result.ast,
+    ['<drag>', '<nudge>'].includes(label) ? [['x', 'y'], ['x1', 'y1', 'x2', 'y2']] : []);
+  const editingAst = build?.ast ?? result.ast;
+  const outcome = mutate(editingAst);
   if (!outcome) return null;
+  if (build) {
+    const selected = [...(outcome.selectComponents ?? [])];
+    for (const { slideIdx, childIdx } of outcome.preserveSelections ?? []) {
+      const node = findShapeAtChildIdx(editingAst, slideIdx, childIdx);
+      if (node) selected.push(node);
+    }
+    if (!build.lower()) return null;
+    outcome.selectComponents = selected.map(component => build.canonicalComponent(component)).filter((component): component is Component => !!component);
+    outcome.preserveSelections = [];
+  }
   const selectedPaths: PathSegment[][] = [];
   for (const component of outcome.selectComponents ?? []) {
     const path = pathToComponent(result.ast, component);

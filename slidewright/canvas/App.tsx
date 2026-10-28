@@ -26,6 +26,11 @@ import {
 import type { PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
+import { addBuild, buildFrames, buildObjects, buildProperty, duplicateBuild, editBuildProperties, moveBuild, nextBuildDirection, objectId, removeBuild, toggleBuildKeyframe, type BuildDirection } from '../runtime/builds.js';
+import { commitBuildSourceCandidate, createBuildEditingSnapshot, hasBuildEditingContext } from './build-editing.js';
+import { AdditionalBuildKeyframes, BuildInspectorContext } from './build-inspector.js';
+import { BuildChangesOverlay } from './BuildChangesOverlay.js';
+import { buildPreviewSlides } from './build-previews.js';
 import { PresentationBuild, PresentationContext } from '../runtime/presentation.js';
 import {
   DeckResolver,
@@ -38,7 +43,7 @@ import { DeckDocument, type DocumentUpdate, type SourceChange, type DocumentSnap
 import { mapSelectionTargets } from './selection-mapping.js';
 import { sourceUndoEntry, type SourceUndoEntry as UndoEntry } from './source-history.js';
 import { numberLit, stringLit, booleanLit, nameRef, paragraphDocument } from '../runtime/ast-builders.js';
-import type { Component, Value } from '../runtime/ast.js';
+import type { Component, SourceFile, Value } from '../runtime/ast.js';
 import { ComponentPreviews, ComponentPreviewContext } from './component-preview.js';
 import type { Diagnostic } from '../runtime/diagnostics.js';
 import type { Scope } from '../runtime/scope.js';
@@ -55,7 +60,7 @@ import { TextDocumentSessionContext } from './text-document-context.js';
 import { components, staticTokens } from '../../decks/v0-reference/registry.js';
 import { DeckMetaContext } from '../../src/Slide.jsx';
 
-import type { Host, SourceRange } from './host.js';
+import type { Host, HostState, SourceRange } from './host.js';
 import type { EditorPaneProjection } from './editor-projection.js';
 import {
   componentTarget,
@@ -107,7 +112,7 @@ import { isLayoutAdapter, type LayoutAdapter } from './layout-adapter.js';
 import { SelectionLayer } from './selection-layer.js';
 import { GestureOverlayLayer } from './gesture-overlay-layer.js';
 import { DiagnosticsPanel } from './DiagnosticsPanel.js';
-import { SlideStrip, type SlideClickModifiers } from './SlideStrip.js';
+import { SlideStrip, type SlideClickModifiers, type BuildThumbnail } from './SlideStrip.js';
 import { ResizeHandle } from './ResizeHandle.js';
 import {
   HierarchyPanel,
@@ -131,7 +136,11 @@ interface DeckMeta {
   subtitle: string;
 }
 
+export interface BuildNavigation { slideIndex: number; buildIndex: number; buildCount: number; advance(direction: number): void; reset(): void }
+
 interface RenderState {
+  initialSlides: ReactElement[];
+  buildThumbnails: ReadonlyMap<number, readonly BuildThumbnail[]>;
   snapshot: DocumentSnapshot;
   revision: number;
   resolution: { resolvedSlides: number; reusedSlides: number };
@@ -217,6 +226,19 @@ export function prepareSlide(wrappedSlide: ReactElement): ReactElement {
     actLabel: (inner.props as { actLabel?: string }).actLabel ?? DEFAULT_ACT_LABEL,
   } as Record<string, unknown>);
   return cloneElement(wrappedSlide, undefined, preparedInner);
+}
+
+function buildPropertyDefault(object: Component, property: string): Value | undefined {
+  const schema = components[object.name]?.meta.params?.[property];
+  const value = schema?.default ?? (property === 'visible' ? true : property === 'opacity' ? 1 : undefined);
+  return typeof value === 'number' ? numberLit(value) : typeof value === 'boolean' ? booleanLit(value)
+    : typeof value === 'string' ? schema?.type === 'color-token' ? nameRef(value) : stringLit(value) : undefined;
+}
+
+function authoredSlideAt(ast: SourceFile, index: number): Component | undefined {
+  const value = ast.items.find(item => item.name === 'Deck')?.fills.find(fill => fill.name === 'slides')?.value;
+  const slide = value?.kind === 'list' ? value.items[index] : undefined;
+  return slide?.kind === 'component' ? slide : undefined;
 }
 
 // ─── Gesture state ────────────────────────────────────────────────
@@ -845,10 +867,12 @@ export function App({
   onActiveSlideChange,
   presenting = false,
   onPresentationBuildChange,
+  onBuildNavigationChange,
 }: {
   host: Host;
   presenting?: boolean;
   onPresentationBuildChange?(build: PresentationBuild): void;
+  onBuildNavigationChange?(navigation: BuildNavigation): void;
   onActiveSlideChange?(index: number): void;
   // Optional source/notes pane alongside hierarchy in the bottom dock.
   // VS Code uses its native editor and leaves this slot empty.
@@ -860,7 +884,13 @@ export function App({
   const [state, setState] = useState<RenderState | null>(null);
   const colorPreviews = useMemo(() => new ComponentPreviews(), []);
   const [activeIdx, setActiveIdx] = useState(0);
-  const activeSlideKey = state?.slides[activeIdx]?.key ?? activeIdx;
+  const buildIndicesRef = useRef(new Map<number, number>());
+  const refreshBuildsRef = useRef<() => void>(() => {});
+  const canonicalSnapshotRef = useRef<DocumentSnapshot | undefined>(undefined);
+  const [buildDirection, setBuildDirection] = useState<BuildDirection>('forward');
+  const directionRef = useRef(buildDirection); directionRef.current = buildDirection;
+  const activeBuildIndex = state?.slidesData[activeIdx]?.buildIndex ?? 0;
+  const activeSlideKey = `${state?.slides[activeIdx]?.key ?? activeIdx}:${activeBuildIndex}`;
   const build = useMemo(() => new PresentationBuild(), [activeSlideKey, presenting]);
   useEffect(() => { onPresentationBuildChange?.(build); }, [build, onPresentationBuildChange]);
   useEffect(() => { onActiveSlideChange?.(activeIdx); }, [activeIdx, onActiveSlideChange]);
@@ -955,8 +985,38 @@ export function App({
   // Updated below on every state change.
   const sourceRef = useRef<string>('');
   const sourceSnapshotRef = useRef<DocumentSnapshot | undefined>(undefined);
-  const commitSourceEdit = useCallback((source: string, label: string, mutate: Parameters<typeof editSource>[2]) =>
-    editSource(source, label, mutate, sourceSnapshotRef.current), []);
+  const operationSnapshotRef = useRef<DocumentSnapshot | undefined>(undefined);
+  const editingSnapshot = useMemo(() => {
+    if (!state) return undefined;
+    try { return createBuildEditingSnapshot(state.snapshot, { slideIndex: activeIdx, buildIndex: activeBuildIndex,
+      direction: buildDirection, registry: components }); }
+    catch { return state.snapshot; }
+  }, [state?.snapshot, activeIdx, activeBuildIndex, buildDirection]);
+  if (editingSnapshot?.source === sourceRef.current) sourceSnapshotRef.current = editingSnapshot;
+  const editSnapshot = useCallback(() => operationSnapshotRef.current?.source === sourceRef.current
+    ? operationSnapshotRef.current : sourceSnapshotRef.current, []);
+  colorPreviews.onBegin = () => { operationSnapshotRef.current = sourceSnapshotRef.current; };
+  const commitSourceEdit = useCallback((source: string, label: string, mutate: Parameters<typeof editSource>[2]) => {
+    const deckOperation = ['<add-slide>', '<duplicate-slide>', '<delete-slides>', '<reorder-slides>'].includes(label);
+    const result = editSource(source, label, mutate, deckOperation ? canonicalSnapshotRef.current : editSnapshot());
+    // Frame selections are scoped to a slide's current position. Structural
+    // deck operations reset them, rather than applying one slide's selection
+    // to a different slide that has moved into that index.
+    if (deckOperation && result && result.newSource !== source) buildIndicesRef.current.clear();
+    return result;
+  }, [editSnapshot]);
+
+  // Floating formatting controls can live in portals outside the workspace
+  // DOM. Capture their input focus as the start of an edit too.
+  useEffect(() => {
+    const capture = (event: FocusEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target?.matches('input, textarea, select') || target.closest('.cm-editor') || richEditing || gestureMeta) return;
+      operationSnapshotRef.current = sourceSnapshotRef.current;
+    };
+    document.addEventListener('focusin', capture, true);
+    return () => document.removeEventListener('focusin', capture, true);
+  }, [richEditing, gestureMeta]);
 
   // Canvas-side gesture undo stack. Each canvas commit pushes the
   // pre-commit source onto undoStack and clears redoStack. Cmd / Ctrl
@@ -976,8 +1036,8 @@ export function App({
   // stack also navigates back to that slide — without it, source
   // reverts but the user's view stays put, which is confusing when
   // the change wasn't on the active slide.
-  const undoStackRef = useRef<UndoEntry[]>([]);
-  const redoStackRef = useRef<UndoEntry[]>([]);
+  const undoStackRef = useRef<(UndoEntry & { buildIndex?: number })[]>([]);
+  const redoStackRef = useRef<(UndoEntry & { buildIndex?: number })[]>([]);
   // Set true before any internal setSource (gesture commit, undo,
   // redo). Subscribe reads + clears it: truthy means "the source
   // change we're about to process was driven by us; preserve the
@@ -1013,7 +1073,7 @@ export function App({
         if (newSelections?.length) setSelected(newSelections.map(componentTarget));
         return;
       }
-      undoStackRef.current.push(sourceUndoEntry(sourceRef.current, newSource, activeIdxRef.current, changes));
+      undoStackRef.current.push({ ...sourceUndoEntry(sourceRef.current, newSource, activeIdxRef.current, changes), buildIndex: stateRef.current?.slidesData[activeIdxRef.current]?.buildIndex ?? 0 });
       redoStackRef.current = [];
       internalSourceChangeRef.current = true;
       if (newSelections && newSelections.length > 0) {
@@ -1029,6 +1089,15 @@ export function App({
     [host],
   );
 
+  const commitInspectorToHost = useCallback((candidate: string, selections?: SourceRange[], changes?: readonly SourceChange[], baseRevision?: number) => {
+    const snapshot = editSnapshot();
+    if (changes !== undefined || !snapshot || !hasBuildEditingContext(snapshot)) {
+      commitToHost(candidate, selections, changes, baseRevision); return;
+    }
+    const result = commitBuildSourceCandidate(candidate, '<build-inspector>', snapshot);
+    if (result) commitToHost(result.newSource, result.newSelections, result.changes, result.baseRevision);
+  }, [commitToHost, editSnapshot]);
+
   const startRichEditing = useCallback((target: TextDocumentEditTarget) => {
     const current = stateRef.current;
     if (!current) return;
@@ -1036,7 +1105,8 @@ export function App({
     if (!snapshot || snapshot.source !== sourceRef.current) return;
     const parsed = { ast: structuredClone(snapshot.ast) as import('../runtime/ast.js').SourceFile, diagnostics: snapshot.diagnostics };
     if (parsed.diagnostics.some(d => d.severity === 'error')) return;
-    const component = findComponentAtSpan(parsed.ast, target.span.start, target.span.end);
+    const displayed = current.shapes.get(spanKey(target.span))?.comp;
+    const component = displayed ? structuredClone(displayed) : findComponentAtSpan(parsed.ast, target.span.start, target.span.end);
     if (!component || components[component.name]?.meta.slots.content?.type !== 'text-document') return;
     setEditing(null);
     setGestureMeta(null);
@@ -1125,15 +1195,32 @@ export function App({
   // final source actually differs.
   const scrubPreSourceRef = useRef<string | null>(null);
   const scrubPreSelectionRef = useRef<SelectionTarget[]>([]);
+  const scrubDirectionRef = useRef<BuildDirection>('forward');
   const beginScrub = useCallback(() => {
     scrubPreSourceRef.current = sourceRef.current;
     scrubPreSelectionRef.current = selectedRef.current;
+    scrubDirectionRef.current = directionRef.current;
+    operationSnapshotRef.current = sourceSnapshotRef.current;
   }, []);
   const applyScrubPreview = useCallback(
     (preview: string) => {
       if (scrubPreSourceRef.current === null) return;
-      internalSourceChangeRef.current = true;
-      host.setSource?.(preview);
+      const canonical = canonicalSnapshotRef.current;
+      let snapshot = sourceSnapshotRef.current;
+      if (canonical && snapshot && hasBuildEditingContext(snapshot)) snapshot = createBuildEditingSnapshot(canonical, {
+        slideIndex: activeIdxRef.current, buildIndex: stateRef.current?.slidesData[activeIdxRef.current]?.buildIndex ?? 0,
+        direction: scrubDirectionRef.current, registry: components,
+      });
+      if (snapshot && hasBuildEditingContext(snapshot)) {
+        const result = commitBuildSourceCandidate(preview, '<build-scrub>', snapshot);
+        if (!result) return;
+        pendingSelectionRef.current = result.newSelections.map(componentTarget);
+        internalSourceChangeRef.current = true;
+        host.setSource?.(result.newSource, { changes: result.changes, origin: 'canvas-scrub', baseRevision: result.baseRevision });
+      } else {
+        internalSourceChangeRef.current = true;
+        host.setSource?.(preview);
+      }
     },
     [host],
   );
@@ -1159,7 +1246,7 @@ export function App({
         return;
       }
       // Real change. One undo entry for the whole drag.
-      undoStackRef.current.push(sourceUndoEntry(pre, final, activeIdxRef.current));
+      undoStackRef.current.push({ ...sourceUndoEntry(pre, final, activeIdxRef.current), buildIndex: stateRef.current?.slidesData[activeIdxRef.current]?.buildIndex ?? 0 });
       redoStackRef.current = [];
       internalSourceChangeRef.current = true;
       pendingSelectionRef.current = selectedRef.current;
@@ -1258,7 +1345,10 @@ export function App({
   useEffect(() => {
     const resolver = new DeckResolver();
     let fallbackDocument: DeckDocument | undefined;
-    return host.subscribe(({ source, fileName, assets, documentUpdate }) => {
+    let latest: HostState | undefined;
+    const receive = (hostState: HostState) => {
+      latest = hostState;
+      const { source, fileName, assets, documentUpdate } = hostState;
       colorPreviews.cancel();
       // Source authority is synchronous: a pending blur/IME callback must
       // never commit a draft over an external replacement.
@@ -1277,7 +1367,22 @@ export function App({
       const document = host.document ?? (fallbackDocument ??= new DeckDocument(source, fileName));
       const update = documentUpdate ?? document.updateSource(source, fileName);
       sourceSnapshotRef.current = document.snapshot;
-      const result = resolver.resolve(document, { components, scope, wrapShape });
+      canonicalSnapshotRef.current = document.snapshot;
+      // A removed frame or external source replacement must not leave an
+      // invalid preview selection that prevents editing the remaining scene.
+      if (update?.replacement) buildIndicesRef.current.clear();
+      const topSlides = document.snapshot.ast.items.find(item => item.name === 'Deck')?.fills.find(fill => fill.name === 'slides')?.value;
+      if (topSlides?.kind === 'list') topSlides.items.forEach((item, index) => {
+        if (item.kind !== 'component') return;
+        try { if ((buildIndicesRef.current.get(index) ?? 0) >= buildFrames(item as Component).length) buildIndicesRef.current.set(index, 0); }
+        catch { buildIndicesRef.current.set(index, 0); }
+      });
+      const result = resolver.resolve(document, { components, scope, wrapShape, buildIndices: buildIndicesRef.current });
+      try { sourceSnapshotRef.current = createBuildEditingSnapshot(document.snapshot, {
+        slideIndex: activeIdxRef.current, buildIndex: result.slidesData[activeIdxRef.current]?.buildIndex ?? 0,
+        direction: directionRef.current, registry: components,
+      }); } catch { sourceSnapshotRef.current = document.snapshot; }
+      const previews = buildPreviewSlides(document.snapshot, result.slides, result.slidesData, components, scope, buildPropertyDefault);
       const resolution = { ...resolver.stats };
       colorPreviews.resolve = component => {
         let resolved: WrapShapeInput | null = null;
@@ -1313,6 +1418,7 @@ export function App({
       lastSlidesDataRef.current = result.slidesData;
       const next: RenderState = {
         snapshot: document.snapshot,
+        initialSlides: previews.initial, buildThumbnails: previews.builds,
         revision: result.revision,
         resolution,
         scope,
@@ -1412,10 +1518,135 @@ export function App({
           update,
         ),
       );
-    });
+    };
+    refreshBuildsRef.current = () => {
+      if (!latest) return;
+      internalSourceChangeRef.current = true;
+      pendingSelectionRef.current = selectedRef.current.slice();
+      receive({ ...latest, documentUpdate: undefined });
+    };
+    const unsubscribe = host.subscribe(receive);
+    return () => { refreshBuildsRef.current = () => {}; unsubscribe(); };
   }, [host]);
 
+  const selectBuild = useCallback((slideIndex: number, frameIndex: number) => {
+    operationSnapshotRef.current = undefined;
+    richSessionRef.current?.finish('cancel');
+    setRichEditing(null); setEditing(null); setGestureMeta(null); setGestureLive(ZERO_LIVE);
+    buildIndicesRef.current.set(slideIndex, frameIndex);
+    activeIdxRef.current = slideIndex;
+    setActiveIdx(slideIndex); setSlideSelection([slideIndex]); setSlideAnchor(slideIndex);
+    setSelected([]); selectedRef.current = [];
+    refreshBuildsRef.current();
+  }, []);
+
   const total = state?.slides.length ?? 0;
+  const advancePresentation = useCallback((direction: number) => {
+    const current = stateRef.current;
+    if (!current) return;
+    const slideIndex = activeIdxRef.current;
+    const slide = current.slidesData[slideIndex];
+    if (!slide) return;
+    if (build.advance(direction)) return;
+    let count = 1;
+    try { count = buildFrames(slide.authoredComp).length; } catch { /* diagnostics are already visible */ }
+    const nextFrame = slide.buildIndex + direction;
+    if (nextFrame >= 0 && nextFrame < count) { selectBuild(slideIndex, nextFrame); return; }
+    const nextSlide = slideIndex + direction;
+    if (nextSlide < 0 || nextSlide >= current.slides.length) return;
+    let nextBuild = 0;
+    if (direction < 0) {
+      try { nextBuild = buildFrames(current.slidesData[nextSlide]!.authoredComp).length - 1; } catch { /* initial fallback */ }
+    }
+    selectBuild(nextSlide, nextBuild);
+  }, [build, selectBuild]);
+
+  const resetPresentation = useCallback(() => { build.reset(); selectBuild(activeIdxRef.current, 0); }, [build, selectBuild]);
+  useEffect(() => {
+    const slide = state?.slidesData[activeIdx];
+    let count = 1;
+    try { if (slide) count = buildFrames(slide.authoredComp).length; } catch { /* initial fallback */ }
+    onBuildNavigationChange?.({ slideIndex: activeIdx, buildIndex: activeBuildIndex, buildCount: count,
+      advance: advancePresentation, reset: resetPresentation });
+  }, [activeIdx, activeBuildIndex, state?.slidesData, onBuildNavigationChange, advancePresentation, resetPresentation]);
+
+  // Entering presentation always starts at the slide's first authored frame.
+  const wasPresentingRef = useRef(false);
+  useEffect(() => {
+    if (presenting && !wasPresentingRef.current) { build.reset(); selectBuild(activeIdxRef.current, 0); }
+    wasPresentingRef.current = presenting;
+  }, [presenting, build, selectBuild]);
+
+  const handleBuildAction = useCallback((action: 'add' | 'duplicate' | 'delete' | 'up' | 'down') => {
+    const slideIndex = activeIdxRef.current;
+    const index = stateRef.current?.slidesData[slideIndex]?.buildIndex ?? 0;
+    let next = index;
+    const result = editSource(sourceRef.current, `<build-${action}>`, ast => {
+      const slide = authoredSlideAt(ast, slideIndex);
+      if (!slide || slide.name !== 'Slide') return null;
+      if (action === 'add') next = addBuild(slide, index).index;
+      if (action === 'duplicate') next = duplicateBuild(slide, index, (object, property) => {
+        const type = components[object.name]?.meta.slots[property]?.type;
+        return !!type && ['block', 'array<block>', 'slide-content', 'slide', 'array<slide>'].includes(type);
+      }).index;
+      if (action === 'delete') { if (!index) return null; removeBuild(slide, index); next = Math.max(0, index - 1); }
+      if (action === 'up' || action === 'down') {
+        next = index + (action === 'up' ? -1 : 1);
+        if (index === 0 || next < 1 || next >= buildFrames(slide).length) return null;
+        moveBuild(slide, index, next);
+      }
+      return {};
+    }, canonicalSnapshotRef.current);
+    if (!result) return;
+    buildIndicesRef.current.set(slideIndex, next);
+    commitToHost(result.newSource, result.newSelections, result.changes, result.baseRevision);
+  }, [commitToHost]);
+
+  const togglePropertyKeyframe = useCallback((object: Component, property: string, defaultValue?: unknown) => {
+    const id = objectId(object);
+    if (!id) return;
+    const slideIndex = activeIdxRef.current;
+    const index = stateRef.current?.slidesData[slideIndex]?.buildIndex ?? 0;
+    const fallback = typeof defaultValue === 'number' ? numberLit(defaultValue) : typeof defaultValue === 'boolean'
+      ? booleanLit(defaultValue) : typeof defaultValue === 'string'
+        ? (components[object.name]?.meta.params?.[property]?.type === 'color-token' ? nameRef(defaultValue) : stringLit(defaultValue)) : undefined;
+    const result = editSource(sourceRef.current, '<toggle-keyframe>', ast => {
+      const slide = authoredSlideAt(ast, slideIndex);
+      if (!slide) return null;
+      if (index === 0 && buildProperty(slide, index, id, property).keyframed) return null;
+      toggleBuildKeyframe(slide, index, id, property, fallback);
+      const node = buildObjects(slide).find(node => objectId(node) === id);
+      return { selectComponents: node ? [node] : [] };
+    }, canonicalSnapshotRef.current);
+    if (result) commitToHost(result.newSource, result.newSelections, result.changes, result.baseRevision);
+  }, [commitToHost]);
+
+  const restoreBuildObject = useCallback((id: string) => {
+    const slideIndex = activeIdxRef.current;
+    const index = stateRef.current?.slidesData[slideIndex]?.buildIndex ?? 0;
+    const result = editSource(sourceRef.current, '<restore-build-object>', ast => {
+      const slide = authoredSlideAt(ast, slideIndex);
+      if (!slide) return null;
+      editBuildProperties(slide, index, id, { visible: booleanLit(true) }, directionRef.current);
+      const node = buildObjects(slide).find(node => objectId(node) === id);
+      return { selectComponents: node ? [node] : [] };
+    }, canonicalSnapshotRef.current);
+    if (result) commitToHost(result.newSource, result.newSelections, result.changes, result.baseRevision);
+  }, [commitToHost]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (presenting || event.defaultPrevented || event.isComposing || !event.altKey || !event.shiftKey || event.key.toLowerCase() !== 'b') return;
+      if ((event.target as HTMLElement | null)?.closest('.cm-editor, [contenteditable=true]')) return;
+      if (richEditing || gestureMeta || scrubPreSourceRef.current !== null || colorPreviews.isActive) return;
+      event.preventDefault();
+      if (!(document.activeElement as HTMLElement | null)?.matches('input, textarea, select')) operationSnapshotRef.current = undefined;
+      setBuildDirection(nextBuildDirection);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [presenting, richEditing, gestureMeta, colorPreviews]);
+
   // Single-slide select: replaces selection with [idx] and resets
   // the shift-range anchor. Used by source-cursor sync, keyboard
   // nav, and number-key direct-select.
@@ -1679,11 +1910,23 @@ export function App({
         k === ' ' ||
         k === 'Spacebar'
       ) {
-        if (!presenting || !build.advance(1)) setActiveIdx((i) => Math.min(total - 1, i + 1));
+        if (presenting) advancePresentation(1);
+        else {
+          const current = stateRef.current?.slidesData[activeIdxRef.current];
+          let count = 1;
+          try { if (current) count = buildFrames(current.authoredComp).length; } catch { /* invalid source: initial frame */ }
+          if (current && current.buildIndex + 1 < count) selectBuild(activeIdxRef.current, current.buildIndex + 1);
+          else selectBuild(Math.min(total - 1, activeIdxRef.current + 1), 0);
+        }
       } else if (k === 'ArrowLeft' || k === 'ArrowUp' || k === 'PageUp') {
-        if (!presenting || !build.advance(-1)) setActiveIdx((i) => Math.max(0, i - 1));
+        if (presenting) advancePresentation(-1);
+        else {
+          const index = stateRef.current?.slidesData[activeIdxRef.current]?.buildIndex ?? 0;
+          if (index > 0) selectBuild(activeIdxRef.current, index - 1);
+          else selectBuild(Math.max(0, activeIdxRef.current - 1), 0);
+        }
       } else if (presenting && k.toLowerCase() === 'r') {
-        build.reset();
+        resetPresentation();
       } else if (k === 'Home') {
         setActiveIdx(0);
       } else if (k === 'End') {
@@ -1698,7 +1941,7 @@ export function App({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [total, presenting, build, editing, richEditing, gestureMeta, createPreview, marquee, toolDrag, activeTool, commitToHost]);
+  }, [total, presenting, build, editing, richEditing, gestureMeta, createPreview, marquee, toolDrag, activeTool, commitToHost, advancePresentation, selectBuild, resetPresentation]);
 
   // Pending text-edit baton drainer. Fires after every state
   // update; if the previous tick queued an empty-text-slot
@@ -2414,7 +2657,10 @@ export function App({
         if (e.defaultPrevented || e.isComposing || presenting || richEditing || editing ||
             gestureMeta || createPreview || marquee || toolDrag) return;
         e.preventDefault();
-        if (!e.repeat) handleDuplicateSlide();
+        if (!e.repeat) {
+          if ((stateRef.current?.slidesData[activeIdxRef.current]?.buildIndex ?? 0) > 0) handleBuildAction('duplicate');
+          else handleDuplicateSlide();
+        }
         return;
       }
       if (ctrlOrCmd && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'm') {
@@ -2438,9 +2684,10 @@ export function App({
         // An asynchronous host may still be applying the preceding history
         // request. Leave this entry intact until its source is authoritative.
         if (!entry || entry.fromSource !== sourceRef.current) return;
-        const reverse = sourceUndoEntry(sourceRef.current, entry.source, activeIdxRef.current, entry.changes);
+        const reverse = { ...sourceUndoEntry(sourceRef.current, entry.source, activeIdxRef.current, entry.changes), buildIndex: stateRef.current?.slidesData[activeIdxRef.current]?.buildIndex ?? 0 };
         from.pop();
         to.push(reverse);
+        buildIndicesRef.current.set(entry.slideIdx, entry.buildIndex ?? 0);
         internalSourceChangeRef.current = true;
         if (entry.slideIdx !== activeIdxRef.current) {
           activeIdxRef.current = entry.slideIdx;
@@ -2501,6 +2748,9 @@ export function App({
           e.preventDefault();
           return;
         }
+        if ((stateRef.current?.slidesData[activeIdxRef.current]?.buildIndex ?? 0) > 0 && slideSelection.length === 1) {
+          handleBuildAction('delete'); e.preventDefault(); return;
+        }
         // Without a canvas selection, delete the active slide.
         // Preserve bulk slide deletion when focus is in the strip.
         const focused = document.activeElement as HTMLElement | null;
@@ -2525,6 +2775,7 @@ export function App({
     handleDeleteSlides,
     handleAddSlide,
     handleDuplicateSlide,
+    handleBuildAction,
     presenting,
     richEditing,
     editing,
@@ -2852,6 +3103,15 @@ export function App({
   const activeSlide: SlideAstData | null =
     state.slidesData[activeIdx] ?? null;
 
+  let hiddenBuildObjects: Component[] = [];
+  try {
+    if (activeSlide) hiddenBuildObjects = buildObjects(activeSlide.authoredComp).filter(object => {
+      const id = objectId(object); if (!id) return false;
+      const value = buildProperty(activeSlide.authoredComp, activeBuildIndex, id, 'visible').value;
+      return value?.kind === 'boolean' && !value.value;
+    });
+  } catch { /* Invalid source has loader diagnostics; keep the editor usable. */ }
+
   return (
     <ComponentPreviewContext.Provider value={colorPreviews}>
     <DeckMetaContext.Provider
@@ -2866,21 +3126,45 @@ export function App({
         {clipboardError && <span role="alert"> · {clipboardError}</span>}
       </div>
       <DiagnosticsPanel diagnostics={errors} />
+      {activeSlide?.authoredComp.name === 'Slide' && <div className="sw-build-controls" role="toolbar" aria-label="Build controls">
+        <span>Frame {activeBuildIndex + 1} of {1 + (state.buildThumbnails.get(activeIdx)?.length ?? 0)}</span>
+        <button type="button" onClick={() => handleBuildAction('add')} disabled={!!richEditing || !!gestureMeta}>Add build</button>
+        <button type="button" onClick={() => handleBuildAction('duplicate')} disabled={!!richEditing || !!gestureMeta}>Duplicate frame</button>
+        <button type="button" onClick={() => handleBuildAction('up')} disabled={activeBuildIndex < 2 || !!richEditing || !!gestureMeta} title="Move authored changes earlier; inherited values recompute">Move build up</button>
+        <button type="button" onClick={() => handleBuildAction('down')} disabled={!activeBuildIndex || activeBuildIndex >= (state.buildThumbnails.get(activeIdx)?.length ?? 0) || !!richEditing || !!gestureMeta} title="Move authored changes later; inherited values recompute">Move build down</button>
+        <button type="button" onClick={() => handleBuildAction('delete')} disabled={!activeBuildIndex || !!richEditing || !!gestureMeta}>Delete build</button>
+        <button type="button" className="sw-build-direction" aria-label="Propagation direction"
+          aria-keyshortcuts="Alt+Shift+B" title="Switch propagation direction (Alt+Shift+B)" disabled={!!richEditing || !!gestureMeta}
+          onClick={() => { operationSnapshotRef.current = undefined; setBuildDirection(nextBuildDirection); }}>
+          {buildDirection === 'forward' ? 'Forward →' : buildDirection === 'backward' ? '← Backward' : 'Everywhere'}
+        </button>
+        <span className="sw-build-scope-hint">{buildDirection === 'everywhere' ? 'All frames · replaces keyframes for edited properties' : buildDirection === 'backward' ? 'Stops at the previous property keyframe' : 'Stops at the next property keyframe'}</span>
+        {activeSlide.authoredComp.fills.some(fill => fill.name === 'builds') && <details className="sw-hidden-objects"><summary>Hidden objects</summary>
+          {hiddenBuildObjects.map(object => <button type="button" key={objectId(object)} onClick={() => restoreBuildObject(objectId(object)!)}>Restore {object.name} · {objectId(object)}</button>)}
+        </details>}
+      </div>}
       <ToolPalette
         placing={!!toolDrag?.committed}
         tools={toolEntries}
         onSelect={chooseInsertTool}
         onDragStart={handleToolDragStart}
       />
-      <div className="sw-authoring-workspace" data-sw-document-revision={state.revision}
+      <BuildInspectorContext.Provider value={activeSlide && activeSlide.authoredComp.fills.some(fill => fill.name === 'builds') ? {
+        slide: activeSlide.authoredComp, frameIndex: activeBuildIndex, direction: buildDirection, toggle: togglePropertyKeyframe, defaultValue: buildPropertyDefault,
+      } : null}>
+      <div className="sw-authoring-workspace"
+        onPointerDownCapture={() => { if (!gestureMeta && !richEditing && scrubPreSourceRef.current === null) operationSnapshotRef.current = sourceSnapshotRef.current; }}
+        onFocusCapture={event => { if ((event.target as HTMLElement).matches('input, textarea, select') && !richEditing && scrubPreSourceRef.current === null) operationSnapshotRef.current = sourceSnapshotRef.current; }}
+        data-sw-document-revision={state.revision}
         data-sw-resolved-slides={state.resolution.resolvedSlides} data-sw-reused-slides={state.resolution.reusedSlides}>
         <div className="sw-main-workspace">
           <div className="sw-canvas-body">
             <SlideStrip
-              slides={state.slides}
+              slides={state.initialSlides}
+              builds={state.buildThumbnails} activeBuild={activeBuildIndex} onSelectBuild={selectBuild}
               activeIdx={activeIdx}
               selection={slideSelection}
-              onSelect={stripSelect}
+              onSelect={(index, modifiers) => { operationSnapshotRef.current = undefined; stripSelect(index, modifiers); buildIndicesRef.current.set(index, 0); refreshBuildsRef.current(); }}
               onAddSlide={handleAddSlide}
               onReorder={handleReorderSlides}
               width={stripWidth}
@@ -2898,7 +3182,7 @@ export function App({
                 onClickCapture={event => {
                   if (!presenting || event.button !== 0 || (event.target as HTMLElement).closest('video, [data-sw-presentation-interactive]')) return;
                   event.preventDefault(); event.stopPropagation();
-                  if (!build.advance(1)) setActiveIdx(i => Math.min(total - 1, i + 1));
+                  advancePresentation(1);
                 }}>
                 {activeTool !== SELECT_TOOL && !toolDrag?.committed && <div className="sw-placement-hint sw-tool-status" role="status">{components[activeTool]?.meta.insertion?.modalPlacement === 'point' ? 'Click to place' : 'Draw'} {activeTool} · Esc to cancel</div>}
                 {toolDrag?.committed && <div className="sw-placement-hint" role="status">Click a compatible slot or gap to insert {toolDrag.tool} · Esc to cancel</div>}
@@ -2970,6 +3254,8 @@ export function App({
                   >
                     <PresentationContext.Provider key={`${activeSlideKey}-${presenting}`} value={presenting ? { build } : null}>
                       {preparedSlide}
+                      {!presenting && !richEditing && !gestureMeta && activeSlide && <BuildChangesOverlay slide={activeSlide} slideIndex={activeIdx} defaultValue={buildPropertyDefault}
+                        onSelect={object => setSelected([componentTarget({ start: object.span.start.offset, end: object.span.end.offset })])} />}
                     </PresentationContext.Provider>
                   </ScaledCanvas>
                   {/* Key on the authored slide so DOM-tied hook state (cached
@@ -3041,8 +3327,9 @@ export function App({
         </div>
         <ResizeHandle axis="x" invert size={propertiesWidth} setSize={setPropertiesWidth} min={PROPERTIES_WIDTH_MIN} max={PROPERTIES_WIDTH_MAX} />
         <aside className="sw-properties-sidebar" aria-label="Element properties" style={{ width: propertiesWidth }}>
-          <GroupingControls selected={selected} shapes={state.shapes} disabled={!!richEditing || !!gestureMeta || !!createPreview || !!marquee || !!toolDrag} onCommit={commitToHost} source={state.source} snapshot={state.snapshot} />
-          <AlignmentControls selected={selected} shapes={state.shapes} disabled={!!richEditing} onCommit={commitToHost} source={state.source} snapshot={state.snapshot} />
+          <AdditionalBuildKeyframes shape={selectedShape} />
+          <GroupingControls selected={selected} shapes={state.shapes} disabled={!!editingSnapshot && hasBuildEditingContext(editingSnapshot) || !!richEditing || !!gestureMeta || !!createPreview || !!marquee || !!toolDrag} onCommit={commitToHost} source={state.source} snapshot={editingSnapshot} />
+          <AlignmentControls selected={selected} shapes={state.shapes} disabled={!!richEditing} onCommit={commitToHost} source={state.source} snapshot={editingSnapshot} />
           <PropertiesPanel
             componentShape={selectedShape}
             slotInfo={slotInfo}
@@ -3050,8 +3337,8 @@ export function App({
             activeSlide={activeSlide}
             multiCount={selected.length}
             source={state.source}
-            snapshot={state.snapshot}
-            onCommit={commitToHost}
+            snapshot={editingSnapshot}
+            onCommit={commitInspectorToHost}
             onScrubBegin={beginScrub}
             onScrubPreview={applyScrubPreview}
             onScrubEnd={endScrub}
@@ -3127,6 +3414,7 @@ export function App({
           </div>}
         </aside>
       </div>
+    </BuildInspectorContext.Provider>
     </DeckMetaContext.Provider>
     </ComponentPreviewContext.Provider>
   );

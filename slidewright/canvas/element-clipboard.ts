@@ -3,6 +3,7 @@ import { makeComponent, numberLit, slotFill, stringLit } from '../runtime/ast-bu
 import { emit } from '../runtime/emitter.js';
 import type { DocumentSnapshot } from '../runtime/document.js';
 import { parse } from '../runtime/parser.js';
+import { readBuildEditingAst } from './build-editing.js';
 import { commitSourceEdit, componentByPath, findComponentAtSpan, pathToComponent } from './ast-edits.js';
 import type { SelectionTarget } from './selection-target.js';
 
@@ -43,8 +44,9 @@ export function copyElements(source: string, selected: readonly SelectionTarget[
   if (snapshot && snapshot.source !== source) return null;
   const parsed = snapshot ?? parse(source, '<copy-elements>');
   if (parsed.diagnostics.some(d => d.severity === 'error')) return null;
+  const ast = snapshot ? readBuildEditingAst(snapshot) : parsed.ast as SourceFile;
   const nodes = [...new Set(selected.flatMap(target => {
-    const resolved = enclosingElement(parsed.ast as SourceFile, target);
+    const resolved = enclosingElement(ast, target);
     return resolved ? [resolved.node] : [];
   }))].sort((a, b) => a.span.start.offset - b.span.start.offset);
   // Selecting both a group and one of its descendants copies the group once.

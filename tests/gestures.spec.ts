@@ -128,13 +128,12 @@ test('drag TextBox body translates x/y slot fills', async ({ page }) => {
 
 test('drag Arrow body translates both endpoints', async ({ page }) => {
   await page.goto('/canvas.html?fixture=single-arrow');
-  // Grab the arrow on the line itself — the SVG's bounding box
-  // covers the whole freeform, so dragByDesign(centroid) would land
-  // off the line. Use the polygon (arrowhead) which has a tighter
-  // hit area at a known location.
-  const polygon = page.locator('.sw-canvas-stage [data-sw-component="Arrow"] polygon');
-  await expect(polygon).toBeVisible();
-  await dragByDesign(page, polygon, 100, 50);
+  // Grab the line's actual hit region. The arrowhead bounding-box
+  // center can lie outside its triangle and be intercepted by this line
+  // at some canvas scales; both belong to the same draggable arrow.
+  const line = page.locator('.sw-canvas-stage [data-sw-component="Arrow"] [data-arrow-hit="line"]');
+  await expect(line).toBeVisible();
+  await dragByDesign(page, line, 100, 50);
   const source = await getSource(page);
   // All four endpoints shift by the same delta: x1 400→500, y1
   // 300→350, x2 800→900, y2 600→650.

@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
+import type { PdfExportMode } from './pdf-export-model.js';
 import { parse } from '../slidewright/runtime/parser.js';
 import type { StandaloneHost, DeckChoice } from './standalone-host.js';
 
-export function StandaloneControls({ host, presenting, onPresent, onPresenter, onFullscreen, presenterError }: { host: StandaloneHost; presenting: boolean; onPresent(): void; onPresenter(): void; onFullscreen(): void; presenterError: string }) {
+export function StandaloneControls({ host, presenting, onPresent, onPresenter, onFullscreen, onExportPdf, presenterError }: { host: StandaloneHost; presenting: boolean; onPresent(): void; onPresenter(): void; onFullscreen(): void; presenterError: string; onExportPdf(mode: PdfExportMode): void }) {
   const [, refresh] = useState(0);
   const [message, setMessage] = useState('');
+  const [pdfMode, setPdfMode] = useState<PdfExportMode>('final');
   const fileInput = useRef<HTMLInputElement>(null);
   useEffect(() => host.subscribe(() => refresh(value => value + 1)), [host]);
   useEffect(() => host.onSyncChange(() => refresh(value => value + 1)), [host]);
@@ -40,6 +42,11 @@ export function StandaloneControls({ host, presenting, onPresent, onPresenter, o
       {host.hasCustomDeck && <option value="custom">Opened deck</option>}
     </select></label>
     <button type="button" onClick={() => setMessage(host.saveDraft() ? 'Saved in this browser' : 'Browser storage unavailable; download a copy.')}>Save draft</button>
+    <label>PDF pages <select aria-label="PDF pages" value={pdfMode} onChange={event => setPdfMode(event.target.value as PdfExportMode)}>
+      <option value="final">Final state per slide</option>
+      <option value="builds">Every authored build (including initial)</option>
+    </select></label>
+    <button type="button" onClick={() => onExportPdf(pdfMode)}>Export PDF</button>
     <button type="button" onClick={download}>Download source</button>
     <button type="button" onClick={() => fileInput.current?.click()}>Open source</button>
     <input ref={fileInput} type="file" accept=".sw,text/plain" aria-label="Open deck file" hidden onChange={event => { const file = event.currentTarget.files?.[0]; if (file) void open(file); event.currentTarget.value = ''; }} />

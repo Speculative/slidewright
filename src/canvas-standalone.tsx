@@ -16,9 +16,10 @@ import '../decks/uist-2026/presentation.css';
 import '../slidewright/canvas/canvas.css';
 
 import type { PresentationBuild } from '../slidewright/runtime/presentation.js';
-import { App } from '../slidewright/canvas/App.js';
+import { App, type BuildNavigation } from '../slidewright/canvas/App.js';
 import { EditorPane } from '../slidewright/canvas/EditorPane.js';
 import { PresenterView, usePresenterWindow } from './PresenterView.js';
+import { PdfExportView, usePdfExport } from './PdfExport.js';
 import { StandaloneControls } from './StandaloneControls.js';
 import { StandaloneHost } from './standalone-host.js';
 
@@ -26,6 +27,8 @@ function Standalone(): ReactElement {
   const [activeSlide, setActiveSlide] = useState(0);
   const [build, setBuild] = useState<PresentationBuild | null>(null);
   const presenter = usePresenterWindow();
+  const pdf = usePdfExport();
+  const [navigation, setNavigation] = useState<BuildNavigation | null>(null);
   const [presenting, setPresenting] = useState(false);
   const audience = useRef<HTMLDivElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
@@ -78,18 +81,20 @@ function Standalone(): ReactElement {
         event.preventDefault(); event.stopPropagation();
       }
     }}>
-    <StandaloneControls host={host} presenterError={fullscreenError || presenter.error} onFullscreen={() => void toggleFullscreen()} onPresenter={() => { setFullscreenError(''); presenter.open(); setPresenting(true); }} presenting={presenting} onPresent={() => { setFullscreenError(''); setPresenting(value => !value); }} />
+    <StandaloneControls host={host} onExportPdf={mode => pdf.open(host, mode)} presenterError={fullscreenError || presenter.error || pdf.error} onFullscreen={() => void toggleFullscreen()} onPresenter={() => { setFullscreenError(''); presenter.open(); setPresenting(true); }} presenting={presenting} onPresent={() => { setFullscreenError(''); setPresenting(value => !value); }} />
     {fullscreen && <button type="button" className="sw-audience-exit-fullscreen" onClick={() => void toggleFullscreen()}>Exit fullscreen</button>}
     <App
       host={host}
       presenting={presenting}
       onPresentationBuildChange={setBuild}
+      onBuildNavigationChange={setNavigation}
       onActiveSlideChange={setActiveSlide}
       bottomExtra={(projection) => (
         <EditorPane host={host} projection={projection} />
       )}
     />
-    {presenter.popup && <PresenterView host={host} index={activeSlide} popup={presenter.popup} build={build} />}
+    {presenter.popup && <PresenterView host={host} index={activeSlide} popup={presenter.popup} build={build} navigation={navigation} />}
+    {pdf.job && <PdfExportView job={pdf.job} />}
     </div>
   );
 }

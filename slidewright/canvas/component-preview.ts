@@ -10,6 +10,8 @@ export class ComponentPreviews {
   private listeners = new Map<string, Set<() => void>>();
   private commit: (() => void) | null = null;
   private active = false;
+  onBegin?: () => void;
+  get isActive(): boolean { return this.active; }
   resolve: (component: Component) => WrapShapeInput | null = () => null;
   subscribe(key: string, listener: () => void) {
     let listeners = this.listeners.get(key);
@@ -21,7 +23,7 @@ export class ComponentPreviews {
     };
   }
   get = (key: string) => this.values.get(key) ?? null;
-  begin = () => { this.cancel(); this.active = true; };
+  begin = () => { this.cancel(); this.onBegin?.(); this.active = true; };
   stage(components: Component[], commit: () => void): void {
     if (!this.active) return;
     const values = new Map<string, WrapShapeInput>();

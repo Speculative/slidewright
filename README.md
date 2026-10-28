@@ -70,6 +70,24 @@ Select a Line or Arrow and use **startHead** / **endHead** in the inspector
 to choose `none`, `arrow`, or `circle` independently at either endpoint.
 These settings are saved in the `.sw` source and support canvas undo.
 
+## Slide builds
+
+In the canvas editor, **Add build** creates an indented frame beneath the
+selected slide. Edit objects, text, or styling in that frame; changes propagate
+forward until the next explicit property keyframe. The **Forward / Backward / Everywhere**
+control (Alt+Shift+B) changes the direction of the next edit. Property diamonds
+pin an unchanged value or reset it to inherited. Everywhere applies edited
+properties to all frames, replacing their keyframes while retaining unrelated
+properties. Duplicate a frame, pin values,
+and reorder it to create a return state after temporary emphasis.
+
+**Hidden objects** restores objects removed in a build. Presentation visits each
+build before advancing slides; the presenter window follows the same sequence.
+**PDF pages** selects final-state-only or one page per authored build. Changes
+are instantaneous in this version; grouping/reparenting should be done before
+adding builds. See [the build model](slidewright/runtime/builds.md) for source
+syntax and detailed behavior.
+
 ## Repository map
 
 - [SLIDEWRIGHT.md](SLIDEWRIGHT.md) — durable architecture, component contracts, and

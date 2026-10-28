@@ -14,6 +14,7 @@ import type { SourceRange } from './host.js';
 import { commitSourceEdit, componentByPath, pathToComponent, findComponentAtSpan } from './ast-edits.js';
 import { isLayoutAdapter } from './layout-adapter.js';
 import { spanKey } from './gesture-context.js';
+import { buildEditingDirection, commitBuildPropertyEdits } from './build-editing.js';
 
 type Command = 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom' | 'horizontal' | 'vertical';
 const COMMAND_ICONS: Record<Command, LucideIcon> = {
@@ -99,6 +100,25 @@ export function AlignmentControls({ selected, shapes, source, snapshot, disabled
       ? { left: 0, top: 0, width: container.clientWidth, height: container.clientHeight }
       : { left, top, width: right - left, height: bottom - top };
     const moves = translations(items, command, bounds);
+    if (snapshot && buildEditingDirection(snapshot) === 'everywhere') {
+      const horizontal = ['left', 'center', 'right', 'horizontal'].includes(command);
+      const coordinates = horizontal ? ['x', 'x1', 'x2'] : ['y', 'y1', 'y2'];
+      const edits = moves.map(({ item, dx, dy }) => {
+        const preview = item.adapter.applyGesture(item.data.params, { kind: 'translate', dx, dy });
+        return { owner: item.data.comp, values: Object.fromEntries(Object.entries(preview)
+          .filter(([name, value]) => coordinates.includes(name) && typeof value === 'number')
+          .map(([name, value]) => [name, numberLit(value as number)])) };
+      });
+      // Include the stationary anchors: their earlier positions may differ.
+      if (edits.some(({ owner, values }) => !Object.keys(values).length || Object.keys(values).some(name => {
+        const fill = owner.fills.find(fill => fill.name === name);
+        return fill && fill.value.kind !== 'number';
+      }))) { setMessage('These positions cannot be edited directly.'); return; }
+      const result = commitBuildPropertyEdits(source, '<arrange-selection>', snapshot, edits);
+      if (!result) { setMessage('These positions cannot be edited directly.'); return; }
+      if (result.newSource !== source) onCommit(result.newSource, result.newSelections, result.changes, result.baseRevision);
+      return;
+    }
     if (moves.every(move => Math.abs(move.dx) < 0.01 && Math.abs(move.dy) < 0.01)) return;
     const paths: NonNullable<ReturnType<typeof pathToComponent>>[] = [];
     const result = commitSourceEdit(source, '<arrange-selection>', ast => {

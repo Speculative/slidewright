@@ -478,11 +478,28 @@ without destroying a static authored value. Resolution must support querying
 multiple states at once, so previews and transitions cannot depend on mutating a
 single global current-state value.
 
-Element existence, changing property values, and custom motion need distinct
-semantics. A shared build/transition system must define identity and propagation
-across states, and how authored overrides interact with inherited values. Internal
-React animation is not implicitly a source-backed deck build model. This document
-does not prescribe unimplemented timeline, matching, or transition APIs.
+Slides own an ordered sequence of source-backed Build diffs. Stable object IDs
+connect per-property Change keyframes; values inherit forward, and explicit
+equal-valued keys remain propagation barriers. Forward/backward propagation is
+the scope of one edit, with forward as the default. Pin/unpin toggles local
+authorship independently of that direction. Bounded edits author visible
+restoration keys where needed. There is no separate shared-value diagram layer.
+
+Visibility is distinct from opacity: hidden objects leave layout but retain
+identity and editable data; opacity preserves layout space. Insertion/removal
+starts at the selected frame and continues forward. Position, content and styling
+changes are instantaneous; tweening is not implemented. Effective scene editing
+lowers through canonical source transactions, preserving unaffected authored
+source. Grouping/reparenting and scene-child reordering are rejected on slides
+with builds rather than silently changing every frame's structure.
+
+Presentation visits each authored build before advancing slides, retaining
+explicit custom-component steps within each state. The presenter shares audience
+navigation. Standalone PDF export selects final-state-per-slide or every authored
+build, resolving each page independently. See
+[runtime/builds.md](slidewright/runtime/builds.md) for the source format and
+editing contracts. Internal React animation is not implicitly a source-backed
+deck build or an interpolated transition API.
 
 ## AI authoring
 
