@@ -2,7 +2,7 @@
 // and undecorated document snapshots always describe canonical source.
 import type { Component, SourceFile, Value } from '../runtime/ast.js';
 import { booleanLit, numberLit, omitLit, slotFill, stringLit } from '../runtime/ast-builders.js';
-import { buildFrames, buildObjects, editBuildProperties, objectId, resolveBuild, validateBuilds, type BuildDirection } from '../runtime/builds.js';
+import { buildFrames, buildObjects, editBuildProperties, objectId, resolveBuild, transformBuildProperty, validateBuilds, type BuildDirection } from '../runtime/builds.js';
 import { BUILTIN_META, type ComponentRegistry } from '../runtime/contract.js';
 import { SourceMapping, sourceChanges, type DocumentSnapshot } from '../runtime/document.js';
 import { parse } from '../runtime/parser.js';
@@ -285,21 +285,29 @@ export function buildEditingDirection(snapshot?: DocumentSnapshot): BuildDirecti
 
 /** Explicit multi-object operation; equal values still carry edit intent. */
 export function commitBuildPropertyEdits(source: string, label: string, snapshot: DocumentSnapshot,
-  edits: readonly { owner: Component | string; values: Readonly<Record<string, Value>> }[]): CommitResult | null {
+  edits: readonly { owner: Component | string; values: Readonly<Record<string, Value>>;
+    transformContent?(content: Value | undefined, property: string): Value | undefined }[]): CommitResult | null {
   const state = contexts.get(snapshot);
   if (!state) return null;
   return commitSourceEdit(source, label, ast => {
     const slide = slideAt(ast, state.context.slideIndex)!;
     const selected: Component[] = [];
     try {
-      for (const { owner, values } of edits) {
+      for (const { owner, values, transformContent } of edits) {
         const id = typeof owner === 'string' ? owner : objectId(owner);
         if (!id) return null;
         const visit = (node: Component): Component | undefined => objectId(node) === id ? node :
           sceneChildren(node, state.context).map(visit).find(Boolean);
         const target = visit(slide);
         if (!target || Object.keys(values).some(name => structural(target, name, state.context))) return null;
-        editBuildProperties(slide, state.context.buildIndex, id, values, state.context.direction);
+        if (transformContent) {
+          // Typography fields have independent barriers. Never make a color
+          // edit stop at a font key, or flatten later content to today's text.
+          for (const [property, value] of Object.entries(values)) {
+            const range = editBuildProperties(slide, state.context.buildIndex, id, { [property]: value }, state.context.direction);
+            transformBuildProperty(slide, id, 'content', range, content => transformContent(content, property));
+          }
+        } else editBuildProperties(slide, state.context.buildIndex, id, values, state.context.direction);
         selected.push(target);
       }
       if (validateBuilds(slide).length) return null;

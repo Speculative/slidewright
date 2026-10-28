@@ -7,36 +7,37 @@ import { FloatingSelectionToolbar } from '../FloatingSelectionToolbar.js';
 import type { TextSessionHandle, TextStyleField } from './Editor.js';
 import type { FormattingValue, TextFormattingState } from './feedback.js';
 
-function StyleInput({ label, current, numeric, min, list, colorControl, apply }: {
-  label: string; current?: FormattingValue; numeric?: boolean; min?: number; list?: string; colorControl?: ReactNode;
+function StyleInput({ label, current, numeric, min, list, colorControl, keyframe, apply }: {
+  label: string; current?: FormattingValue; numeric?: boolean; min?: number; list?: string; colorControl?: ReactNode; keyframe?: ReactNode;
   apply(value: string | number | null): void;
 }) {
   const authored = current?.value == null || current.mixed ? '' : String(current.value);
   const [value, setValue] = useState(authored);
   useLayoutEffect(() => setValue(authored), [authored]);
-  const commit = () => {
-    if (value === authored) return;
+  const commit = (reapply = false) => {
+    if (value === authored && !reapply) return;
     const next = value.trim() === '' ? null : numeric ? Number(value) : value;
     if (typeof next === 'number' && (!Number.isFinite(next) || min !== undefined && next < min)) {
       setValue(authored); return;
     }
     apply(next);
   };
-  return <div className="sw-floating-style-field"><span>{label}</span><span className="sw-text-style-input"><input aria-label={label} type={numeric ? 'number' : 'text'}
+  return <div className="sw-floating-style-field"><span className="sw-formatting-field-label">{label}{keyframe}</span><span className="sw-text-style-input"><input aria-label={label} type={numeric ? 'number' : 'text'}
     min={min} step={numeric ? 'any' : undefined} list={list}
     value={value} placeholder={current?.mixed ? 'Mixed' : 'Inherited'}
     title="Enter to apply; empty restores inherited style"
-    onChange={event => setValue(event.target.value)} onBlur={commit}
-    onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); commit(); } }} />{colorControl}</span></div>;
+    onChange={event => setValue(event.target.value)} onBlur={() => commit()}
+    onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); commit(!!keyframe); } }} />{colorControl}</span></div>;
 }
 
 export type TextStyleControls = Pick<TextSessionHandle, 'selectionBounds' | 'preset' | 'format' | 'toggle' | 'clearFormatting' | 'formatColor' | 'selectionColor' | 'colorGesture' | 'paragraph' | 'finish'>;
 
-export function FloatingToolbar({ session, state, children, colorTokens, slideColors, label = 'Selection formatting' }: {
+export function FloatingToolbar({ session, state, children, colorTokens, slideColors, label = 'Selection formatting', keyframe }: {
   session: RefObject<TextStyleControls | null>; label?: string; state: TextFormattingState | null; children: ReactNode; colorTokens: Record<string, string>; slideColors: SlideColor[];
+  keyframe?(field: string): ReactNode;
 }) {
   const inline = (field: TextStyleField, label: string, numeric = false, min?: number, list?: string) =>
-    <StyleInput key={field} label={label} current={state?.inline[field]} numeric={numeric} min={min} list={list} colorControl={(field === 'color' || field === 'strokeColor') && <TextColorPicker field={field} label={label} current={state?.inline[field]} session={session} colorTokens={colorTokens} slideColors={slideColors} />}
+    <StyleInput key={field} label={label} current={state?.inline[field]} numeric={numeric} min={min} list={list} keyframe={keyframe?.(field)} colorControl={(field === 'color' || field === 'strokeColor') && <TextColorPicker field={field} label={label} current={state?.inline[field]} session={session} colorTokens={colorTokens} slideColors={slideColors} />}
       apply={value => session.current?.format(field, value)} />;
   return <FloatingSelectionToolbar bounds={() => session.current?.selectionBounds() ?? null} className="sw-floating-text-toolbar" data-sw-text-formatting
     aria-label={label}
@@ -58,11 +59,12 @@ export function FloatingToolbar({ session, state, children, colorTokens, slideCo
         <option value="" disabled>Custom</option>
         {TEXT_PRESETS.map(preset => <option key={preset.id} value={preset.id}>{preset.label}</option>)}
       </select></label>
+      {inline('font', 'Font family')}
       {inline('size', 'Font size', true, 1)}
       {inline('color', 'Foreground color')}
       {inline('strokeWidth', 'Stroke width', true, 0)}
       {inline('strokeColor', 'Stroke color')}
-      <StyleInput label="Line height" current={state?.paragraph.lineHeight} numeric min={0.01}
+      <StyleInput label="Line height" current={state?.paragraph.lineHeight} numeric min={0.01} keyframe={keyframe?.('lineHeight')}
         apply={value => session.current?.paragraph('lineHeight', value)} />
       {inline('letterSpacing', 'Letter spacing', true)}
     </div>

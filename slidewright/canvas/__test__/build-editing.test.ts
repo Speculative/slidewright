@@ -148,11 +148,11 @@ test('slide metadata remains slide-owned when a build is selected', () => {
   assert.equal(numeric(result.ast, 2), 100);
 });
 
-test('backward edits with no prior barrier include the initial frame and restore following values', () => {
+test('backward edits protect the initial appearance and restore following values', () => {
   const { snapshot } = setup(1, 'backward');
   const result = commitBuildPropertyEdit(source, 'width', snapshot, 'box', { width: numberLit(99) })!;
   assert.ok(result);
-  assert.equal(numeric(result.ast, 0, 'width'), 99);
+  assert.equal(numeric(result.ast, 0, 'width'), 30);
   assert.equal(numeric(result.ast, 1, 'width'), 99);
   assert.equal(numeric(result.ast, 2, 'width'), 30);
 });
@@ -175,7 +175,7 @@ test('inherited candidate edits respect backward direction', () => {
   const { snapshot } = setup(1, 'backward');
   const result = commitBuildSourceCandidate(source.replace('x:100', 'x:180'), 'scrub', snapshot)!;
   assert.ok(result);
-  assert.equal(numeric(result.ast, 0), 180);
+  assert.equal(numeric(result.ast, 0), 1.5);
   assert.equal(numeric(result.ast, 1), 180);
   assert.equal(numeric(result.ast, 2), 100);
   assert.equal(numeric(result.ast, 3), 300);
@@ -199,6 +199,12 @@ test('insertion authors one hidden definition, visibility from selected frame, a
   assert.equal((buildProperty(slide(result.ast), 2, id, 'visible').value as { value: boolean }).value, true);
   assert.deepEqual(result.newSelections, [range(inserted)]);
   assert.equal(buildObjects(slide(result.ast)).filter(node => objectId(node) === id).length, 1);
+  const later = setup(3, 'backward', result.newSource).snapshot;
+  const moved = commitBuildPropertyEdit(result.newSource, 'later-move', later, id, { x:numberLit(90) })!;
+  assert.ok(moved);
+  assert.equal(numeric(moved.ast,2,'x',id),44);
+  assert.equal(numeric(moved.ast,3,'x',id),90);
+  assert.equal((buildProperty(slide(moved.ast),2,id,'visible').value as {value:boolean}).value,true);
 });
 
 test('deletion hides the definition from selected frame onward, preserving IDs for restoration', () => {
@@ -384,4 +390,65 @@ test('build no-op remains byte-identical and singleton removal retains a hidden 
   assert.ok(result);
   assert.equal(objectId(object(result.ast)), 'box');
   assert.equal((buildProperty(slide(result.ast), 1, 'box', 'visible').value as { value: boolean }).value, false);
+});
+
+test('whole-box color clears inline overrides across wording keys without copying wording or other styles', async () => {
+  const { clearWholeTextProperty } = await import('../rich-text/SelectedTextBoxToolbar.js');
+  const { commitBuildPropertyEdits } = await import('../build-editing.js');
+  const input = `Deck { slides: [Slide { content: Freeform { id:"scene" children:[
+    TextBox { id:"text" color:"black" content:[Paragraph { content:[Span { content:"Initial" color:"red" italic:true }] }] }
+  ] } builds:[
+    Build { id:"one" changes:[] }
+    Build { id:"two" changes:[Change { target:"text" content:[Paragraph { content:[Span { content:"Later wording" color:"blue" underline:true }] }] }] }
+    Build { id:"three" changes:[Change { target:"text" color:"purple" }] }
+  ] }] }`;
+  const result = commitBuildPropertyEdits(input, 'color', setup(1, 'forward', input).snapshot, [{ owner:'text', values:{color:stringLit('gray')},
+    transformContent: (content, property) => clearWholeTextProperty(content, property, {scope:{bindings:{}}, registry:{}, colorTokens:{}}) }])!;
+  assert.ok(result);
+  const { emitValue } = await import('../../runtime/emitter.js');
+  const text = (index: number) => emitValue(buildProperty(slide(result.ast), index, 'text', 'content').value!);
+  assert.match(text(0), /Initial/); assert.match(text(0), /color: "red"/);
+  assert.match(text(1), /Initial/); assert.doesNotMatch(text(1), /color:/); assert.match(text(1), /italic: true/);
+  assert.match(text(2), /Later wording/); assert.doesNotMatch(text(2), /color:/); assert.match(text(2), /underline: true/);
+  assert.match(text(3), /Later wording/); assert.match(text(3), /color: "blue"/);
+  assert.deepEqual([0,1,2,3].map(index => (buildProperty(slide(result.ast), index, 'text', 'color').value as {value:string}).value), ['black','gray','gray','purple']);
+  assert.equal(result.newSelections?.length, 1);
+});
+
+test('Everywhere formatting clears inline colors from all variants even when the displayed default is unchanged', async () => {
+  const { clearWholeTextProperty } = await import('../rich-text/SelectedTextBoxToolbar.js');
+  const { commitBuildPropertyEdits } = await import('../build-editing.js');
+  const input = `Deck { slides:[Slide {content:TextBox {id:"text" color:"gray" content:[Paragraph { content:[Span {content:"One" color:"red" weight:"700"}] }]} builds:[
+    Build {id:"one" changes:[Change {target:"text" color:"blue" content:[Paragraph {content:[Span {content:"Two" color:"blue"}] }]}]}
+    Build {id:"two" changes:[Change {target:"text" color:"gray"}]}
+  ]}]}`;
+  const result = commitBuildPropertyEdits(input, 'everywhere', setup(2, 'everywhere', input).snapshot, [{owner:'text', values:{color:stringLit('gray')},
+    transformContent: (content, property) => clearWholeTextProperty(content, property, {scope:{bindings:{}},registry:{},colorTokens:{}}) }])!;
+  assert.ok(result);
+  const { emitValue } = await import('../../runtime/emitter.js');
+  for (const index of [0,1,2]) {
+    const content = emitValue(buildProperty(slide(result.ast), index, 'text', 'content').value!);
+    assert.doesNotMatch(content, /color:/);
+    assert.match(content, index === 0 ? /One/ : /Two/);
+    assert.equal(buildProperty(slide(result.ast), index, 'text', 'color').keyframed, index === 0);
+  }
+  assert.match(emitValue(buildProperty(slide(result.ast), 0, 'text', 'content').value!), /weight: "700"/);
+});
+
+test('backward formatting restores later inline styles and leaves an equal-valued content pin in place', async () => {
+  const { clearWholeTextProperty } = await import('../rich-text/SelectedTextBoxToolbar.js');
+  const { commitBuildPropertyEdits } = await import('../build-editing.js');
+  const input = `Deck {slides:[Slide {content:TextBox {id:"text" content:[Paragraph {content:[Span {content:"One" size:70}]}]} builds:[
+    Build {id:"one" changes:[Change {target:"text" content:[Paragraph {content:[Span {content:"One" size:70}]}]}]}
+    Build {id:"two" changes:[]}
+  ]}]}`;
+  const result = commitBuildPropertyEdits(input, 'backward', setup(1,'backward',input).snapshot,[{owner:'text',values:{fontSize:numberLit(45)},
+    transformContent: (content,property) => clearWholeTextProperty(content,property,{scope:{bindings:{}},registry:{},colorTokens:{}}) }])!;
+  assert.ok(result);
+  const { emitValue } = await import('../../runtime/emitter.js');
+  assert.match(emitValue(buildProperty(slide(result.ast),0,'text','content').value!), /size: 70/);
+  assert.doesNotMatch(emitValue(buildProperty(slide(result.ast),1,'text','content').value!), /size:/);
+  assert.match(emitValue(buildProperty(slide(result.ast),2,'text','content').value!), /size: 70/);
+  assert.equal(buildProperty(slide(result.ast),1,'text','content').keyframed,true);
+  assert.equal(buildProperty(slide(result.ast),2,'text','fontSize').value,undefined);
 });

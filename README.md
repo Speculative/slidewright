@@ -81,6 +81,22 @@ properties to all frames, replacing their keyframes while retaining unrelated
 properties. Duplicate a frame, pin values,
 and reorder it to create a return state after temporary emphasis.
 
+The whole-text-box toolbar exposes diamonds for font, size, bold weight,
+foreground color, line height and letter spacing, including mixed keys when
+multiple boxes are selected. Its scope label follows the propagation control.
+Whole-box formatting preserves later wording variants and clears conflicting
+inline overrides within the affected range. Press Enter to reapply a displayed
+value in Everywhere mode. **Text & inline styles** shares a content key for
+wording and range formatting; individual phrase styles do not yet have
+independent keys.
+
+An object's first appearance and each reappearance implicitly protect its
+non-visibility properties. Backward from a later build preserves that appearance
+frame, including the initial frame for objects already visible there. Forward
+stops before a subsequent appearance. Green diamond outlines show this
+protection; explicit pins remain separate. Everywhere crosses both kinds of
+barrier when revising the complete diagram.
+
 **Hidden objects** restores objects removed in a build. Presentation visits each
 build before advancing slides; the presenter window follows the same sequence.
 **PDF pages** selects final-state-only or one page per authored build. Changes

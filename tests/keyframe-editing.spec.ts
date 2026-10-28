@@ -103,9 +103,9 @@ test('backward non-movement edits and optional defaults restore the later frame'
   await frame(page, 1);
   await page.getByRole('button', { name: 'Propagation direction' }).click();
   await selectBox(page); await field(page, 'width', '400');
-  await expect.poll(() => values(page, 'width')).toEqual([400, 400, 240]);
+  await expect.poll(() => values(page, 'width')).toEqual([240, 400, 240]);
   await field(page, 'opacity', '0.25');
-  await expect.poll(() => values(page, 'opacity')).toEqual([0.25, 0.25, undefined]);
+  await expect.poll(() => values(page, 'opacity')).toEqual([undefined, 0.25, undefined]);
   await frame(page, 2); await selectBox(page);
   await expect(page.getByRole('button', { name: 'Inherit opacity', exact: true })).toHaveAttribute('aria-pressed', 'true');
 });
@@ -212,7 +212,7 @@ test('a property edit captures direction at focus while the hotkey changes the n
   await expect.poll(() => values(page, 'width')).toEqual([240, 400, 400]);
   await expect(page.getByRole('button', { name: 'Propagation direction' })).toContainText('Backward');
   await field(page, 'height', '200');
-  await expect.poll(() => values(page, 'height')).toEqual([200, 200, 160]);
+  await expect.poll(() => values(page, 'height')).toEqual([160, 200, 160]);
 });
 
 test('default-valued property edits also retain their starting direction', async ({ page }) => {

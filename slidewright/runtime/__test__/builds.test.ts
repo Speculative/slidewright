@@ -7,7 +7,7 @@ import { booleanLit, listLit, numberLit, omitLit, stringLit } from '../ast-build
 import {
   addBuild, buildDifferences, buildEditRange, buildFrames, buildObjects, buildProperty,
   duplicateBuild, editBuildProperties, ensureBuildObjectIds, moveBuild, objectId,
-  removeBuild, resolveBuild, toggleBuildKeyframe, validateBuilds,
+  removeBuild, resolveBuild, toggleBuildKeyframe, validateBuilds, isBuildAppearance,
 } from '../builds.js';
 import { commitSourceEdit } from '../../canvas/ast-edits.js';
 import { DeckDocument } from '../document.js';
@@ -106,12 +106,12 @@ test('unpin inherits from the previous keyframe, even after a backward edit', ()
   assert.equal(buildProperty(slide, 4, 'node', 'x').origin, 1);
 });
 
-test('backward edits reach the initial frame and restore following values visibly', () => {
+test('backward edits protect the initial appearance and restore following values visibly', () => {
   const slide = scene(4);
   editBuildProperties(slide, 2, 'node', { x: numberLit(200) });
   assert.deepEqual(values(slide), [100, 100, 200, 200]);
-  assert.deepEqual(editBuildProperties(slide, 2, 'node', { x: numberLit(250) }, 'backward'), { first: 0, last: 2 });
-  assert.deepEqual(values(slide), [250, 250, 250, 200]);
+  assert.deepEqual(editBuildProperties(slide, 2, 'node', { x: numberLit(250) }, 'backward'), { first: 1, last: 2 });
+  assert.deepEqual(values(slide), [100, 250, 250, 200]);
   assert.equal(buildProperty(slide, 2, 'node', 'x').keyframed, false);
   assert.equal(buildProperty(slide, 3, 'node', 'x').keyframed, true);
   assert.equal(buildProperty(slide, 3, 'node', 'x').origin, 3);
@@ -151,12 +151,12 @@ test('pinning a default-valued property creates a barrier without a visual diffe
 test('restoration of an absent optional value uses an explicit default reset', () => {
   const slide = scene();
   editBuildProperties(slide, 2, 'node', { opacity: numberLit(0.4) }, 'backward');
-  assert.deepEqual(values(slide, 'opacity'), [0.4, 0.4, 0.4, undefined, undefined]);
+  assert.deepEqual(values(slide, 'opacity'), [undefined, 0.4, 0.4, undefined, undefined]);
   assert.equal(buildProperty(slide, 3, 'node', 'opacity').keyframed, true);
   const projected = resolveBuild(slide, 3);
   assert.equal(buildObjects(projected).find(object => objectId(object) === 'node')!.fills.some(fill => fill.name === 'opacity'), false);
   toggleBuildKeyframe(slide, 3, 'node', 'opacity');
-  assert.deepEqual(values(slide, 'opacity'), [0.4, 0.4, 0.4, 0.4, 0.4]);
+  assert.deepEqual(values(slide, 'opacity'), [undefined, 0.4, 0.4, 0.4, 0.4]);
 });
 
 test('hide, edit while absent, and restore preserve identity and the latest geometry', () => {
@@ -329,4 +329,61 @@ test('malformed metadata produces validation errors rather than silently ignorin
   ]);
   const duplicate = parse('Slide { builds: [Build { id: "b" } Build { id: "b" }] }', 'invalid.sw').ast.items[0]!;
   assert.ok(validateBuilds(duplicate).some(error => error.includes('unique')));
+});
+
+test('appearances implicitly protect every property, including defaults, without authoring copies', () => {
+  const slide = scene();
+  editBuildProperties(slide, 0, 'node', { visible: booleanLit(false) });
+  editBuildProperties(slide, 1, 'node', { visible: booleanLit(true) });
+  const before = emit({ kind:'source_file', items:[slide], span:slide.span });
+  assert.equal(isBuildAppearance(slide, 1, 'node'), true);
+  assert.equal(isBuildAppearance(slide, 2, 'node'), false);
+  assert.deepEqual(buildEditRange(slide, 2, 'node', ['x','opacity','customStyle'], 'backward'), {first:2,last:2});
+  assert.equal(emit({ kind:'source_file', items:[slide], span:slide.span }), before);
+  assert.equal(buildProperty(slide,1,'node','opacity').keyframed,false);
+  editBuildProperties(slide, 2, 'node', { opacity:numberLit(0.4), customStyle:stringLit('dim') }, 'backward');
+  assert.deepEqual(values(slide,'opacity'), [undefined,undefined,0.4,undefined,undefined]);
+  assert.deepEqual(values(slide,'customStyle'), [undefined,undefined,'dim',undefined,undefined]);
+  assert.deepEqual(values(slide,'visible'),[false,true,true,true,true]);
+});
+
+test('forward edits stop at future appearances; editing an appearance does not change hidden frames', () => {
+  const slide = scene();
+  editBuildProperties(slide,0,'node',{visible:booleanLit(false)});
+  editBuildProperties(slide,2,'node',{visible:booleanLit(true)});
+  assert.deepEqual(editBuildProperties(slide,0,'node',{x:numberLit(250)}),{first:0,last:1});
+  assert.deepEqual(values(slide),[250,250,100,100,100]);
+  assert.deepEqual(editBuildProperties(slide,2,'node',{x:numberLit(350)},'backward'),{first:2,last:2});
+  assert.deepEqual(values(slide),[250,250,350,100,100]);
+});
+
+test('reappearance, ancestor reveals, and Everywhere use the same appearance boundaries', () => {
+  const slide = scene(6);
+  const parent = buildObjects(slide).find(object => object.name === 'Freeform')!;
+  const parentId = objectId(parent)!;
+  editBuildProperties(slide,0,parentId,{visible:booleanLit(false)});
+  editBuildProperties(slide,1,parentId,{visible:booleanLit(true)});
+  assert.equal(isBuildAppearance(slide,1,'node'),true);
+  editBuildProperties(slide,3,'node',{visible:booleanLit(false)});
+  editBuildProperties(slide,4,'node',{visible:booleanLit(true)});
+  assert.equal(isBuildAppearance(slide,4,'node'),true);
+  assert.deepEqual(editBuildProperties(slide,5,'node',{x:numberLit(500)},'backward'),{first:5,last:5});
+  assert.deepEqual(values(slide),[100,100,100,100,100,500]);
+  const visibility = values(slide,'visible');
+  editBuildProperties(slide,5,'node',{x:numberLit(700)},'everywhere');
+  assert.deepEqual(values(slide),[700,700,700,700,700,700]);
+  assert.deepEqual(values(slide,'visible'),visibility);
+});
+
+test('redundant visible pins do not create appearances and unpinning property keys retains entry protection', () => {
+  const slide = scene();
+  editBuildProperties(slide,2,'node',{visible:booleanLit(true)});
+  assert.equal(isBuildAppearance(slide,2,'node'),false);
+  assert.deepEqual(buildEditRange(slide,3,'node',['x'],'backward'),{first:1,last:3});
+  editBuildProperties(slide,0,'node',{visible:booleanLit(false)});
+  editBuildProperties(slide,1,'node',{visible:booleanLit(true)});
+  toggleBuildKeyframe(slide,1,'node','x');
+  toggleBuildKeyframe(slide,1,'node','x');
+  assert.equal(buildProperty(slide,1,'node','x').keyframed,false);
+  assert.deepEqual(buildEditRange(slide,2,'node',['x'],'backward'),{first:2,last:2});
 });

@@ -27,7 +27,7 @@ import type { PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 
 import { createPortal } from 'react-dom';
 
 import { addBuild, buildFrames, buildObjects, buildProperty, duplicateBuild, editBuildProperties, moveBuild, nextBuildDirection, objectId, removeBuild, toggleBuildKeyframe, type BuildDirection } from '../runtime/builds.js';
-import { commitBuildSourceCandidate, createBuildEditingSnapshot, hasBuildEditingContext } from './build-editing.js';
+import { commitBuildPropertyEdits, commitBuildSourceCandidate, createBuildEditingSnapshot, hasBuildEditingContext } from './build-editing.js';
 import { AdditionalBuildKeyframes, BuildInspectorContext } from './build-inspector.js';
 import { BuildChangesOverlay } from './BuildChangesOverlay.js';
 import { buildPreviewSlides } from './build-previews.js';
@@ -42,7 +42,7 @@ import {
 import { DeckDocument, type DocumentUpdate, type SourceChange, type DocumentSnapshot } from '../runtime/document.js';
 import { mapSelectionTargets } from './selection-mapping.js';
 import { sourceUndoEntry, type SourceUndoEntry as UndoEntry } from './source-history.js';
-import { numberLit, stringLit, booleanLit, nameRef, paragraphDocument } from '../runtime/ast-builders.js';
+import { numberLit, stringLit, booleanLit, nameRef, omitLit, paragraphDocument } from '../runtime/ast-builders.js';
 import type { Component, SourceFile, Value } from '../runtime/ast.js';
 import { ComponentPreviews, ComponentPreviewContext } from './component-preview.js';
 import type { Diagnostic } from '../runtime/diagnostics.js';
@@ -54,7 +54,7 @@ import type { TextFormattingState } from './rich-text/feedback.js';
 import { commitOnTextBlur } from './rich-text/focus.js';
 import { shapeStyleParam, type ShapeStyleField } from './shape-formatting.js';
 import { SelectedShapeToolbar } from './SelectedShapeToolbar.js';
-import { SelectedTextBoxToolbar, type WholeTextChange } from './rich-text/SelectedTextBoxToolbar.js';
+import { clearWholeTextProperty, SelectedTextBoxToolbar, type WholeTextChange } from './rich-text/SelectedTextBoxToolbar.js';
 import { FormattingToolbar } from './rich-text/FormattingToolbar.js';
 import { TextDocumentSessionContext } from './text-document-context.js';
 import { components, staticTokens } from '../../decks/v0-reference/registry.js';
@@ -1634,6 +1634,29 @@ export function App({
     if (result) commitToHost(result.newSource, result.newSelections, result.changes, result.baseRevision);
   }, [commitToHost]);
 
+  const setFormattingKeyframes = useCallback((objects: Component[], property: string, pinned: boolean) => {
+    const slideIndex = activeIdxRef.current;
+    const index = stateRef.current?.slidesData[slideIndex]?.buildIndex ?? 0;
+    if (!index) return;
+    const result = editSource(sourceRef.current, '<formatting-keyframes>', ast => {
+      const slide = authoredSlideAt(ast, slideIndex);
+      if (!slide) return null;
+      const nodes = objects.flatMap(object => {
+        const id = objectId(object);
+        const node = id && buildObjects(slide).find(node => objectId(node) === id);
+        return node ? [node] : [];
+      });
+      if (nodes.length !== objects.length) return null;
+      for (const node of nodes) {
+        const id = objectId(node)!;
+        if (buildProperty(slide, index, id, property).keyframed !== pinned)
+          toggleBuildKeyframe(slide, index, id, property, buildPropertyDefault(node, property));
+      }
+      return { selectComponents: nodes };
+    }, canonicalSnapshotRef.current);
+    if (result) commitToHost(result.newSource, result.newSelections, result.changes, result.baseRevision);
+  }, [commitToHost]);
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (presenting || event.defaultPrevented || event.isComposing || !event.altKey || !event.shiftKey || event.key.toLowerCase() !== 'b') return;
@@ -3058,6 +3081,23 @@ export function App({
       if (drafts.length === changes.length) colorPreviews.stage(drafts, () => applyWholeTextChange(changes, false));
       return;
     }
+    const snapshot = editSnapshot();
+    const propertyEdits = changes.map(change => {
+      const shape = selectedTextBoxes.find(shape => shape.comp.span.start.offset === change.target.start && shape.comp.span.end.offset === change.target.end);
+      if (!shape) return null;
+      const fields = { ...change.defaults, ...(change.field ? { [change.field]: change.value } : {}) };
+      const comp = structuredClone(shape.comp);
+      updateComponent(comp, change);
+      return { owner: shape.comp, values: Object.fromEntries(Object.keys(fields).map(property =>
+        [property, comp.fills.find(fill => fill.name === property)?.value ?? omitLit()])),
+        transformContent: (content: Value | undefined, property: string) => clearWholeTextProperty(content, property,
+          { scope: state.scope, registry: components, colorTokens: state.colorTokens }) };
+    });
+    if (snapshot && hasBuildEditingContext(snapshot) && propertyEdits.every(edit => edit && Object.keys(edit.values).length)) {
+      const result = commitBuildPropertyEdits(sourceRef.current, '<whole-text-formatting>', snapshot, propertyEdits.filter(edit => edit !== null));
+      if (result) commitToHost(result.newSource, result.newSelections, result.changes, result.baseRevision);
+      return;
+    }
     const paths: NonNullable<ReturnType<typeof pathToComponent>>[] = [];
     const result = commitSourceEdit(sourceRef.current, '<whole-text-formatting>', ast => {
       for (const change of changes) {
@@ -3138,7 +3178,7 @@ export function App({
           onClick={() => { operationSnapshotRef.current = undefined; setBuildDirection(nextBuildDirection); }}>
           {buildDirection === 'forward' ? 'Forward →' : buildDirection === 'backward' ? '← Backward' : 'Everywhere'}
         </button>
-        <span className="sw-build-scope-hint">{buildDirection === 'everywhere' ? 'All frames · replaces keyframes for edited properties' : buildDirection === 'backward' ? 'Stops at the previous property keyframe' : 'Stops at the next property keyframe'}</span>
+        <span className="sw-build-scope-hint">{buildDirection === 'everywhere' ? 'All frames · replaces keyframes for edited properties' : buildDirection === 'backward' ? 'Stops at the previous property keyframe or appearance' : 'Stops at the next property keyframe or appearance'}</span>
         {activeSlide.authoredComp.fills.some(fill => fill.name === 'builds') && <details className="sw-hidden-objects"><summary>Hidden objects</summary>
           {hiddenBuildObjects.map(object => <button type="button" key={objectId(object)} onClick={() => restoreBuildObject(objectId(object)!)}>Restore {object.name} · {objectId(object)}</button>)}
         </details>}
@@ -3150,7 +3190,7 @@ export function App({
         onDragStart={handleToolDragStart}
       />
       <BuildInspectorContext.Provider value={activeSlide && activeSlide.authoredComp.fills.some(fill => fill.name === 'builds') ? {
-        slide: activeSlide.authoredComp, frameIndex: activeBuildIndex, direction: buildDirection, toggle: togglePropertyKeyframe, defaultValue: buildPropertyDefault,
+        slide: activeSlide.authoredComp, frameIndex: activeBuildIndex, direction: buildDirection, toggle: togglePropertyKeyframe, setFormattingKeyframes, defaultValue: buildPropertyDefault,
       } : null}>
       <div className="sw-authoring-workspace"
         onPointerDownCapture={() => { if (!gestureMeta && !richEditing && scrubPreSourceRef.current === null) operationSnapshotRef.current = sourceSnapshotRef.current; }}

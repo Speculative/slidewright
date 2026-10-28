@@ -158,19 +158,49 @@ export function buildProperty(slide: Component, index: number, id: string, prope
   return { value, origin, keyframed };
 }
 
+/** An appearance protects all non-visibility properties from edits crossing
+ * this frame. Keep it distinct from an explicitly authored property pin.
+ * Ancestor reveals also introduce their descendants into the visible scene. */
+export function isBuildAppearance(slide: Component, index: number, id: string): boolean {
+  frameAt(slide, index);
+  const path = (value: Value, parents: Component[]): Component[] | undefined => {
+    if (value.kind === 'list') {
+      for (const item of value.items) { const found = path(item, parents); if (found) return found; }
+    }
+    if (value.kind !== 'component') return undefined;
+    const nodes = [...parents, value];
+    if (objectId(value) === id) return nodes;
+    for (const fill of value.fills) { const found = path(fill.value, nodes); if (found) return found; }
+    for (const child of value.implicitChildren) { const found = path(child, nodes); if (found) return found; }
+    return undefined;
+  };
+  const content = field(slide, 'content');
+  const ancestors = content && path(content, []);
+  if (!ancestors) throw new Error(`Unknown build object: ${id}`);
+  const visible = (at: number) => ancestors.every(object => {
+    const ancestorId = objectId(object);
+    const value = ancestorId ? buildProperty(slide, at, ancestorId, 'visible').value : field(object, 'visible');
+    return value?.kind !== 'boolean' || value.value;
+  });
+  return visible(index) && (index === 0 || !visible(index - 1));
+}
+
 export function buildEditRange(slide: Component, index: number, id: string,
   properties: readonly string[], direction: BuildDirection): BuildEditRange {
   frameAt(slide, index);
   objectAt(slide, id);
   checkProperties(properties);
   if (direction === 'everywhere') return { first: 0, last: buildFrames(slide).length - 1 };
-  // The initial values are the beginning of the sequence, not a barrier
-  // that makes it impossible to revise an entire diagram backward.
+  const protectAppearances = properties.some(property => property !== 'visible');
   if (direction === 'backward') {
     let first = index;
     while (first > 0) {
+      // Editing an appearance itself may change it, but should not rewrite
+      // the hidden interval before it. Later edits stop BEFORE that frame.
+      if (protectAppearances && isBuildAppearance(slide, first, id)) break;
       const previous = changeAt(slide, first - 1, id);
-      if (first > 1 && previous && properties.some(property => field(previous, property) !== undefined)) break;
+      if (first > 1 && previous && properties.some(property => field(previous, property) !== undefined) ||
+          protectAppearances && isBuildAppearance(slide, first - 1, id)) break;
       first--;
     }
     return { first, last: index };
@@ -178,6 +208,7 @@ export function buildEditRange(slide: Component, index: number, id: string,
   let last = index;
   const count = buildFrames(slide).length;
   while (last + 1 < count) {
+    if (protectAppearances && isBuildAppearance(slide, last + 1, id)) break;
     const next = changeAt(slide, last + 1, id);
     if (next && properties.some(property => field(next, property) !== undefined)) break;
     last++;
@@ -191,6 +222,12 @@ export function editBuildProperties(slide: Component, index: number, id: string,
   values: Readonly<Record<string, Value>>, direction: BuildDirection = 'forward'): BuildEditRange {
   const properties = Object.keys(values);
   const range = buildEditRange(slide, index, id, properties, direction);
+  writeBuildRange(slide, id, values, range);
+  return range;
+}
+
+function writeBuildRange(slide: Component, id: string, values: Readonly<Record<string, Value>>, range: BuildEditRange): void {
+  const properties = Object.keys(values);
   const count = buildFrames(slide).length;
   // Capture BEFORE modifying the start. If a grouped edit stops at a barrier
   // for only x, y still needs restoring at that boundary.
@@ -209,7 +246,29 @@ export function editBuildProperties(slide: Component, index: number, id: string,
   for (const item of restore) {
     if (!item.pinned) setField(changeAt(slide, range.last + 1, id, true)!, item.property, item.value);
   }
-  return range;
+}
+
+/** Transform existing values without replacing later authored variants with
+ * the selected frame's value. Whole-box style edits use this to clear inline
+ * overrides while retaining every wording/list variant and content barrier. */
+export function transformBuildProperty(slide: Component, id: string, property: string,
+  range: BuildEditRange, transform: (value: Value | undefined) => Value | undefined): void {
+  checkProperties([property]);
+  frameAt(slide, range.first); frameAt(slide, range.last);
+  objectAt(slide, id);
+  if (range.first > range.last) throw new RangeError('Invalid build edit range');
+  const starts = [range.first];
+  for (let index = range.first + 1; index <= range.last; index++) {
+    if (buildProperty(slide, index, id, property).keyframed) starts.push(index);
+  }
+  // Snapshot before writing: restoration boundaries must see the original
+  // values, and callers cannot mutate the canonical tree through this callback.
+  const segments = starts.map((first, index) => ({ first, last: (starts[index + 1] ?? range.last + 1) - 1,
+    before: copy(buildProperty(slide, first, id, property).value) }));
+  for (const segment of segments) {
+    const after = transform(copy(segment.before));
+    if (!sameValue(segment.before, after)) writeBuildRange(slide, id, { [property]: after ?? omitLit() }, segment);
+  }
 }
 
 /** Authorship toggle is local to this frame, independent of edit direction.

@@ -13,9 +13,26 @@ import { formattingState, type FormattingValue, type TextFormattingState } from 
 import { clearTextStyles, setParagraphStyle, setTextStyle, setTextStyles } from './commands.js';
 import { FloatingToolbar, type TextStyleControls } from './FloatingToolbar.js';
 import { TextStyleButtons } from './FormattingToolbar.js';
+import { BuildFormattingKeyframe, BuildFormattingScope } from '../build-inspector.js';
 import type { TextStyleField } from './Editor.js';
 
 const defaults = { font: 'font', size: 'fontSize', weight: 'fontWeight', color: 'color', letterSpacing: 'letterSpacing' } as const;
+const inlineProperties: Record<string, string> = Object.fromEntries(Object.entries(defaults).map(([style, property]) => [property, style]));
+
+/** Remove only the inline override owned by a whole-box property. Reuse the
+ * projection contract so opaque/custom inline values retain their ownership. */
+export function clearWholeTextProperty(content: Value | undefined, property: string,
+  input: { scope: Scope; registry: ComponentRegistry; colorTokens: Record<string, string> }): Value | undefined {
+  if (!content) return content;
+  const projection = new TextProjection({ content, ...input });
+  const state = EditorState.create({ schema: projection.schema, doc: projection.doc, selection: new AllSelection(projection.doc) });
+  const style = inlineProperties[property];
+  const command = style ? setTextStyle(style as TextStyleField, null)
+    : property === 'lineHeight' ? setParagraphStyle('lineHeight', null) : null;
+  let value = content;
+  command?.(state, tr => { value = projection.lower(state.apply(tr).doc); });
+  return value;
+}
 export type WholeTextChange = { target: SourceRange; content: Value; defaults?: Record<string, string | number>; field?: string; value?: string | number | boolean | Value | null };
 
 // Reuse the private projection without mounting an editable DOM island. A
@@ -97,8 +114,15 @@ export function SelectedTextBoxToolbar({ shapes, scope, registry, colorTokens, s
       onColorGesture(phase);
     },
   };
-  return <FloatingToolbar session={session} state={feedback} colorTokens={colorTokens} slideColors={slideColors} label="TextBox formatting">
+  const owners = shapes.map(shape => shape.comp);
+  const keyframe = (field: string) => {
+    const property = field === 'lineHeight' ? field : defaults[field as keyof typeof defaults];
+    return property ? <BuildFormattingKeyframe owners={owners} property={property} label={field} /> : null;
+  };
+  return <FloatingToolbar session={session} state={feedback} colorTokens={colorTokens} slideColors={slideColors} label="TextBox formatting" keyframe={keyframe}>
     <span aria-label="Formatting target">{shapes.length === 1 ? 'Whole text box' : `${shapes.length} text boxes`}</span>
-    <TextStyleButtons session={session} state={feedback} />
+    <BuildFormattingScope />
+    <TextStyleButtons session={session} state={feedback} keyframe={keyframe} />
+    <BuildFormattingKeyframe owners={owners} property="content" label="content" caption="Text & inline styles" />
   </FloatingToolbar>;
 }

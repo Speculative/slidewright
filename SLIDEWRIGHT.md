@@ -484,6 +484,10 @@ equal-valued keys remain propagation barriers. Forward/backward propagation is
 the scope of one edit, with forward as the default. Pin/unpin toggles local
 authorship independently of that direction. Bounded edits author visible
 restoration keys where needed. There is no separate shared-value diagram layer.
+Appearances (including initial visibility and ancestor reveals) implicitly
+protect non-visibility properties against edits crossing that frame. Backward
+from a later build preserves the appearance itself. Everywhere crosses both
+explicit pins and appearance boundaries when revising the complete diagram.
 
 Visibility is distinct from opacity: hidden objects leave layout but retain
 identity and editable data; opacity preserves layout space. Insertion/removal
