@@ -1,5 +1,7 @@
 // Build-aware lowering is private to canvas transactions. Host/editor writes
 // and undecorated document snapshots always describe canonical source.
+import { clearTextStyleOverrides, TEXT_STYLE_FIELDS, type TextStyleProperty } from '../runtime/text-builds.js';
+import { applyTextBuildDraft, type TextBuildDraft } from '../runtime/text-build-edit.js';
 import type { Component, SourceFile, Value } from '../runtime/ast.js';
 import { booleanLit, numberLit, omitLit, slotFill, stringLit } from '../runtime/ast-builders.js';
 import { buildFrames, buildObjects, editBuildProperties, objectId, resolveBuild, transformBuildProperty, validateBuilds, type BuildDirection } from '../runtime/builds.js';
@@ -44,7 +46,7 @@ export function readBuildEditingAst(snapshot: DocumentSnapshot): SourceFile {
   if (!state) return snapshot.ast as SourceFile;
   const ast = clone(snapshot.ast) as SourceFile;
   const slide = slideAt(ast, state.context.slideIndex)!;
-  replaceSlide(ast, state.context.slideIndex, resolveBuild(slide, state.context.buildIndex));
+  replaceSlide(ast, state.context.slideIndex, resolveBuild(slide, state.context.buildIndex, state.context.registry));
   return ast;
 }
 
@@ -98,7 +100,7 @@ export function prepareBuildMutation(snapshot: DocumentSnapshot | undefined, can
   if (!state) return undefined;
   const { context } = state;
   const authored = slideAt(canonical, context.slideIndex)!;
-  const effective = resolveBuild(authored, context.buildIndex);
+  const effective = resolveBuild(authored, context.buildIndex, context.registry);
   const ast = clone(canonical);
   replaceSlide(ast, context.slideIndex, effective);
   const originals = new Map<Component, Component>();
@@ -256,7 +258,7 @@ export function prepareBuildMutation(snapshot: DocumentSnapshot | undefined, can
         }
       }
       for (const owner of removed) editBuildProperties(authored, context.buildIndex, objectId(owner)!, { visible: booleanLit(false) }, 'forward');
-      if (validateBuilds(authored).length) return null;
+      if (validateBuilds(authored, context.registry).length) return null;
       return canonical;
     } catch { return null; }
   };
@@ -306,11 +308,13 @@ export function commitBuildPropertyEdits(source: string, label: string, snapshot
           for (const [property, value] of Object.entries(values)) {
             const range = editBuildProperties(slide, state.context.buildIndex, id, { [property]: value }, state.context.direction);
             transformBuildProperty(slide, id, 'content', range, content => transformContent(content, property));
+            const style = property === 'fontSize' ? 'size' : property === 'fontWeight' ? 'weight' : property;
+            if (TEXT_STYLE_FIELDS.includes(style as TextStyleProperty)) clearTextStyleOverrides(slide, id, style as TextStyleProperty, range, state.context.registry);
           }
         } else editBuildProperties(slide, state.context.buildIndex, id, values, state.context.direction);
         selected.push(target);
       }
-      if (validateBuilds(slide).length) return null;
+      if (validateBuilds(slide, state.context.registry).length) return null;
     } catch { return null; }
     return { selectComponents: selected };
   }, state.canonical);
@@ -326,7 +330,7 @@ export function commitBuildSourceCandidate(candidate: string, label: string, sna
   const edit = changes[0]!;
   const mapping = new SourceMapping(snapshot.revision, snapshot.revision + 1, snapshot.source.length, changes);
   const authored = slideAt(snapshot.ast as SourceFile, state.context.slideIndex)!;
-  const effective = resolveBuild(authored, state.context.buildIndex);
+  const effective = resolveBuild(authored, state.context.buildIndex, state.context.registry);
   const parsed = parse(candidate, label);
   if (parsed.diagnostics.some(d => d.severity === 'error')) return null;
   const owners: Component[] = [];
@@ -352,4 +356,22 @@ export function commitBuildSourceCandidate(candidate: string, label: string, sna
     }
   }
   return null;
+}
+
+/** Accepted rich draft: source IDs, content and independent style channels
+ * become one canonical transaction and one canvas undo entry. */
+export function commitBuildTextDraft(source: string, snapshot: DocumentSnapshot, owner: Component,
+  content: Value, draft: TextBuildDraft, defaults: Readonly<Record<string, Value>> = {}): CommitResult | null {
+  const state = contexts.get(snapshot);
+  const id = objectId(owner);
+  if (!state || !id) return null;
+  return commitSourceEdit(source, '<text-session>', ast => {
+    const slide = slideAt(ast, state.context.slideIndex)!;
+    try {
+      applyTextBuildDraft(slide, state.context.buildIndex, id, content, draft, state.context.direction, state.context.registry);
+      if (Object.keys(defaults).length) editBuildProperties(slide, state.context.buildIndex, id, defaults, state.context.direction);
+      if (validateBuilds(slide, state.context.registry).length) return null;
+    } catch { return null; }
+    return { selectComponents: [buildObjects(slide).find(object => objectId(object) === id)!] };
+  }, state.canonical);
 }

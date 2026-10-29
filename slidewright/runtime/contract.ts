@@ -292,6 +292,9 @@ export const BUILTIN_META: Record<string, ComponentMeta> = {
       content: { type: 'text', required: true },
     },
     params: {
+      // Stable text-document identity, scoped to its owning text box. This is
+      // distinct from scene object `id` and does not affect rendered styling.
+      runId: { type: 'string' },
       color: { type: 'color-token' },
       font: { type: 'font-token' },
       size: { type: 'number' },

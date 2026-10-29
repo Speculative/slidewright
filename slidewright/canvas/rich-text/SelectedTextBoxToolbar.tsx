@@ -1,6 +1,6 @@
 import { useMemo, useRef } from 'react';
 import { AllSelection, EditorState, type Command } from 'prosemirror-state';
-import type { Value } from '../../runtime/ast.js';
+import type { Component, Value } from '../../runtime/ast.js';
 import type { ShapeData } from '../../runtime/loader.js';
 import type { SourceRange } from '../host.js';
 import type { ComponentRegistry } from '../../runtime/contract.js';
@@ -22,7 +22,7 @@ const inlineProperties: Record<string, string> = Object.fromEntries(Object.entri
 /** Remove only the inline override owned by a whole-box property. Reuse the
  * projection contract so opaque/custom inline values retain their ownership. */
 export function clearWholeTextProperty(content: Value | undefined, property: string,
-  input: { scope: Scope; registry: ComponentRegistry; colorTokens: Record<string, string> }): Value | undefined {
+  input: { scope: Scope; registry: ComponentRegistry; colorTokens: Record<string, string>; reservedRunIds?: readonly string[] }): Value | undefined {
   if (!content) return content;
   const projection = new TextProjection({ content, ...input });
   const state = EditorState.create({ schema: projection.schema, doc: projection.doc, selection: new AllSelection(projection.doc) });
@@ -38,19 +38,21 @@ export type WholeTextChange = { target: SourceRange; content: Value; defaults?: 
 // Reuse the private projection without mounting an editable DOM island. A
 // whole-box command selects every block and lowers through the same origins
 // as a text session, preserving custom inline ownership and authored content.
-export function SelectedTextBoxToolbar({ shapes, scope, registry, colorTokens, slideColors, onChange, onColorGesture }: {
+export function SelectedTextBoxToolbar({ shapes, scope, registry, colorTokens, slideColors, onChange, onColorGesture, reservedRunIds }: {
   shapes: ShapeData[]; scope: Scope; registry: ComponentRegistry;
   colorTokens: Record<string, string>; slideColors: SlideColor[];
   onChange(changes: WholeTextChange[], preview: boolean): void;
   onColorGesture(phase: 'begin' | 'commit' | 'cancel'): void;
+  reservedRunIds?(owner: Component): readonly string[];
 }) {
   const boxes = useMemo(() => shapes.map(({ comp: component, params }) => {
-    const projection = new TextProjection({ content: component.fills.find(fill => fill.name === 'content')?.value, scope, registry, colorTokens });
+    const projection = new TextProjection({ content: component.fills.find(fill => fill.name === 'content')?.value, scope, registry, colorTokens,
+      reservedRunIds: reservedRunIds?.(component) });
     const state = EditorState.create({ schema: projection.schema, doc: projection.doc, selection: new AllSelection(projection.doc) });
     const color = component.fills.find(fill => fill.name === 'color')?.value;
     const feedback = formattingState(state, { ...Object.fromEntries(Object.entries(defaults).map(([field, name]) => [field, params[name]])), color: color?.kind === 'name_ref' ? color.name : params.color, lineHeight: params.lineHeight, align: params.align });
     return { component, projection, state, feedback };
-  }), [shapes, scope, registry, colorTokens]);
+  }), [shapes, scope, registry, colorTokens, reservedRunIds]);
   const combine = (values: FormattingValue[]): FormattingValue => ({
     value: values[0]!.value,
     mixed: values.some(value => value.mixed || value.value !== values[0]!.value),

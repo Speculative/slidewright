@@ -3,9 +3,13 @@ import { createRoot, type Root } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { EditorState, TextSelection, Selection } from 'prosemirror-state';
 import { EditorView, type NodeView } from 'prosemirror-view';
-import type { Node as PMNode } from 'prosemirror-model';
+import { Fragment, type Node as PMNode } from 'prosemirror-model';
 import { keymap } from 'prosemirror-keymap';
 import { history, closeHistory } from 'prosemirror-history';
+import { buildTextStyle, type TextStyleProperty } from '../../runtime/text-builds.js';
+import { isBuildAppearance, objectId, type BuildDirection } from '../../runtime/builds.js';
+import { textRunId } from '../../runtime/text-runs.js';
+import type { TextBuildDraft } from '../../runtime/text-build-edit.js';
 import type { Component, Value } from '../../runtime/ast.js';
 import type { ComponentRegistry, OwnedInlineEditorMount } from '../../runtime/contract.js';
 import type { Scope } from '../../runtime/scope.js';
@@ -29,6 +33,9 @@ export interface TextEditorSnapshot {
   colorTokens: Record<string, string>;
   clientX: number;
   clientY: number;
+  persistentRuns?: boolean;
+  buildStyle?: { slide: Component; index: number; direction: BuildDirection };
+  reservedRunIds?: readonly string[];
 }
 export type TextStyleField = typeof STYLE_FIELDS[number];
 
@@ -40,6 +47,7 @@ export interface TextSessionHandle {
   preset(preset: TextPreset): void;
   toggle(field: 'weight' | 'italic' | 'underline' | 'strikethrough'): void;
   clearFormatting(): void;
+  keyframe(field: TextStyleField, pinned: boolean): void;
   formatColor(field: 'color' | 'strokeColor', value: Value | null): void;
   selectionColor(field: 'color' | 'strokeColor'): string;
   colorGesture(phase: 'begin' | 'commit' | 'cancel'): void;
@@ -48,10 +56,22 @@ export interface TextSessionHandle {
   paragraph(field: ParagraphField, value: string | number | null): void;
 }
 
-function semanticDocument(doc: PMNode): string {
+function semanticDocument(doc: PMNode, withoutStyles = false): string {
+  if (withoutStyles) {
+    const strip = (node: PMNode): PMNode => {
+      const marks = node.marks.filter(mark => !['source', 'build_pin'].includes(mark.type.name) && !STYLE_FIELDS.includes(mark.type.name as TextStyleField));
+      if (node.isText) return node.mark(marks);
+      const children: PMNode[] = [];
+      node.forEach(child => children.push(strip(child)));
+      // Removing marks can rejoin adjacent text nodes. That segmentation is
+      // formatting, not a wording or document-structure change.
+      return node.copy(Fragment.fromArray(children)).mark(marks);
+    };
+    doc = strip(doc);
+  }
   return JSON.stringify(doc.toJSON(), (key, value) => {
     if (key === 'origin' || key === 'span' || key === 'bodySpan') return undefined;
-    if (key === 'marks' && Array.isArray(value)) return value.filter(mark => mark.type !== 'source');
+    if (key === 'marks' && Array.isArray(value)) return value.filter(mark => mark.type !== 'source' && !(withoutStyles && STYLE_FIELDS.includes(mark.type)));
     return value;
   });
 }
@@ -61,7 +81,7 @@ export function RichTextEditor({ snapshot, registry, onReady, onFinish, onFormat
   registry: ComponentRegistry;
   onFormatting?(state: TextFormattingState): void;
   onReady(handle: TextSessionHandle | null): void;
-  onFinish(intent: 'commit' | 'cancel', value: Value | undefined, changed: boolean): void;
+  onFinish(intent: 'commit' | 'cancel', value: Value | undefined, changed: boolean, draft?: TextBuildDraft): void;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const callbacks = useRef({ onReady, onFinish, onFormatting });
@@ -72,13 +92,56 @@ export function RichTextEditor({ snapshot, registry, onReady, onFinish, onFormat
     let disposed = false;
     let cleanup: (() => void) | undefined;
     const start = () => {
-      const projection = new TextProjection({ content: snapshot.content, registry, scope: snapshot.scope, colorTokens: snapshot.colorTokens });
+      const projection = new TextProjection({ content: snapshot.content, registry, scope: snapshot.scope, colorTokens: snapshot.colorTokens,
+        persistentRuns: snapshot.persistentRuns, reservedRunIds: snapshot.reservedRunIds });
       let closed = false;
       let composing = false;
       let pending: 'commit' | null = null;
       let compositionTimer: ReturnType<typeof setTimeout> | null = null;
       let view: EditorView;
       let syncingSelection = false;
+      const runTarget = (node: PMNode): string | undefined => {
+        const source = node.marks.find(mark => mark.type.name === 'source');
+        for (const id of [...(source?.attrs.ancestry ?? [])].reverse()) {
+          const value = projection.origins.get(id)?.value;
+          const run = value?.kind === 'component' && textRunId(value);
+          if (run) return run;
+        }
+        return undefined;
+      };
+      const selectedLeaves = () => {
+        const entries: { node: PMNode; from: number; to: number }[] = [];
+        const { from, to, empty } = view.state.selection;
+        if (!empty) view.state.doc.nodesBetween(from, to, (node, pos) => {
+          if (node.isInline && (node.isText || node.isAtom)) entries.push({ node, from: Math.max(from, pos), to: Math.min(to, pos + node.nodeSize) });
+        });
+        return entries.filter(entry => entry.from < entry.to);
+      };
+      const reportFormatting = () => {
+        const state = formattingState(view.state);
+        const build = snapshot.buildStyle;
+        const owner = objectId(snapshot.component);
+        if (build && owner) {
+          const leaves = selectedLeaves();
+          state.keyframes = Object.fromEntries(STYLE_FIELDS.map(property => {
+            const pins = leaves.map(({ node }) => {
+              const target = runTarget(node);
+              if (!target) return false;
+              const staged = node.marks.find(mark => mark.type.name === 'build_pin')?.attrs.fields[property];
+              if (staged !== undefined) return staged as boolean;
+              const source = node.marks.find(mark => mark.type.name === 'source');
+              const bound = projection.origins.get(source?.attrs.authoredId ?? source?.attrs.id);
+              const current = node.marks.find(mark => mark.type.name === property)?.attrs.value;
+              const before = bound?.styles?.[property]?.value;
+              return current !== before || buildTextStyle(build.slide, build.index, owner, target, property, registry).keyframed;
+            });
+            return [property, { pinned: pins.some(Boolean) && !pins.every(Boolean) ? 'mixed' : pins.length > 0 && pins.every(Boolean),
+              available: leaves.length > 0 && leaves.every(({ node }) => !!runTarget(node)), initial: build.index === 0,
+              appearance: isBuildAppearance(build.slide, build.index, owner) }];
+          }));
+        }
+        callbacks.current.onFormatting?.(state);
+      };
       const clearOwnedSelection = () => {
         const selection = window.getSelection();
         if (selection && (mount.contains(selection.anchorNode) || mount.contains(selection.focusNode))) selection.removeAllRanges();
@@ -90,7 +153,10 @@ export function RichTextEditor({ snapshot, registry, onReady, onFinish, onFormat
         const changed = semanticDocument(view.state.doc) !== semanticDocument(projection.doc);
         const value = intent === 'commit' && changed ? projection.lower(view.state.doc) : undefined;
         clearOwnedSelection();
-        callbacks.current.onFinish(intent, value, changed && value !== snapshot.content);
+        callbacks.current.onFinish(intent, value, changed && value !== snapshot.content, {
+          preparedContent: projection.preparedContent, runChanges: projection.runChanges, pins: projection.runPins,
+          styleOnly: semanticDocument(view.state.doc, true) === semanticDocument(projection.doc, true),
+        });
       };
       const nodeViews: Record<string, (node: PMNode, view: EditorView, getPos: () => number | undefined) => NodeView> = {};
       for (const type of Object.keys(projection.schema.nodes).filter(name => name.startsWith('inline_') || name === 'opaque_inline')) {
@@ -189,7 +255,7 @@ export function RichTextEditor({ snapshot, registry, onReady, onFinish, onFormat
               if (focused instanceof HTMLElement && focused.isConnected && document.activeElement !== focused) focused.focus({ preventScroll: true });
             } finally { syncingSelection = false; }
           }
-          callbacks.current.onFormatting?.(formattingState(view.state));
+          reportFormatting();
         },
         handleDOMEvents: {
           blur(_view, event) {
@@ -212,7 +278,7 @@ export function RichTextEditor({ snapshot, registry, onReady, onFinish, onFormat
       const caret = view.posAtCoords({ left: snapshot.clientX, top: snapshot.clientY });
       if (caret) view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(caret.pos))));
       view.focus();
-      callbacks.current.onFormatting?.(formattingState(view.state));
+      reportFormatting();
       let colorGesture: { before: EditorState; group: number } | null = null;
       let nextColorGroup = Date.now();
       const format = (field: TextStyleField, value: string | number | boolean | null) => {
@@ -244,7 +310,7 @@ export function RichTextEditor({ snapshot, registry, onReady, onFinish, onFormat
           } else {
             if (phase === 'cancel' && colorGesture) {
               view.updateState(colorGesture.before);
-              callbacks.current.onFormatting?.(formattingState(view.state));
+              reportFormatting();
             } else view.dispatch(closeHistory(view.state.tr));
             colorGesture = null;
           }
@@ -264,6 +330,29 @@ export function RichTextEditor({ snapshot, registry, onReady, onFinish, onFormat
           if (closed) return;
           keys[field === 'weight' ? 'Mod-b' : field === 'italic' ? 'Mod-i' : field === 'underline' ? 'Mod-u' : 'Mod-Shift-x']!(view.state, tr => view.dispatch(closeHistory(tr)), view);
           view.focus();
+        },
+        keyframe(field, pinned) {
+          if (closed || !snapshot.buildStyle || snapshot.buildStyle.index === 0) return;
+          const owner = objectId(snapshot.component);
+          if (!owner) return;
+          let tr = closeHistory(view.state.tr);
+          for (const { node, from, to } of selectedLeaves()) {
+            const run = runTarget(node);
+            if (!run) continue;
+            const fields = { ...node.marks.find(mark => mark.type.name === 'build_pin')?.attrs.fields, [field]: pinned };
+            if (!pinned) {
+              const inherited = buildTextStyle(snapshot.buildStyle.slide, snapshot.buildStyle.index - 1, owner, run, field, registry).value;
+              tr = tr.removeMark(from, to, projection.schema.marks[field]);
+              if (inherited) {
+                const value = field === 'color' || field === 'strokeColor' ? readColorValueCss(inherited, snapshot.colorTokens)
+                  : inherited.kind === 'name_ref' ? inherited.name
+                  : inherited.kind === 'string' || inherited.kind === 'number' || inherited.kind === 'boolean' ? inherited.value : null;
+                if (value !== null) tr = tr.addMark(from, to, projection.schema.marks[field]!.create({ value, authored: inherited }));
+              }
+            }
+            tr = tr.addMark(from, to, projection.schema.marks.build_pin!.create({ fields }));
+          }
+          view.dispatch(tr);
         },
         clearFormatting() { if (closed) return; clearTextStyles(view.state, tr => view.dispatch(tr)); view.focus(); },
       });

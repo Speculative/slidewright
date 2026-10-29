@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { getEditorSource, setHostSource, selectRichText } from './editor-helpers';
 import { parse } from '../slidewright/runtime/parser';
 import { buildProperty } from '../slidewright/runtime/builds';
+import { textStyleKeys } from '../slidewright/runtime/text-builds';
 import { emitValue } from '../slidewright/runtime/emitter';
 import type { Component } from '../slidewright/runtime/ast';
 
@@ -117,7 +118,7 @@ test('formatting diamonds pin defaults, respect later barriers, and locally resu
   expect(buildProperty(await slide(page),2,'a','fontSize').keyframed).toBe(false);
 });
 
-test('selected-word formatting is captured on content, committed once, and cancels without source changes', async ({page}) => {
+test('selected-word formatting uses an independent style key, committed once, and cancels without source changes', async ({page}) => {
   await start(page); await frame(page,1);
   const text = page.locator('.sw-canvas-stage').getByText('First phrase',{exact:true});
   const before = await getEditorSource(page);
@@ -132,12 +133,12 @@ test('selected-word formatting is captured on content, committed once, and cance
   await page.keyboard.press('Control+Enter');
   await expect(page.locator('.sw-rich-text-editor')).toHaveCount(0);
   expect(await content(page,0)).not.toContain('green');
-  expect(await content(page,1)).toContain('green');
+  expect(buildProperty(await slide(page),1,'a','content').keyframed).toBe(false);
+  expect(emitValue(textStyleKeys(await slide(page),1)[0]!)).toContain('green');
+  await expect(page.locator('.sw-canvas-stage [style*="color: green"]')).toContainText('First');
   expect(await content(page,2)).toContain('Later wording');
-  // Current range semantics are explicit: the diamond owns content, not
-  // an independent run color. The next slice will separate those targets.
   await select(page);
-  await expect(toolbar(page).getByRole('button',{name:'Inherit text content',exact:true})).toHaveAttribute('aria-pressed','true');
+  await expect(toolbar(page).getByRole('button',{name:'Keyframe text content',exact:true})).toHaveAttribute('aria-pressed','false');
   await page.keyboard.press('Control+z');
   await expect.poll(() => getEditorSource(page)).toBe(before);
 });

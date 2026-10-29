@@ -39,10 +39,81 @@ range and restores values beyond it; it does not broadcast one content value
 over different wording variants. The source transaction includes these content
 changes and any restoration keys in the same undo as the typography edit.
 
-The toolbar's **Text & inline styles** diamond owns the entire content value.
-Selected-word formatting and whole-box italic, underline, strike and stroke
-edits still use that content key. Independent style keys for stable text runs
-are not implemented yet; source offsets are not persistent range identities.
+Phrase styles now use independent owner/run/property keys, separate from wording.
+The rich-text toolbar shows inherited, keyed and mixed range diamonds; pin/unpin
+is local, while value edits follow Forward / Backward / Everywhere and appearance
+boundaries. Cancel discards the draft; Done commits identities, wording, style
+keys and box defaults as one canvas undo.
+
+```sw
+Build {
+  id: "emphasis"
+  changes: []
+  textStyles: [TextStyle { target: "text" run: "phrase" color: red }]
+}
+```
+
+`Slide.textStyles` owns initial styles and `Build.textStyles` later keys. A
+`TextStyle` targets a scene owner ID and a persistent `Span.runId`; its fields
+include color, font, size, weight, spacing, stroke, italic, underline,
+strikethrough and links. An absent field inherits; `omit` resets to the box's
+default. Independent channels cross content and other style keys. Whole-box
+scalar typography clears the corresponding independent channel over its edit
+range, preserving other channels and restoring the following boundary.
+
+For example, coloring “print” red in Build 1 does not author a content key.
+Changing Initial's “debugging” to “logging” then produces red “print logging”
+in Build 1. Typing in Build 1 still creates a complete-content wording key:
+earlier wording changes stop there. No operational transform or text merging
+is performed. The **Text & inline styles** diamond still pins that complete
+content value; paragraph/list formatting and whole-box italic, underline,
+strike and stroke commands use that content path.
+
+### Text-run identity foundation
+
+Build text sessions now prepare persistent identities in a private draft and
+save them only with an accepted edit. Unchanged sessions and cancellation do
+not materialize IDs. Existing identified content retains identities through
+other text projection paths, including whole-box formatting.
+
+```sw
+Span { runId: "run-1" content: "print debugging" }
+```
+
+`Span.runId` identifies a text segment within its owning text document. It is
+distinct from scene object `id`; the style target is the owner/run
+pair. String references and opaque inline elements remain atomic, and custom
+owned editor internals are not traversed. Transparent content slots retain
+their editable children. These identities do not change rendering.
+
+The identity rule follows the editor's text/style continuity, rather than fixed
+original characters: correcting `print` to `printf` retains the segment's ID.
+Partial formatting and paragraph splits keep the first fragment's ID, allocate
+fresh IDs to subsequent fragments, and report their split ancestry. Joining
+paragraphs retains distinct surviving run IDs. Full deletion reports the lost
+IDs without attaching them to neighboring text. Native clipboard HTML does not
+serialize session provenance, so pasted text gets fresh run identities.
+Deletion is local to the edited variant: keys remain dormant while another
+authored variant uses their target. Only globally unused targets are pruned.
+
+`TextRunIdentity` in `text-runs.ts` provides engine-independent preparation and
+reconciliation. `TextProjection.preparedContent` and `runChanges` expose the
+prepared AST and added/removed/split IDs for subsequent transaction lowering.
+Repeated lowering of one draft is deterministic. Duplicate authored run IDs in
+one document are rejected, rather than guessing which target they identify.
+Allocation reserves IDs from all of the owner's authored build variants, so
+editing an unidentified earlier variant cannot accidentally reuse an identity
+already assigned to an unrelated later fragment. Equal wording alone does not
+establish identity between independently authored variants.
+
+`text-build-edit.ts` lowers accepted drafts, copies style keys using split
+ancestry, and materializes formatting fragments across matching identified
+wording variants. It does not infer shared identity from equal wording or split
+a differently worded variant by guessed character offsets. `text-builds.ts`
+resolves style keys after wording, validates targets, and handles independent
+propagation, pinning and cleanup. Duplicate and reorder carry authored style
+keys with their build; delete removes those keys and recomputes inheritance.
+Build difference feedback includes effective phrase-style changes.
 
 Builds are instantaneous states in this version: visibility changes appear or
 disappear, and position/style changes jump. Grouping, reparenting, and scene
@@ -152,7 +223,8 @@ integration. `buildDifferences` reports authored-value differences from the
 preceding frame and accepts a schema-default resolver so equal-valued default
 pins remain barriers without being highlighted as visual changes.
 
-Run the editing-model tests with `npm run test:builds`.
+Run the editing-model tests with `npm run test:builds` and
+`npm run test:text-runs` (both included in `npm test`).
 
 Presentation advances through custom component steps, authored builds, and then
 slides. The presenter window shares that navigation and shows the next authored

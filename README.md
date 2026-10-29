@@ -86,9 +86,11 @@ foreground color, line height and letter spacing, including mixed keys when
 multiple boxes are selected. Its scope label follows the propagation control.
 Whole-box formatting preserves later wording variants and clears conflicting
 inline overrides within the affected range. Press Enter to reapply a displayed
-value in Everywhere mode. **Text & inline styles** shares a content key for
-wording and range formatting; individual phrase styles do not yet have
-independent keys.
+value in Everywhere mode. Phrase formatting has independent
+style keys and range diamonds in the rich-text toolbar. An earlier wording
+correction propagates through a later color-only emphasis, preserving its color.
+Typing still creates a complete-content wording barrier; earlier edits do not
+merge through that barrier. **Text & inline styles** pins the whole content value.
 
 An object's first appearance and each reappearance implicitly protect its
 non-visibility properties. Backward from a later build preserves that appearance

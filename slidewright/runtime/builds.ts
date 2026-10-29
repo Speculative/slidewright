@@ -1,6 +1,8 @@
 // Source-backed, discrete slide builds. A slide's content owns each object
 // exactly once; Build.changes contain property keyframes targeting stable IDs.
 // Editing direction is an operation scope, never a backward dependency.
+import { pruneTextStyleTargets, resolveTextStyles, validateTextStyleKeys } from './text-builds.js';
+import type { ComponentRegistry } from './contract.js';
 import type { Component, ListLit, Value } from './ast.js';
 import { booleanLit, listLit, makeComponent, omitLit, slotFill, stringLit } from './ast-builders.js';
 
@@ -314,6 +316,8 @@ export function duplicateBuild(slide: Component, index: number,
       return properties.length ? [makeComponent('Change', [slotFill('target', stringLit(objectId(object)!)), ...copy(properties)])] : [];
     });
   } else changes.items = copy(listField(original.component, 'changes')?.items ?? []);
+  const styles = field(original.component, 'textStyles');
+  if (styles) setField(duplicate.component, 'textStyles', styles);
   return duplicate;
 }
 function containsSceneObject(value: Value): boolean {
@@ -329,18 +333,20 @@ export function moveBuild(slide: Component, from: number, to: number): void {
   const [moving] = items.splice(from - 1, 1);
   items.splice(to - 1, 0, moving!);
 }
-export function removeBuild(slide: Component, index: number): void {
+export function removeBuild(slide: Component, index: number, registry: ComponentRegistry = {}): void {
   frameAt(slide, index);
   if (index === 0) throw new Error('The initial frame cannot be deleted');
   listField(slide, 'builds')!.items.splice(index - 1, 1);
+  pruneTextStyleTargets(slide, registry);
 }
 
 /** Immutable projection: authored components and their owner spans survive;
  * keyframed values retain their own source locations for selection/editing. */
-export function resolveBuild(slide: Component, index: number): Component {
+export function resolveBuild(slide: Component, index: number, registry: ComponentRegistry = {}): Component {
   frameAt(slide, index);
   const result = copy(slide);
   removeField(result, 'builds');
+  removeField(result, 'textStyles');
   const authored = new Map(buildObjects(slide).flatMap(object => objectId(object) ? [[objectId(object)!, object] as const] : []));
   const visit = (value: Value): void => {
     if (value.kind === 'list') value.items.forEach(visit);
@@ -363,6 +369,7 @@ export function resolveBuild(slide: Component, index: number): Component {
   };
   const content = field(result, 'content');
   if (content) visit(content);
+  resolveTextStyles(slide, index, result, registry);
   return result;
 }
 
@@ -373,9 +380,12 @@ function sameValue(a: Value | undefined, b: Value | undefined): boolean {
 }
 
 export function buildDifferences(slide: Component, index: number,
-  defaultValue?: (object: Component, property: string) => Value | undefined): BuildDifference[] {
+  defaultValue?: (object: Component, property: string) => Value | undefined,
+  registry: ComponentRegistry = {}): BuildDifference[] {
   frameAt(slide, index);
   if (index === 0) return [];
+  const resolvedBefore = new Map(buildObjects(resolveBuild(slide, index - 1, registry)).map(object => [objectId(object), object]));
+  const resolvedAfter = new Map(buildObjects(resolveBuild(slide, index, registry)).map(object => [objectId(object), object]));
   return buildObjects(slide).flatMap(object => {
     const id = objectId(object);
     if (!id) return [];
@@ -387,6 +397,7 @@ export function buildDifferences(slide: Component, index: number,
     const changed = [...properties].filter(property => property !== 'id' &&
       !sameValue(buildProperty(slide, index - 1, id, property).value ?? defaultValue?.(object, property),
         buildProperty(slide, index, id, property).value ?? defaultValue?.(object, property)));
+    if (!changed.includes('content') && !sameValue(field(resolvedBefore.get(id)!, 'content'), field(resolvedAfter.get(id)!, 'content'))) changed.push('content');
     const visible = (at: number): boolean => {
       const value = buildProperty(slide, at, id, 'visible').value;
       return value?.kind !== 'boolean' || value.value;
@@ -397,7 +408,7 @@ export function buildDifferences(slide: Component, index: number,
 }
 
 /** Validate source metadata before rendering or accepting a source edit. */
-export function validateBuilds(slide: Component): string[] {
+export function validateBuilds(slide: Component, registry: ComponentRegistry = {}): string[] {
   const errors: string[] = [];
   const objects = new Set<string>();
   for (const object of buildObjects(slide)) {
@@ -424,5 +435,7 @@ export function validateBuilds(slide: Component): string[] {
       }
     }
   } catch (error) { errors.push((error as Error).message); }
+  try { errors.push(...validateTextStyleKeys(slide, registry)); }
+  catch (error) { errors.push((error as Error).message); }
   return errors;
 }

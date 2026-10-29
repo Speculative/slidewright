@@ -15,17 +15,19 @@ test('UIST implicit containers and interactive demo thumbnails support adding bu
   for (const index of [2, 12]) {
     const initial = page.getByRole('option', { name: `Slide ${index}`, exact: true });
     await initial.click();
+    const builds = page.locator(`.sw-thumb-slot[data-slide-index="${index - 1}"] .sw-build-thumb`);
+    const previousCount = await builds.count();
     await page.getByRole('button', { name: 'Add build', exact: true }).click();
-    await expect(page.locator('.sw-build-controls')).toContainText('Frame 2 of 2');
-    const build = page.locator(`.sw-thumb-slot[data-slide-index="${index - 1}"] .sw-build-thumb`);
-    await expect(build).toHaveCount(1);
+    await expect(page.locator('.sw-build-controls')).toContainText(`Frame 2 of ${previousCount + 2}`);
+    await expect(builds).toHaveCount(previousCount + 1);
+    const build = builds.first();
     await expect(build).toHaveAttribute('aria-selected', 'true');
     await initial.focus();
     await initial.press('Enter');
-    await expect(page.locator('.sw-build-controls')).toContainText('Frame 1 of 2');
+    await expect(page.locator('.sw-build-controls')).toContainText(`Frame 1 of ${previousCount + 2}`);
     await build.focus();
     await build.press('Space');
-    await expect(page.locator('.sw-build-controls')).toContainText('Frame 2 of 2');
+    await expect(page.locator('.sw-build-controls')).toContainText(`Frame 2 of ${previousCount + 2}`);
   }
   await expect(page.locator('.sw-strip button button')).toHaveCount(0);
   await expect(page.locator('.sw-strip .sw-thumb-frame:not([inert])')).toHaveCount(0);

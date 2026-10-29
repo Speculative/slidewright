@@ -5,6 +5,7 @@ import { STYLE_FIELDS } from './projection.js';
 export interface FormattingValue { mixed: boolean; value: string | number | boolean | null }
 export interface TextFormattingState {
   caret: boolean;
+  keyframes?: Partial<Record<typeof STYLE_FIELDS[number], { pinned: boolean | 'mixed'; appearance: boolean; available: boolean; initial: boolean }>>;
   inline: Record<typeof STYLE_FIELDS[number], FormattingValue>;
   paragraph: Record<typeof PARAGRAPH_FIELDS[number], FormattingValue>;
   list: { style: string; start: number } | null;

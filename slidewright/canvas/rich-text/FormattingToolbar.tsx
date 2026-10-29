@@ -1,6 +1,7 @@
-import { Bold, Italic, Underline, Strikethrough, RemoveFormatting } from 'lucide-react';
+import { Bold, Italic, Underline, Strikethrough, RemoveFormatting, Diamond } from 'lucide-react';
 import type { SlideColor } from '../InspectorPanels.js';
 import { commitOnTextBlur } from './focus.js';
+import { BuildFormattingScope } from '../build-inspector.js';
 import { FloatingToolbar, type TextStyleControls } from './FloatingToolbar.js';
 import { useEffect, useState, type ReactNode, type RefObject } from 'react';
 import type { TextFormattingState, FormattingValue } from './feedback.js';
@@ -64,21 +65,34 @@ export function FormattingToolbar({ session, state, colorTokens, slideColors }: 
     if (typeof next === 'number' && (!Number.isFinite(next) || (field === 'size' && next <= 0 || field === 'strokeWidth' && next < 0))) return;
     session.current?.format(field, next);
   }
-  const buttons = <TextStyleButtons session={session} state={state} />;
+  const keyframe = (field: string) => {
+    const status = state?.keyframes?.[field as TextStyleField];
+    if (!status) return null;
+    const pinned = status.pinned === true;
+    return <button type="button" className="sw-keyframe-toggle sw-formatting-keyframe" data-range-keyframe={field}
+      data-appearance-barrier={status.appearance || undefined} aria-label={`${pinned ? 'Inherit' : 'Keyframe'} range ${field}`}
+      aria-pressed={status.pinned} disabled={!status.available || status.initial}
+      title={`${status.appearance ? 'Protected by appearance. ' : ''}${status.pinned === 'mixed' ? 'Mixed keys. Pin the selected range here.' : pinned ? 'Keyframed here. Click to inherit from the preceding frame.' : 'Inherited. Click to pin this range here, even if unchanged.'} Pin/unpin is local to this frame.`}
+      onPointerDown={event => event.preventDefault()} onClick={() => session.current?.keyframe(field as TextStyleField, !pinned)}>
+      <Diamond size={12} fill={pinned ? 'currentColor' : 'none'} />{status.pinned === 'mixed' && <span aria-hidden="true">−</span>}
+    </button>;
+  };
+  const buttons = <TextStyleButtons session={session} state={state} keyframe={keyframe} />;
   return <div className="sw-text-formatting" data-sw-text-formatting role="group" aria-label="Text formatting"
     onBlur={event => {
       commitOnTextBlur(event.relatedTarget, () => session.current?.finish('commit'));
     }}>
+    <BuildFormattingScope />
     <span aria-label="Formatting target">{state?.caret ? 'Typing at caret' : 'Selected range'}</span>
     <div style={{ visibility: floating ? 'hidden' : undefined }} aria-hidden={floating || undefined} inert={floating}>{buttons}</div>
-    {floating && <FloatingToolbar session={session} state={state} colorTokens={colorTokens} slideColors={slideColors}>{buttons}</FloatingToolbar>}
+    {floating && <FloatingToolbar session={session} state={state} colorTokens={colorTokens} slideColors={slideColors} keyframe={keyframe}>{buttons}</FloatingToolbar>}
     <label>Style <select aria-label="Text style" value={field} onChange={event => { setField(event.target.value as TextStyleField); setValue(''); }}>
       <option value="size">Font size</option><option value="font">Font family</option>
       <option value="weight">Font weight</option><option value="color">Color</option>
       <option value="strokeWidth">Stroke width</option><option value="strokeColor">Stroke color</option>
       <option value="letterSpacing">Letter spacing</option><option value="href">Link URL</option>
     </select></label>
-    <output aria-label="Current text style">{describe(state?.inline[field])}</output>
+    <output aria-label="Current text style">{describe(state?.inline[field])}</output>{keyframe(field)}
     <input aria-label="Style value" value={value} placeholder="Empty removes style" onChange={event => setValue(event.target.value)}
       onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); apply(); } }} />
     <button type="button" onPointerDown={event => event.preventDefault()} onClick={apply}>Apply style</button>

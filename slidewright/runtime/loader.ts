@@ -53,6 +53,7 @@ import {
 } from './diagnostics.js';
 import { parse, type ParseResult } from './parser.js';
 import { lookup, type Scope, type ScopeValue } from './scope.js';
+import { TEXT_STYLE_FIELDS } from './text-builds.js';
 import { buildObjects, objectId, resolveBuild, validateBuilds } from './builds.js';
 
 export interface LoadDeckInput {
@@ -675,22 +676,22 @@ function renderSlide(comp: Component, ctx: LoadCtx, idx: number, chapter?: strin
 function renderBuiltinSlide(comp: Component, ctx: LoadCtx, idx: number, chapter?: string): ReactElement | null {
   const authoredComp = comp;
   let buildIndex = ctx.buildIndices?.get(idx) ?? 0;
-  const errors = validateBuilds(authoredComp);
+  const errors = validateBuilds(authoredComp, ctx.components);
   for (const error of errors) emit(ctx, 'invalid-build', comp.span, error);
   validateBuildKeyframes(authoredComp, ctx);
   if (errors.length) buildIndex = 0;
   try {
-    if (authoredComp.fills.some(fill => fill.name === 'builds') || buildIndex !== 0) {
-      comp = resolveBuild(authoredComp, buildIndex);
+    if (authoredComp.fills.some(fill => ['builds', 'textStyles'].includes(fill.name)) || buildIndex !== 0) {
+      comp = resolveBuild(authoredComp, buildIndex, ctx.components);
     }
   } catch (error) {
     emit(ctx, 'invalid-build', comp.span, (error as Error).message);
     buildIndex = 0;
     // A malformed build list must not prevent the initial scene rendering.
-    comp = { ...authoredComp, fills: authoredComp.fills.filter(fill => fill.name !== 'builds') };
+    comp = { ...authoredComp, fills: authoredComp.fills.filter(fill => !['builds', 'textStyles'].includes(fill.name)) };
   }
   // Keep the ordinary, build-free path's node identity and cache behavior.
-  if (!authoredComp.fills.some(fill => fill.name === 'builds') && buildIndex === 0) comp = authoredComp;
+  if (!authoredComp.fills.some(fill => ['builds', 'textStyles'].includes(fill.name)) && buildIndex === 0) comp = authoredComp;
   const fills = byName(comp.fills);
   validateAgainstMeta(comp, BUILTIN_META.Slide!, ctx);
   // Record the slide's AST + meta so the inspector can render its
@@ -1458,6 +1459,22 @@ function applyObjectPresentation(comp: Component, meta: ComponentMeta, node: Rea
 }
 
 function validateBuildKeyframes(slide: Component, ctx: LoadCtx): void {
+  // Validate style metadata even in the initial frame, including dormant runs.
+  const styles = [slide, ...(byName(slide.fills).get('builds')?.value.kind === 'list'
+    ? (byName(slide.fills).get('builds')!.value as import('./ast.js').ListLit).items : [])
+    .filter((item): item is Component => item.kind === 'component' && item.name === 'Build')];
+  for (let index = 0; index < styles.length; index++) {
+    // Core validates identity/structure; the loader owns typed style values.
+    const list = byName(styles[index]!.fills).get('textStyles')?.value;
+    if (list?.kind !== 'list') continue;
+    for (const entry of list.items) {
+      if (entry.kind !== 'component' || entry.name !== 'TextStyle') continue;
+      for (const fill of entry.fills) {
+        if (!TEXT_STYLE_FIELDS.includes(fill.name as typeof TEXT_STYLE_FIELDS[number]) || fill.value.kind === 'omit') continue;
+        validateKeyframedValue(BUILTIN_META.Span!.params![fill.name]!.type, fill.value, ctx);
+      }
+    }
+  }
   const builds = byName(slide.fills).get('builds');
   if (!builds) return;
   if (slide.fills.filter(fill => fill.name === 'builds').length > 1) {
@@ -1475,7 +1492,7 @@ function validateBuildKeyframes(slide: Component, ctx: LoadCtx): void {
     if (build.kind !== 'component' || build.name !== 'Build') continue;
     validateAgainstMeta(build, { produces: 'block', slots: { changes: { type: 'array<block>' } },
       params: { id: { type: 'string' }, label: { type: 'string' } } }, validation);
-    validateNoUnknown(build, ['id', 'label', 'changes'], validation);
+    validateNoUnknown(build, ['id', 'label', 'changes', 'textStyles'], validation);
     const fields = byName(build.fills);
     const label = fields.get('label');
     if (label) readString(label, validation);
@@ -1534,7 +1551,7 @@ function validateAgainstMeta(
   const known = new Set([
     ...Object.keys(meta.slots),
     ...Object.keys(meta.params ?? {}),
-    'id', 'visible', 'opacity',
+    'id', 'visible', 'opacity', ...(comp.name === 'Build' ? ['textStyles'] : []),
   ]);
   // Duplicates + unknowns.
   const seen = new Map<string, SlotFill>();

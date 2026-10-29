@@ -9,8 +9,10 @@ import { listLit, makeComponent, nameRef, numberLit, slotFill, stringLit, boolea
 import { parse } from '../../runtime/parser.js';
 import { emit } from '../../runtime/emitter.js';
 import type { TextOrigin, TextValuePath } from './bindings.js';
+import { TextRunIdentity, textRunId, textRuns, type TextRunChanges } from '../../runtime/text-runs.js';
 
-export const STYLE_FIELDS = ['strokeWidth', 'strokeColor', 'color', 'font', 'size', 'weight', 'letterSpacing', 'italic', 'underline', 'strikethrough', 'href'] as const;
+import { TEXT_STYLE_FIELDS } from '../../runtime/text-builds.js';
+export const STYLE_FIELDS = TEXT_STYLE_FIELDS;
 type StyleField = typeof STYLE_FIELDS[number];
 type StyleValue = { value: string | number | boolean; authored: Value | null };
 type Styles = Partial<Record<StyleField, StyleValue>>;
@@ -71,6 +73,8 @@ export interface ProjectionInput {
   registry: ComponentRegistry;
   scope?: Scope;
   colorTokens?: Record<string, string>;
+  persistentRuns?: boolean;
+  reservedRunIds?: readonly string[];
 }
 
 export class TextProjection {
@@ -79,8 +83,18 @@ export class TextProjection {
   readonly origins = new Map<string, Bound>();
   private nextId = 0;
   private inlineTypes = new Map<string, string>();
+  readonly preparedContent: Value | undefined;
+  private authoredContent: Value | undefined;
+  private runIdentity: TextRunIdentity | undefined;
+  runChanges: TextRunChanges = { splits: [], added: [], removed: [] };
+  runPins: { run: string; property: StyleField; pinned: boolean }[] = [];
 
   constructor(private input: ProjectionInput) {
+    this.authoredContent = input.content;
+    this.runIdentity = input.persistentRuns || textRuns(input.content, input.registry).length
+      ? new TextRunIdentity(input.content, input.registry, input.reservedRunIds) : undefined;
+    this.preparedContent = this.runIdentity ? this.runIdentity.prepared : input.content;
+    this.input = input = { ...input, content: this.preparedContent };
     const origin = { origin: { default: null } };
     const listAttrs = { ...origin, style: { default: 'disc' }, start: { default: 1 } };
     const nodes: Record<string, NodeSpec> = {
@@ -164,6 +178,7 @@ export class TextProjection {
     }
     // Provenance is separate from formatting. Distinct origins prevent
     // merging adjacent authored strings, without blocking continuous carets.
+    marks.build_pin = { attrs: { fields: { default: {} } }, excludes: 'build_pin', toDOM: () => ['span', {}, 0] };
     marks.source = {
       attrs: { id: { default: null }, authoredId: { default: null }, ancestry: { default: [] } }, excludes: 'source',
       toDOM: mark => ['span', { 'data-sw-text-origin': mark.attrs.id ?? '' }, 0],
@@ -272,7 +287,10 @@ export class TextProjection {
 
   lower(doc: PMNode): Value {
     doc.check();
-    if (doc.eq(this.doc) && this.input.content) return this.input.content;
+    this.runChanges = { splits: [], added: [], removed: [] };
+    this.runPins = [];
+    if (doc.eq(this.doc) && this.authoredContent) return this.authoredContent;
+    const pins = new WeakMap<Component, Partial<Record<StyleField, boolean>>>();
     const used = new Set<string>();
     const derivedFrom = new WeakMap<Value, Value>();
     const original = (id: unknown): Bound | undefined => typeof id === 'string' ? this.origins.get(id) : undefined;
@@ -281,9 +299,13 @@ export class TextProjection {
       if (!value || value.kind !== 'component') return makeComponent(name, []);
       const reused = used.has(bound!.id);
       used.add(bound!.id);
-      return reused ? { ...value, leadingComments: undefined, trailingComments: undefined } : value;
+      return reused ? { ...value, leadingComments: undefined, trailingComments: undefined,
+        // A split retains source comments and scene identity on one fragment.
+        // Run identity stays until reconciliation records split ancestry.
+        ...(this.runIdentity ? { fills: value.fills.filter(fill => fill.name !== 'id') } : {}) } : value;
     };
     const styleMap = (node: PMNode): Styles => Object.fromEntries(node.marks.filter(m => STYLE_FIELDS.includes(m.type.name as StyleField)).map(m => [m.type.name, { value: m.attrs.value, authored: m.attrs.authored }])) as Styles;
+    const pinFields = (node: PMNode) => node.marks.find(mark => mark.type.name === 'build_pin')?.attrs.fields as Partial<Record<StyleField, boolean>> | undefined;
     const provenance = (node: PMNode) => node.marks.find(m => m.type.name === 'source');
     const authoredId = (node: PMNode) => { const source = provenance(node); return source?.attrs.authoredId ?? source?.attrs.id; };
     const fieldValue = (style: StyleValue): Value => style.authored ?? (typeof style.value === 'number' ? numberLit(style.value) : typeof style.value === 'boolean' ? booleanLit(style.value) : stringLit(style.value));
@@ -334,14 +356,14 @@ export class TextProjection {
         const bound = original(authoredId(node));
         const styles = styleMap(node);
         const ancestry: string[] = source?.attrs.ancestry ?? [];
-        const unchangedStyle = signature(styles) === signature(bound?.styles ?? {});
+        const unchangedStyle = !pinFields(node) && signature(styles) === signature(bound?.styles ?? {});
         const ownerId = unchangedStyle ? ancestry[depth] : undefined;
         if (ownerId) {
           let end = index + 1;
           while (end < nodes.length) {
             const candidate = nodes[end]!;
             const candidateSource = provenance(candidate);
-            if (candidateSource?.attrs.ancestry[depth] !== ownerId || signature(styleMap(candidate)) !== signature(original(authoredId(candidate))?.styles ?? {})) break;
+            if (pinFields(candidate) || candidateSource?.attrs.ancestry[depth] !== ownerId || signature(styleMap(candidate)) !== signature(original(authoredId(candidate))?.styles ?? {})) break;
             end++;
           }
           const group = nodes.slice(index, end);
@@ -365,7 +387,7 @@ export class TextProjection {
           while (end < nodes.length) {
             const next = nodes[end]!;
             const nextSource = provenance(next);
-            if ((!next.isText && next.type.name !== 'hard_break') || authoredId(next) !== authoredId(node) || JSON.stringify(nextSource?.attrs.ancestry ?? []) !== JSON.stringify(ancestry) || signature(styleMap(next)) !== signature(styles)) break;
+            if ((!next.isText && next.type.name !== 'hard_break') || authoredId(next) !== authoredId(node) || JSON.stringify(nextSource?.attrs.ancestry ?? []) !== JSON.stringify(ancestry) || signature(styleMap(next)) !== signature(styles) || JSON.stringify(pinFields(next)) !== JSON.stringify(pinFields(node))) break;
             value = { ...value, value: value.value + (next.isText ? next.text! : '\n') };
             end++;
           }
@@ -375,13 +397,17 @@ export class TextProjection {
         if (!unchangedStyle && ancestry.length) {
           // Formatting changed: split this region from its original Span,
           // preserving the original wrapper/comment owner with new marks.
-          const base = fresh(original(ancestry[0]), 'Span');
+          let base = fresh(original(ancestry[0]), 'Span');
+          const run = this.runIdentity && ancestry.map(id => original(id)?.value).reverse()
+            .find(value => value?.kind === 'component' && textRunId(value));
+          if (run?.kind === 'component' && !textRunId(base)) base = setFill(base, 'runId', stringLit(textRunId(run)!));
           const stripped = { ...base, fills: base.fills.filter(f => !STYLE_FIELDS.includes(f.name as StyleField)) };
           value = setFill(stripped, 'content', listLit([value]));
           for (const name of STYLE_FIELDS) if (styles[name]) value = setFill(value as Component, name, fieldValue(styles[name]!));
         } else if (Object.keys(extra).length) {
           value = makeComponent('Span', [slotFill('content', listLit([value])), ...STYLE_FIELDS.flatMap(name => extra[name] ? [slotFill(name, fieldValue(extra[name]!))] : [])]);
         }
+        if (value.kind === 'component' && pinFields(node)) pins.set(value, pinFields(node)!);
         if (bound) derivedFrom.set(value, bound.value);
         output.push(value);
         index = end;
@@ -439,6 +465,14 @@ export class TextProjection {
       return value;
     };
     const blocks = nodesOf(doc.content).map(block);
-    return sameItems(this.input.content, blocks) ? this.input.content! : listLit(blocks);
+    const value = sameItems(this.input.content, blocks) ? this.input.content! : listLit(blocks);
+    if (!this.runIdentity) return value;
+    const result = this.runIdentity.reconcile(value, (source, run) => {
+      const fields = pins.get(source);
+      for (const property of STYLE_FIELDS) if (fields?.[property] !== undefined)
+        this.runPins.push({ run, property, pinned: fields[property]! });
+    });
+    this.runChanges = result.changes;
+    return result.content;
   }
 }

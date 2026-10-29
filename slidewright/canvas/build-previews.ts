@@ -38,7 +38,7 @@ export function buildPreviewSlides(snapshot: DocumentSnapshot, slides: ReactElem
       const element = render(frame.index);
       if (!element) return [];
       let changes: ReturnType<typeof buildDifferences> = [];
-      try { changes = buildDifferences(slide.authoredComp, frame.index, defaultValue); } catch { /* Invalid source has loader diagnostics. */ }
+      try { changes = buildDifferences(slide.authoredComp, frame.index, defaultValue, components); } catch { /* Invalid source has loader diagnostics. */ }
       const entering = changes.filter(change => change.entering).length;
       const exiting = changes.filter(change => change.exiting).length;
       const changed = changes.filter(change => !change.entering && !change.exiting).length;

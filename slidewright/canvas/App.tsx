@@ -13,7 +13,9 @@
 // into the active Freeform. Imperative DOM mutation during drag is
 // gone.
 
-import { removeEmptyFreeformTextBox } from './rich-text/empty-document.js';
+import { commitBuildTextDraft } from './build-editing.js';
+import type { TextBuildDraft } from '../runtime/text-build-edit.js';
+import { isEmptyTextDocument, removeEmptyFreeformTextBox } from './rich-text/empty-document.js';
 import { measureLayoutSnapshot } from './layout-measurement.js';
 import {
   cloneElement,
@@ -27,6 +29,7 @@ import type { PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 
 import { createPortal } from 'react-dom';
 
 import { addBuild, buildFrames, buildObjects, buildProperty, duplicateBuild, editBuildProperties, moveBuild, nextBuildDirection, objectId, removeBuild, toggleBuildKeyframe, type BuildDirection } from '../runtime/builds.js';
+import { textRunId, textRuns } from '../runtime/text-runs.js';
 import { commitBuildPropertyEdits, commitBuildSourceCandidate, createBuildEditingSnapshot, hasBuildEditingContext } from './build-editing.js';
 import { AdditionalBuildKeyframes, BuildInspectorContext } from './build-inspector.js';
 import { BuildChangesOverlay } from './BuildChangesOverlay.js';
@@ -233,6 +236,13 @@ function buildPropertyDefault(object: Component, property: string): Value | unde
   const value = schema?.default ?? (property === 'visible' ? true : property === 'opacity' ? 1 : undefined);
   return typeof value === 'number' ? numberLit(value) : typeof value === 'boolean' ? booleanLit(value)
     : typeof value === 'string' ? schema?.type === 'color-token' ? nameRef(value) : stringLit(value) : undefined;
+}
+
+function reservedTextRunIds(slide: Component | undefined, owner: Component): string[] {
+  const id = objectId(owner);
+  if (!slide || !id) return [];
+  return [...new Set(buildFrames(slide).flatMap(frame =>
+    textRuns(buildProperty(slide, frame.index, id, 'content').value, components).map(run => textRunId(run)!)))];
 }
 
 function authoredSlideAt(ast: SourceFile, index: number): Component | undefined {
@@ -1114,15 +1124,35 @@ export function App({
     boxDraftRef.current = {}; setBoxDraft({});
     setRichEditing({ component, content: component.fills.find(f => f.name === 'content')?.value,
       source: sourceRef.current, slideIdx: activeIdxRef.current, scope: current.scope, colorTokens: current.colorTokens,
+      persistentRuns: !!sourceSnapshotRef.current && hasBuildEditingContext(sourceSnapshotRef.current),
+      buildStyle: current.slidesData[activeIdxRef.current]?.authoredComp.fills.some(fill => fill.name === 'builds') ? {
+        slide: current.slidesData[activeIdxRef.current]!.authoredComp,
+        index: current.slidesData[activeIdxRef.current]!.buildIndex, direction: buildDirection,
+      } : undefined,
+      reservedRunIds: reservedTextRunIds(current.slidesData[activeIdxRef.current]?.authoredComp, component),
       clientX: target.clientX, clientY: target.clientY });
-  }, []);
+  }, [buildDirection]);
 
-  const finishRichEditing = useCallback((snapshot: TextEditorSnapshot, intent: 'commit' | 'cancel', value: import('../runtime/ast.js').Value | undefined, changed: boolean) => {
+  const finishRichEditing = useCallback((snapshot: TextEditorSnapshot, intent: 'commit' | 'cancel', value: import('../runtime/ast.js').Value | undefined, changed: boolean, draft?: TextBuildDraft) => {
     const defaults = boxDraftRef.current;
     boxDraftRef.current = {}; setBoxDraft({});
     richSessionRef.current = null;
     setRichEditing(null);
     if (externalTextCancellationRef.current || sourceRef.current !== snapshot.source) return;
+    const editing = editSnapshot();
+    if (intent === 'commit' && changed && value && draft && editing && hasBuildEditingContext(editing)) {
+      // Empty freeform boxes still use the ordinary deletion/visibility route.
+      const probe = structuredClone(snapshot.component);
+      const empty = isEmptyTextDocument(value);
+      if (!empty) {
+        const settings = Object.fromEntries(Object.entries(defaults).map(([field, setting]) => [field,
+          typeof setting === 'boolean' ? booleanLit(setting) : typeof setting === 'number' ? numberLit(setting)
+            : field === 'color' && setting in snapshot.colorTokens ? nameRef(setting) : stringLit(setting)]));
+        const result = commitBuildTextDraft(snapshot.source, editing, probe, value, draft, settings);
+        if (result) commitToHost(result.newSource, result.newSelections, result.changes, result.baseRevision);
+        return;
+      }
+    }
     let removed = false;
     let selectionPaths: NonNullable<ReturnType<typeof pathToComponent>>[] = [];
     const result = commitSourceEdit(snapshot.source, '<text-session>', ast => {
@@ -1589,7 +1619,7 @@ export function App({
         const type = components[object.name]?.meta.slots[property]?.type;
         return !!type && ['block', 'array<block>', 'slide-content', 'slide', 'array<slide>'].includes(type);
       }).index;
-      if (action === 'delete') { if (!index) return null; removeBuild(slide, index); next = Math.max(0, index - 1); }
+      if (action === 'delete') { if (!index) return null; removeBuild(slide, index, components); next = Math.max(0, index - 1); }
       if (action === 'up' || action === 'down') {
         next = index + (action === 'up' ? -1 : 1);
         if (index === 0 || next < 1 || next >= buildFrames(slide).length) return null;
@@ -3088,10 +3118,15 @@ export function App({
       const fields = { ...change.defaults, ...(change.field ? { [change.field]: change.value } : {}) };
       const comp = structuredClone(shape.comp);
       updateComponent(comp, change);
+      const reserved = new Set(reservedTextRunIds(state.slidesData[activeIdx]?.authoredComp, shape.comp));
       return { owner: shape.comp, values: Object.fromEntries(Object.keys(fields).map(property =>
         [property, comp.fills.find(fill => fill.name === property)?.value ?? omitLit()])),
-        transformContent: (content: Value | undefined, property: string) => clearWholeTextProperty(content, property,
-          { scope: state.scope, registry: components, colorTokens: state.colorTokens }) };
+        transformContent: (content: Value | undefined, property: string) => {
+          const result = clearWholeTextProperty(content, property,
+            { scope: state.scope, registry: components, colorTokens: state.colorTokens, reservedRunIds: [...reserved] });
+          textRuns(result, components).forEach(run => reserved.add(textRunId(run)!));
+          return result;
+        } };
     });
     if (snapshot && hasBuildEditingContext(snapshot) && propertyEdits.every(edit => edit && Object.keys(edit.values).length)) {
       const result = commitBuildPropertyEdits(sourceRef.current, '<whole-text-formatting>', snapshot, propertyEdits.filter(edit => edit !== null));
@@ -3232,7 +3267,7 @@ export function App({
                   editor: <RichTextEditor snapshot={richEditing} registry={components}
                     onFormatting={setTextFormatting}
                     onReady={handle => { richSessionRef.current = handle; if (!handle) setTextFormatting(null); }}
-                    onFinish={(intent, value, changed) => finishRichEditing(richEditing, intent, value, changed)} />,
+                    onFinish={(intent, value, changed, draft) => finishRichEditing(richEditing, intent, value, changed, draft)} />,
                 } : null}>
                 <GestureProvider deltas={gestureDeltas}>
                   <ScaledCanvas
@@ -3440,6 +3475,7 @@ export function App({
           {!richEditing && !presenting && !gestureMeta && textBoxFormatting && <SelectedTextBoxToolbar
             key={selectedTextBoxes.map(shape => Array.from(state.shapes.values()).indexOf(shape)).sort((a, b) => a - b).join(':')}
             shapes={selectedTextBoxes} scope={state.scope} registry={components}
+            reservedRunIds={owner => reservedTextRunIds(activeSlide?.authoredComp, owner)}
             colorTokens={state.colorTokens} slideColors={slideColors} onChange={applyWholeTextChange}
             onColorGesture={colorPreviews.finish} />}
           {(richEditing || boxShape?.comp.name === 'TextBox') && <div className="sw-text-session-actions" onKeyDown={event => event.stopPropagation()}
