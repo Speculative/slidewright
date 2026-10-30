@@ -128,8 +128,10 @@ export function SlideStrip({
       // thumb midpoints. The strip is vertical and thumbs flow
       // top-to-bottom; the gap above thumb i has the same Y as
       // thumb i's top edge.
+      // Build previews belong to their parent slide; counting them here
+      // would turn a thumbnail position into an invalid slide gap index.
       const thumbs = Array.from(
-        stripEl.querySelectorAll<HTMLElement>(':scope > .sw-thumb-slot > .sw-thumb'),
+        stripEl.querySelectorAll<HTMLElement>(':scope > .sw-thumb-slot[data-slide-index] > .sw-thumb:not(.sw-build-thumb)'),
       );
       let idx = thumbs.length; // after-last by default
       for (let i = 0; i < thumbs.length; i++) {

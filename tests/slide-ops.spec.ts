@@ -7,7 +7,7 @@
 
 import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { focusEditor, getEditorSource } from './editor-helpers';
+import { focusEditor, getEditorSource, setHostSource } from './editor-helpers';
 import { parse } from '../slidewright/runtime/parser';
 
 function slideSources(source: string): string[] {
@@ -378,3 +378,44 @@ test('drag-reorder of a multi-selection moves the group preserving relative orde
   );
   expect(order).toEqual(['Gamma', 'Alpha', 'Beta']);
 });
+
+for (const scrolled of [false, true]) {
+  test(`drag-reorder ignores build thumbnails${scrolled ? ' in a scrolled strip' : ''}`, async ({ page }) => {
+    await page.goto('/canvas.html?fixture=three-slides');
+    const original = await getSource(page);
+    const source = original.replace('label: "Alpha"', `label: "Alpha"
+      builds: [
+        Build { id: "first" label: "First build" changes: [] }
+        Build { id: "second" label: "Second build" changes: [] }
+      ]`);
+    await setHostSource(page, source);
+    const thumbs = page.locator('.sw-thumb-slot[data-slide-index] > .sw-thumb:not(.sw-build-thumb)');
+    await expect(thumbs).toHaveCount(3);
+    await expect(page.locator('.sw-build-thumb')).toHaveCount(2);
+    if (scrolled) {
+      await thumbs.nth(2).scrollIntoViewIfNeeded();
+      expect(await page.locator('.sw-strip').evaluate(el => el.scrollTop)).toBeGreaterThan(0);
+    }
+    const from = await thumbs.nth(scrolled ? 2 : 0).boundingBox();
+    const target = await thumbs.nth(scrolled ? 1 : 2).boundingBox();
+    if (!from || !target) throw new Error('Missing slide thumbnails');
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await letReactCatchUp(page);
+    // Stay in the upper half of the destination: the gap is before that slide.
+    await page.mouse.move(target.x + target.width / 2, target.y + 15, { steps: 10 });
+    await letReactCatchUp(page);
+    await expect(page.locator('.sw-thumb-slot[data-slide-index="' + (scrolled ? 1 : 2) + '"] > .sw-strip-insertion')).toBeVisible();
+    await page.mouse.up();
+    await letReactCatchUp(page);
+    const slides = slideSources(await getSource(page));
+    expect(slides.map(slide => /label:\s*"([^"\n]+)"/.exec(slide)?.[1])).toEqual(
+      scrolled ? ['Alpha', 'Gamma', 'Beta'] : ['Beta', 'Alpha', 'Gamma'],
+    );
+    // Reordering preserves the full slide source, including its builds.
+    const before = slideSources(source);
+    expect(slides).toEqual(scrolled ? [before[0], before[2], before[1]] : [before[1], before[0], before[2]]);
+    await page.keyboard.press('Control+z');
+    await expect.poll(() => getSource(page)).toBe(source);
+  });
+}
