@@ -247,3 +247,39 @@ test('opening code uses original syntax palette without altering program text or
   await expect(code.locator('.token.keyword').first()).toHaveCSS('color', 'rgb(215, 58, 73)');
   expect(await getEditorSource(page)).toBe(source);
 });
+
+test('Place & Time uses Place labels and ends at the print zigzag', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=plateau-debugger');
+  const original = await getEditorSource(page);
+  await setHostSource(page, original.replace('DebuggerDemo {', 'DebuggerDemo { mode: "place-time"'));
+  const demo = page.locator('.sw-canvas-stage [data-sw-debugger]');
+  await expect(demo.getByLabel('Demo stage').locator('option')).toHaveCount(21);
+  await expect(demo.getByLabel('Demo stage')).not.toContainText('autopsy');
+  for (const step of ['1', '2', '3', '4', '5', '10', '20']) {
+    await demo.getByLabel('Demo stage').selectOption(step);
+    await expect(demo.locator('[data-demo-state-label]')).toHaveText('Place');
+    await expect(demo.locator('[data-demo-chart]')).toHaveAttribute('aria-label', 'Place over Time');
+    await expect(demo.locator('[data-demo-time-label]')).toHaveText('Time');
+    await expect(demo).not.toContainText(/state/i);
+  }
+  for (let step = 10; step <= 20; step++) {
+    await demo.getByLabel('Demo stage').selectOption(String(step));
+    const annotation = demo.getByLabel('Debugging technique');
+    await expect(annotation).toContainText(step <= 12 ? 'Across Place · Point in Time' : 'some Place · Across Time');
+    // Both annotation lines must clear the chart's plotting rectangle.
+    await expect.poll(async () => {
+      const label = (await annotation.boundingBox())!;
+      const plot = (await demo.locator('[data-demo-chart] > rect').first().boundingBox())!;
+      return label.y + label.height <= plot.y;
+    }).toBe(true);
+  }
+  await expect(demo.locator('[data-demo-zigzag]')).toHaveCount(1);
+  await expect(demo.locator('[data-demo-slice]')).toHaveCount(0);
+  await expect(demo.getByRole('button', { name: 'Next demo step' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Present', exact: true }).click();
+  for (let step = 1; step <= 20; step++) await page.keyboard.press('ArrowRight');
+  await expect(demo).toHaveAttribute('data-step', '20');
+  await page.keyboard.press('ArrowRight');
+  await expect(demo).toHaveAttribute('data-step', '20');
+  await expect(demo.locator('[data-demo-slice]')).toHaveCount(0);
+});

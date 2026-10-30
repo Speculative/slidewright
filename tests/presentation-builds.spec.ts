@@ -53,6 +53,9 @@ test('audience clicks and both windows navigate shared builds before slides', as
 });
 
 for (const [fixture, selector] of [
+  ['print-debugger', '[data-sw-print-debugger]'],
+  ['breakpoint-debugger', '[data-sw-breakpoint-debugger]'],
+  ['stepping-debugger', '[data-sw-breakpoint-debugger]'],
   ['plateau-debugger', '[data-sw-debugger]'],
 ]) {
   test(`${fixture} waits for presenter input while intra-build animation runs`, async ({ page }) => {
@@ -65,6 +68,10 @@ for (const [fixture, selector] of [
     await expect(demo.getByRole('group', { name: 'Demo playback' })).toHaveCount(0);
     await page.keyboard.press('ArrowRight');
     await expect(demo).toHaveAttribute('data-step', '1');
+    if (fixture === 'stepping-debugger') {
+      await expect(demo).toHaveAttribute('data-animating', 'true');
+      await expect(demo).toHaveAttribute('data-animating', 'false');
+    }
     await page.waitForTimeout(2000);
     await expect(demo).toHaveAttribute('data-step', '1');
     await page.keyboard.press('ArrowLeft');
