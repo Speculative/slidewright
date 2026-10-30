@@ -125,18 +125,13 @@ export const slidewrightLanguage = StreamLanguage.define<SlidewrightState>({
 });
 
 export const slidewrightHighlighter = HighlightStyle.define([
-  { tag: tags.typeName, color: '#267f99' },
-  { tag: tags.propertyName, color: '#795e26' },
-  { tag: tags.variableName, color: '#001080' },
-  { tag: tags.keyword, color: '#af00db' },
-  { tag: [tags.atom, tags.bool], color: '#0000ff' },
-  { tag: tags.number, color: '#098658' },
-  { tag: tags.string, color: '#a31515' },
-  { tag: tags.comment, color: '#008000' },
-  { tag: tags.punctuation, color: '#666666' },
-  { tag: tags.bracket, color: '#666666' },
-  { tag: tags.operator, color: '#666666' },
-  { tag: tags.invalid, color: '#d16969', textDecoration: 'underline' },
+  { tag: tags.typeName, color: 'var(--sw-ink)', fontWeight: '700' },
+  { tag: [tags.propertyName, tags.variableName], color: 'var(--sw-ink)' },
+  { tag: tags.keyword, color: 'var(--sw-ink)', fontWeight: '700' },
+  { tag: [tags.atom, tags.bool, tags.number, tags.string], color: 'var(--sw-tag-1-text)' },
+  { tag: tags.comment, color: 'var(--sw-ink-muted)', fontStyle: 'italic' },
+  { tag: [tags.punctuation, tags.bracket, tags.operator], color: 'var(--sw-ink-muted)' },
+  { tag: tags.invalid, color: 'var(--sw-danger)', textDecoration: 'underline' },
 ]);
 
 export const slidewrightHighlighting = syntaxHighlighting(slidewrightHighlighter);

@@ -1,3 +1,4 @@
+import { Button, Select, Switch } from './design-system/Controls.js';
 // Slidewright canvas — inspector panels (hierarchy + properties).
 //
 // Hierarchy lives in the bottom dock alongside optional source/notes.
@@ -771,11 +772,16 @@ function MissingPropertyRow({
     <div className="sw-property-row sw-property-row-missing">
       <span className="sw-property-key">{name}</span>
       {choices ? (
-        <select className="sw-property-value" aria-label={name}
+        <Select className="sw-property-value" aria-label={name}
           onFocus={() => { focusSnapshotRef.current = snapshot; }}
           value={typeof defaultValue === 'string' ? defaultValue : ''} onChange={event => commit(JSON.stringify(event.currentTarget.value))}>
           {choices.map(choice => <option key={choice} value={choice}>{choice}</option>)}
-        </select>
+        </Select>
+      ) : slotType === 'boolean' ? (
+        <Switch aria-label={`${name} (default)`} checked={defaultValue === true}
+          title="Inherited default; changing this creates an authored value"
+          onFocus={() => { focusSnapshotRef.current = snapshot; }}
+          onChange={event => commit(String(event.currentTarget.checked))} />
       ) : editable ? (
         <input
           className="sw-property-value sw-property-value-missing"
@@ -1558,11 +1564,11 @@ function PropertyRow({
         {fill.name}
       </span>
       {choices && fill.value.kind === 'string' ? (
-        <select className="sw-property-value" aria-label={fill.name}
+        <Select className="sw-property-value" aria-label={fill.name}
           value={fill.value.value} onChange={event => onCommit(spliceValueText(JSON.stringify(event.currentTarget.value)))}>
           {!choices.includes(fill.value.value) && <option value={fill.value.value}>{fill.value.value}</option>}
           {choices.map(choice => <option key={choice} value={choice}>{choice}</option>)}
-        </select>
+        </Select>
       ) : isColor ? (
         <div
           ref={colorCellRef}
@@ -1572,7 +1578,7 @@ function PropertyRow({
           onFocus={() => setPickerOpen(true)}
           onBlur={onColorBlurCapture}
         >
-          <button
+          <Button
             type="button"
             className="sw-color-preview"
             style={{ background: currentCss ?? 'transparent' }}
@@ -1648,7 +1654,7 @@ function PropertyRow({
           <span className="sw-property-value sw-property-component-name">
             {fill.value.name}
           </span>
-          <button
+          <Button
             type="button"
             className="sw-property-drill"
             title={`select ${fill.value.name}`}
@@ -1662,7 +1668,7 @@ function PropertyRow({
             }}
           >
             <ArrowRightIcon />
-          </button>
+          </Button>
         </div>
       ) : isList && fill.value.kind === 'list' ? (
         // Array-typed value: enumerate the items. Each item shows
@@ -1703,7 +1709,7 @@ function PropertyRow({
                       </span>
                     )}
                     {item.kind === 'component' ? (
-                      <button
+                      <Button
                         type="button"
                         className="sw-property-drill"
                         title={`select ${item.name}`}
@@ -1711,9 +1717,9 @@ function PropertyRow({
                         onClick={() => onSelectComponent(itemRange)}
                       >
                         <ArrowRightIcon />
-                      </button>
+                      </Button>
                     ) : null}
-                    <button
+                    <Button
                       type="button"
                       className="sw-property-list-remove"
                       title="remove item"
@@ -1721,13 +1727,16 @@ function PropertyRow({
                       onClick={() => onRemoveListItem(itemRange)}
                     >
                       <XIcon />
-                    </button>
+                    </Button>
                   </li>
                 );
               })}
             </ul>
           )}
         </div>
+      ) : fill.value.kind === 'boolean' ? (
+        <Switch aria-label={fill.name} checked={fill.value.value}
+          onChange={event => onCommit(spliceValueText(String(event.currentTarget.checked)))} />
       ) : editable ? (
         <input
           className="sw-property-value"
@@ -1753,7 +1762,7 @@ function PropertyRow({
         </span>
       )}
       {omitType !== null && !isColor ? (
-        <button
+        <Button
           type="button"
           className={
             'sw-property-omit-toggle' + (isOmit ? ' active' : '')
@@ -1767,7 +1776,7 @@ function PropertyRow({
           onClick={toggleOmit}
         >
           omit
-        </button>
+        </Button>
       ) : null}
     </div>
   );

@@ -2,16 +2,16 @@ import { Highlight, type PrismTheme } from 'prism-react-renderer';
 
 // Palette from the original talk's github-light theme in @shikijs/themes
 // 3.23.0 (pinned by its lockfile). Prism supplies the existing browser lexer;
-// execution/explanation scenes retain the original plain CodeOverlay treatment.
+// UIST uses scoped brand colors; other decks retain the original palette.
 const githubLight: PrismTheme = {
-  plain: { color: '#24292e', backgroundColor: '#fff' },
+  plain: { color: 'var(--uist-ink, #24292e)', backgroundColor: 'var(--uist-paper, #fff)' },
   styles: [
-    { types: ['comment'], style: { color: '#6a737d' } },
-    { types: ['keyword', 'operator'], style: { color: '#d73a49' } },
-    { types: ['number', 'boolean', 'builtin'], style: { color: '#005cc5' } },
-    { types: ['string'], style: { color: '#032f62' } },
-    { types: ['function', 'class-name'], style: { color: '#6f42c1' } },
-    { types: ['punctuation'], style: { color: '#24292e' } },
+    { types: ['comment'], style: { color: 'var(--uist-muted, #6a737d)' } },
+    { types: ['keyword', 'operator'], style: { color: 'var(--uist-ink, #d73a49)' } },
+    { types: ['number', 'boolean', 'builtin'], style: { color: 'var(--uist-blue, #005cc5)' } },
+    { types: ['string'], style: { color: 'var(--uist-blue, #032f62)' } },
+    { types: ['function', 'class-name'], style: { color: 'var(--uist-ink, #6f42c1)' } },
+    { types: ['punctuation'], style: { color: 'var(--uist-ink, #24292e)' } },
   ],
 };
 
@@ -19,7 +19,7 @@ export function InitialDebuggerCode({ lines }: { lines: string[] }) {
   return <Highlight code={lines.join('\n')} language="python" theme={githubLight}>
     {({ tokens, getTokenProps, style }) => <div style={{ color: style.color }}>
       {tokens.map((line, index) => <div key={index} data-demo-code-line={index} style={{ whiteSpace: 'pre' }}>
-        <span style={{ color: '#888' }}>{index + 1} </span>
+        <span style={{ color: 'var(--uist-muted, #888)' }}>{index + 1} </span>
         {line.map((token, tokenIndex) => <span key={tokenIndex} {...getTokenProps({ token })}>{token.content}</span>)}
       </div>)}
     </div>}

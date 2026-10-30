@@ -1,3 +1,4 @@
+import { Button, Select } from '../slidewright/canvas/design-system/Controls.js';
 import { useEffect, useRef, useState } from 'react';
 import type { PdfExportMode } from './pdf-export-model.js';
 import { parse } from '../slidewright/runtime/parser.js';
@@ -34,23 +35,24 @@ export function StandaloneControls({ host, presenting, onPresent, onPresenter, o
     } catch { setMessage('Could not read that source file.'); }
   }
   return <div className="sw-standalone-controls" role="group" aria-label="Deck files">
-    <button type="button" onClick={onPresent}>{presenting ? 'Edit slides' : 'Present'}</button>
-    {presenting && <button type="button" onClick={onFullscreen}>Fullscreen</button>}
-    <button type="button" onClick={onPresenter}>Presenter view</button>
-    <label>Deck <select aria-label="Deck" value={host.deckChoice} onChange={event => { host.switchDeck(event.target.value as DeckChoice); setMessage(''); }}>
+    <strong className="sw-app-title">Slidewright</strong>
+    <Button variant="primary" type="button" onClick={onPresent}>{presenting ? 'Edit slides' : 'Present'}</Button>
+    {presenting && <Button type="button" onClick={onFullscreen}>Fullscreen</Button>}
+    <Button type="button" onClick={onPresenter}>Presenter view</Button>
+    <label>Deck <Select aria-label="Deck" value={host.deckChoice} onChange={event => { host.switchDeck(event.target.value as DeckChoice); setMessage(''); }}>
       <option value="reference">Slidewright reference</option><option value="uist-2026">UIST 2026</option><option value="plateau-demo">PLATEAU 2026 demo</option>
       {host.hasCustomDeck && <option value="custom">Opened deck</option>}
-    </select></label>
-    <button type="button" onClick={() => setMessage(host.saveDraft() ? 'Saved in this browser' : 'Browser storage unavailable; download a copy.')}>Save draft</button>
-    <label>PDF pages <select aria-label="PDF pages" value={pdfMode} onChange={event => setPdfMode(event.target.value as PdfExportMode)}>
+    </Select></label>
+    <Button type="button" onClick={() => setMessage(host.saveDraft() ? 'Saved in this browser' : 'Browser storage unavailable; download a copy.')}>Save draft</Button>
+    <label>PDF pages <Select aria-label="PDF pages" value={pdfMode} onChange={event => setPdfMode(event.target.value as PdfExportMode)}>
       <option value="final">Final state per slide</option>
       <option value="builds">Every authored build (including initial)</option>
-    </select></label>
-    <button type="button" onClick={() => onExportPdf(pdfMode)}>Export PDF</button>
-    <button type="button" onClick={download}>Download source</button>
-    <button type="button" onClick={() => fileInput.current?.click()}>Open source</button>
+    </Select></label>
+    <Button type="button" onClick={() => onExportPdf(pdfMode)}>Export PDF</Button>
+    <Button type="button" onClick={download}>Download source</Button>
+    <Button type="button" onClick={() => fileInput.current?.click()}>Open source</Button>
     <input ref={fileInput} type="file" accept=".sw,text/plain" aria-label="Open deck file" hidden onChange={event => { const file = event.currentTarget.files?.[0]; if (file) void open(file); event.currentTarget.value = ''; }} />
-    {host.serverBacked && <button type="button" onClick={() => host.reloadFromDisk()}>Reload from disk</button>}
+    {host.serverBacked && <Button type="button" onClick={() => host.reloadFromDisk()}>Reload from disk</Button>}
     <span role="status">{!host.persistenceAvailable && 'Browser backup unavailable; download a copy before closing. '}{(host.syncStatus && host.syncStatus !== 'saved' ? syncMessages[host.syncStatus] : '') || presenterError || message || (host.syncStatus ? syncMessages[host.syncStatus] : '') || (host.persistenceAvailable ? 'Committed edits save in this browser' : 'Browser storage unavailable; download a copy.')}</span>
   </div>;
 }

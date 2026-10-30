@@ -4,6 +4,45 @@ Deck {
   subtitle: ""
   width: 1920
   height: 1080
+  // Personal design system v0.1: light palette. Legacy names below are aliases.
+  tokens: Tokens {
+    paper: "#ffffff"
+    ink: "#000000"
+    surface: "#f3f3f3"
+    rule: "#d9d9d9"
+    muted: "#616161"
+    dimmed: "#cfcfcf"
+    canvasGrey: "#e8e8e8"
+    canvasNeutral: "#f5f5f5"
+    canvasWarm: "#f8f6f1"
+    canvasDot: "#9a9a9a"
+    canvasGridLine: "#ebebeb"
+    canvasBlueprintLine: "#e8eeff"
+    canvas: canvasGrey
+    blue: "#0000ff"
+    orange: "#ff8b1e"
+    teal: "#007d70"
+    red: "#d42a0c"
+    yellow: "#ffd100"
+    cyan: "#00a8e8"
+    pink: "#ff3d8b"
+    graphite: "#8a8a8a"
+    purple: "#8000ff"
+    orangeText: "#a84f00"
+    yellowText: "#966e00"
+    cyanText: "#007ab5"
+    pinkText: "#df1b74"
+    selection: "#e5f0ff"
+    markerYellow: "#fff2b3"
+    markerCyan: "#d8f3ff"
+    danger: "#c2300e"
+    accent: blue
+    fg: ink
+    bg: paper
+    amber: orange
+    magenta: pink
+    lime: teal
+  }
   slides: [
     // Slide 1
     Slide {
@@ -11,6 +50,7 @@ Deck {
       label: "Data-oriented Debugging with autopsy"
       notes: "Hello! I'm Jeff, a PhD student at Penn, and today I'm excited to tell you about Data-Oriented Debugging Across Space and Time, which is a framework for thinking about the fundamentals of debugging and"
       content: PlateauSlide {
+        branding: true
         content: Freeform {
           children: [
             TextBox {
@@ -22,7 +62,7 @@ Deck {
               fontSize: 100
               fontWeight: "700"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 Paragraph {
@@ -46,14 +86,14 @@ Deck {
               fontSize: 45
               fontWeight: "400"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 Paragraph {
                   content: [
                     Span {
                       content: "Jeffrey Tao"
-                      color: "#0000FF"
+                      color: blue
                       weight: "700"
                     }
                     ", Xiaorui Liu, Ryan Marcus, Andrew Head"
@@ -70,7 +110,7 @@ Deck {
               fontSize: 36
               fontWeight: "400"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 Paragraph {
@@ -110,6 +150,7 @@ Deck {
       label: "How do you debug this?"
       notes: "Let's start with an example to illustrate what I see are some issues with current debuggers. You're working on an online retail payment processing pipeline. It does some conventional things retailers do, such as giving a discount on bulk orders, and free shipping on orders above a certain cost.\n\nYou've maybe already spotted the bug: sometimes a customer will get a discount for a bulk order and that'll take away what was previously going to be their free shipping, which isn't a good experience. This is a toy example, but it represents a pretty common issue: the logic looks reasonable locally, but produces unreasonable results when composed.\n\n---\n\nWe're going to analyze how a programmer might use different debuggers to understand this problem. But first I need to introduce this visualization I call the state-time chart, which we'll use to understand what different debuggers can do. First, let me give you some intuition about how this chart works.\n\n---\n\nOn the vertical axis we have all state across all scopes of the program.\n\n---\n\nIn our toy example this is all of the fields of the item and the cart.\n\n---\n\nImagine these various pieces of the program state distributed at different locations along the vertical axis.\n\n---\n\nNext, the horizontal axis represents time. Really it's discretized by the program counter.\n\n---\n\nAs each statement in the program executes, computation happens. Take item price here -- as we process each item we calculate a price for it.\n\n---\n\nFor a certain row across the chart, a particular variable is taking on different values, with increasing time as we move to the right.\n\n---\n\nOkay that's the state-time chart. Let's use it to understand how a debugger works.\n\n---\n\nBreakpoint debugging pauses execution at a particular point in time. When paused, you have access to arbitrary state at every frame of the call stack, which is shown in the variables panel in the bottom right.\n\n---\n\nWhen I press continue, the program runs until it hits the breakpoint again, and I can see all of the state everywhere at this new moment.\n\nThis can be great! It leaves you flexible and doesn't require you to predict in advance what state will be relevant to your debugging.\n\n---\n\nAnd as I continue to use my breakpoint debugger, I'm proceeding through a sequence of stack traces, each of which is a complete vertical slice of state, but at a different point in time.\n\nSo I like that I can see all of the state and know that it's all related because it's all from the same moment in time, but I have to keep track of the history of how I got to this point in my head, and I have to decide when to pause and inspect state.\n\n---\n\nNext, let's examine print debugging.\n\n---\n\nWhen I add a print statement to the code,\n\n---\n\nwhen execution runs over the print statement, I get a log entry in my terminal, shown in the bottom right, that shows me the values of some variables that I choose at that moment in time.\n\n---\n\nAs the entire program executes, I get a bunch of logs in my terminal, each corresponding to a particular value taken on by a specific part of the program state. Each of these dots represents a particular log entry, which you can think of as storing that particular state-time value. They're arranged horizontally because they all represent state pulled from the same place in the code.\n\n---\n\nNow, if I add a second print line\n\n---\n\nas the program executes, I get logs whenever one of these print statements executes.\n\n---\n\nAnd when the whole program executes, I get logs from both print statements, extracting different states from different times. Programmers often insert multiple print statement probes in their code, precisely because, in contrast to breakpoints, it helps them understand sequences of events.\n\nBut recall the blue bars of the breakpoint debugger. You no longer have access to complete information about each moment in time.\n\nAnd also, where I put my print statements and how the program actually executes determines how the information I get is displayed to me. I don't have two neat, separated rows of logs. I have this zigzag interleaving of them. This helps me in situations where I want to understand the history of execution, but it makes it hard to understand the execution in any other way besides chronologically."
       content: PlateauSlide {
+        branding: true
         content: Freeform {
           children: [
             TextBox {
@@ -121,7 +162,7 @@ Deck {
               fontSize: 82
               fontWeight: "700"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 Paragraph {
@@ -146,6 +187,7 @@ Deck {
       label: "Too Much / Too Little Information"
       notes: "We conducted interviews with 12 experienced industry software engineers to understand their debugging practices and why they preferred certain tools and techniques. One major theme that emerged was that their debugging strategies often involved this active negotiation with collecting and viewing information about execution.\n\nSometimes they worried about collecting too much. One participant told us that unnecessary information could cause them to lose out on the meaningful thing that would help them understand the bug.\n\nAnother participant said that a poorly placed breakpoint could disrupt their workflow if it was hit a lot.\n\n---\n\nOn the other hand, they also worried about not having enough information to understand their bugs. They felt this more acutely the longer it took to get new debugging data."
       content: PlateauSlide {
+        branding: true
         content: Freeform {
           children: [
             TextBox {
@@ -157,7 +199,7 @@ Deck {
               fontSize: 76
               fontWeight: "700"
               lineHeight: 1.25
-              color: "#92400e"
+              color: orangeText
               align: "left"
               content: [
                 Paragraph {
@@ -176,7 +218,7 @@ Deck {
               fontSize: 38
               fontWeight: "400"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 Paragraph {
@@ -195,7 +237,7 @@ Deck {
               fontSize: 38
               fontWeight: "400"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 Paragraph {
@@ -214,7 +256,7 @@ Deck {
               fontSize: 76
               fontWeight: "700"
               lineHeight: 1.25
-              color: "#1e40af"
+              color: blue
               align: "left"
               content: [
                 Paragraph {
@@ -233,7 +275,7 @@ Deck {
               fontSize: 38
               fontWeight: "400"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 Paragraph {
@@ -252,7 +294,7 @@ Deck {
               fontSize: 38
               fontWeight: "400"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 Paragraph {
@@ -271,6 +313,7 @@ Deck {
       label: "Two information needs in tension"
       notes: "This negotiation process puts these two instincts in tension. On the one hand, I'm inclined to collect more information because it'll help me make sense of the problem. But on the other hand, I worry that if I collect too much, I won't even be able understand what I'm looking at.\n\nNeeding to navigate this tension seems to me like incidental complexity of current debuggers, rather than an inherent part of debugging.\n\nI'm a databases person. When I hear this tension, my instinct is that I should be able to collect everything and that I should have good analysis tools that let me manage all of that data."
       content: PlateauSlide {
+        branding: true
         content: Freeform {
           children: [
             TextBox {
@@ -282,7 +325,7 @@ Deck {
               fontSize: 82
               fontWeight: "700"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 Paragraph {
@@ -297,9 +340,9 @@ Deck {
               y: 345
               width: 790
               height: 440
-              fill: "#fffbeb"
+              fill: paper
               borderWidth: 3
-              borderColor: "#fde68a"
+              borderColor: rule
               radius: 18
             }
             Box {
@@ -307,9 +350,9 @@ Deck {
               y: 345
               width: 790
               height: 440
-              fill: "#eff6ff"
+              fill: paper
               borderWidth: 3
-              borderColor: "#bfdbfe"
+              borderColor: rule
               radius: 18
             }
             TextBox {
@@ -321,7 +364,7 @@ Deck {
               fontSize: 76
               fontWeight: "700"
               lineHeight: 1.25
-              color: "#92400e"
+              color: orangeText
               align: "left"
               content: [
                 Paragraph {
@@ -340,7 +383,7 @@ Deck {
               fontSize: 48
               fontWeight: "400"
               lineHeight: 1.25
-              color: "#78350f"
+              color: orange
               align: "left"
               content: [
                 Paragraph {
@@ -359,7 +402,7 @@ Deck {
               fontSize: 76
               fontWeight: "700"
               lineHeight: 1.25
-              color: "#1e40af"
+              color: blue
               align: "left"
               content: [
                 Paragraph {
@@ -378,7 +421,7 @@ Deck {
               fontSize: 48
               fontWeight: "400"
               lineHeight: 1.25
-              color: "#1e3a8a"
+              color: blue
               align: "left"
               content: [
                 Paragraph {
@@ -397,6 +440,7 @@ Deck {
       label: "Why are they in tension?"
       notes: "But where is this tension coming from in current debuggers? Well, the design of both debugging tools couples collection and analysis.\n\nThere's nothing you can do with print debugging output besides browsing it and performing text search on it. And your print statements fix output, forcing you to see only what you've logged, but also forcing you to see everything you've logged.\n\nOn the other hand, interactive debugging with a breakpoint debugger is almost the opposite: it forces you to continually make decisions about what data to collect next. You're constantly switching between deciding where to go next and analyzing what you can now see.\n\nOn the analysis side, neither has affordances to aid your reasoning beyond just showing you the data. I'll get back to that in a minute. First, let's examine what better collection could look like."
       content: PlateauSlide {
+        branding: true
         content: Freeform {
           children: [
             TextBox {
@@ -408,7 +452,7 @@ Deck {
               fontSize: 82
               fontWeight: "700"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 Paragraph {
@@ -427,7 +471,7 @@ Deck {
               fontSize: 55
               fontWeight: "400"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 List {
@@ -458,6 +502,7 @@ Deck {
       label: "Collection"
       notes: "So we saw that breakpoints let you see all of the state at one particular moment in time.\n\n---\n\nAnd print statements let you see particular pieces of state across many moments in time, and in order.\n\n---\n\nWell, from a pure data collection perspective, it sure would be nice to get all state at all moments in time."
       content: PlateauSlide {
+        branding: true
         content: Freeform {
           children: [
             TextBox {
@@ -469,7 +514,7 @@ Deck {
               fontSize: 82
               fontWeight: "700"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 Paragraph {
@@ -495,6 +540,7 @@ Deck {
       label: "autopsy"
       notes: "This is exactly what we designed autopsy to do. The first part of autopsy is a python debugging library. The way you use it to instrument code looks a lot like print debugging: you just import log from autopsy and sprinkle calls to log throughout your code base.\n\nThe interesting extra bit is that it captures full stack traces, not just the expressions you pass it. Here, a full stack trace means every stack frame, and every variable in every stack frame. This is all of the information you get when paused on a breakpoint."
       content: PlateauSlide {
+        branding: true
         content: Freeform {
           children: [
             Group {
@@ -508,7 +554,7 @@ Deck {
                   y: 0
                   width: 570
                   height: 140
-                  fill: "#0000FF"
+                  fill: blue
                   borderWidth: 0
                 }
                 TextBox {
@@ -520,7 +566,7 @@ Deck {
                   fontSize: 98
                   fontWeight: "700"
                   lineHeight: 1.25
-                  color: "#fff"
+                  color: paper
                   align: "left"
                   content: [
                     Paragraph {
@@ -537,9 +583,9 @@ Deck {
               y: 340
               width: 1680
               height: 410
-              fill: "#f9fafb"
+              fill: surface
               borderWidth: 1.5
-              borderColor: "#e5e7eb"
+              borderColor: rule
               radius: 18
             }
             TextBox {
@@ -551,7 +597,7 @@ Deck {
               fontSize: 48
               fontWeight: "400"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 Paragraph {
@@ -570,7 +616,7 @@ Deck {
               fontSize: 53
               fontWeight: "400"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 Paragraph {
@@ -589,6 +635,7 @@ Deck {
       label: "Call stack in History view"
       notes: "And so, one view of the autopsy interface is like your chronological print statement output, except that you can click on any log entry and see the full stack trace for that moment in time, just like you would see if you were paused at a breakpoint.\n\nIt gives you all of the data you asked for, and more on demand."
       content: PlateauSlide {
+        branding: true
         content: Freeform {
           children: [
             TextBox {
@@ -600,7 +647,7 @@ Deck {
               fontSize: 82
               fontWeight: "700"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 Paragraph {
@@ -631,6 +678,7 @@ Deck {
       label: "Print Output → DataFrame?"
       notes: "Next, on to analysis affordances.\n\nThis project was partially born from me looking at the JavaScript console, looking at how different logs were separated by lines, and thinking to myself, \"Isn't this a table? Shouldn't I be able to do more things with this?\" which is when I began to see my debugging logs as a dataset in themselves, where I had previously been thinking of them as the end of where tooling could help me."
       content: PlateauSlide {
+        branding: true
         content: Freeform {
           children: [
             Image {
@@ -659,7 +707,7 @@ Deck {
               x2: 1015
               y2: 560
               strokeWidth: 5
-              color: "#374151"
+              color: muted
             }
             TextBox {
               x: 95
@@ -670,7 +718,7 @@ Deck {
               fontSize: 38
               fontWeight: "400"
               lineHeight: 1.25
-              color: "#6b7280"
+              color: muted
               align: "center"
               content: [
                 Paragraph {
@@ -689,7 +737,7 @@ Deck {
               fontSize: 38
               fontWeight: "400"
               lineHeight: 1.25
-              color: "#6b7280"
+              color: muted
               align: "center"
               content: [
                 Paragraph {
@@ -708,6 +756,7 @@ Deck {
       label: "Affordances — Streams"
       notes: "To start, we briefly hit upon this ordering problem of only being able to see logs chronologically. One obvious affordance is letting you isolate the logs from different places in your code."
       content: PlateauSlide {
+        branding: true
         content: Freeform {
           children: [
             TextBox {
@@ -719,7 +768,7 @@ Deck {
               fontSize: 82
               fontWeight: "700"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 Paragraph {
@@ -745,6 +794,7 @@ Deck {
       label: "Streams demo"
       notes: "By default, autopsy shows you this chronological view. But if you switch to this Streams view, they're separated by statement, letting you see all of the logs produced at a particular point in your code. And since all of those logs have the same set of arguments, they're presented in a table view, which has some nice properties we're about to see."
       content: PlateauSlide {
+        branding: true
         content: Freeform {
           children: [
             TextBox {
@@ -756,7 +806,7 @@ Deck {
               fontSize: 82
               fontWeight: "700"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 Paragraph {
@@ -787,6 +837,7 @@ Deck {
       label: "Affordances — Step Debugging"
       notes: "So autopsy can replace print debugging, and goes beyond it. But what about breakpoint debugging? We tried to give it a similar treatment for stepping. You should be able to follow along with the order that things were captured in.\n\nAt each point, we can show you the same information the breakpoint debugger would have shown you, because we're capturing the full stack trace. And since this is all post-hoc analysis of captured logs, we can do the omniscient debugging thing of letting you step forwards and backwards and jump to arbitrary points."
       content: PlateauSlide {
+        branding: true
         content: Freeform {
           children: [
             TextBox {
@@ -798,7 +849,7 @@ Deck {
               fontSize: 82
               fontWeight: "700"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 Paragraph {
@@ -824,6 +875,7 @@ Deck {
       label: "Step Debugging demo"
       notes: "So here, next to any log in autopsy, I can click on this \"Show in code\" button, which gives me a code lens above the corresponding log statement. Then, I can click these buttons to step forwards and backwards through the logs. If I have multiple log statements, the view will jump around to them. And like I said, since I have the full stack trace, I can click on the log to see all of the information that a breakpoint debugger would have shown me.\n\nThe one glaring difference is that this doesn't give me the same stepping experience as breakpoints since it only works when I have log statements. We'll get back to that at the end."
       content: PlateauSlide {
+        branding: true
         content: Freeform {
           children: [
             TextBox {
@@ -835,7 +887,7 @@ Deck {
               fontSize: 82
               fontWeight: "700"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 Paragraph {
@@ -866,6 +918,7 @@ Deck {
       label: "Affordances — Computed Columns"
       notes: "Well now that I've captured all of this extra context at each log line, it seems like I could do more with it. To help with the problem of not having logged the right things, you can now decide that you want to see this other state alongside what you're already seeing.\n\n---\n\nTo do so, you reach into that stack trace that you've captured for this log and pull out the relevant bit of state\n\n---\n\nAnd then your tool projects that for every log you have."
       content: PlateauSlide {
+        branding: true
         content: Freeform {
           children: [
             TextBox {
@@ -877,7 +930,7 @@ Deck {
               fontSize: 82
               fontWeight: "700"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 Paragraph {
@@ -903,6 +956,7 @@ Deck {
       label: "Computed Columns demo"
       notes: "So here's me doing that in autopsy. When I'm looking at this table, I can open the call stack and pull out other relevant state to create a new column.\n\nI can also compute arbitrary python expressions over the captured call stack and project it into a new column, like the total being the quantity times the price.\n\nAnd just like that, I can enrich my logs with new information on demand."
       content: PlateauSlide {
+        branding: true
         content: Freeform {
           children: [
             TextBox {
@@ -914,7 +968,7 @@ Deck {
               fontSize: 82
               fontWeight: "700"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 Paragraph {
@@ -945,6 +999,7 @@ Deck {
       label: "Affordances — Grouping & Filtering"
       notes: "Last affordance I'll talk about today: ways of getting overviews of the logs and customizing your view.\n\n---\n\nTo make certain comparisons easier, or to narrow my focus to an interesting subset of the data, I should be able to say that I only care about logs with a particular characteristic. So I should be able to select only the stuff I care about...\n\n---\n\n...and then change my view of the logs to just those logs."
       content: PlateauSlide {
+        branding: true
         content: Freeform {
           children: [
             TextBox {
@@ -956,7 +1011,7 @@ Deck {
               fontSize: 82
               fontWeight: "700"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 Paragraph {
@@ -982,6 +1037,7 @@ Deck {
       label: "Grouping & Filtering demo"
       notes: "So in autopsy, next to each column header is a filter icon.\n\nI can see distributions of values, letting me easily understand properties of the captured data in aggregate. Is this the right distribution of values for this variable? Are there values in here that I don't expect?\n\nAnd then I can go and say \"oh I only care to see when free_shipping was True\". This also cross-filters my chronological view."
       content: PlateauSlide {
+        branding: true
         content: Freeform {
           children: [
             TextBox {
@@ -993,7 +1049,7 @@ Deck {
               fontSize: 82
               fontWeight: "700"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 Paragraph {
@@ -1024,6 +1080,7 @@ Deck {
       label: "Future Work"
       notes: "Up next for this project, well as soon as I get back from PLATEAU I'm running a user study on this.\n\nWe'd also like to work on efficient capture and capture all statements automatically.\n\nI've only covered most most basic queries, I think you could do much more with this data.\n\nBeing able to make a code change and diff the traces could be really powerful as well.\n\nAnd lastly, I think letting coding agents query the dataset might be interesting, both for the agent coding loop and for creating explanations for humans."
       content: PlateauSlide {
+        branding: true
         content: Freeform {
           children: [
             TextBox {
@@ -1035,7 +1092,7 @@ Deck {
               fontSize: 82
               fontWeight: "700"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 Paragraph {
@@ -1054,7 +1111,7 @@ Deck {
               fontSize: 44
               fontWeight: "400"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 List {
@@ -1103,6 +1160,7 @@ Deck {
       label: "Closing / Discussion"
       notes: "So that's data-oriented debugging and autopsy. For discussion, I'd like to emphasize this first question especially: I'm running a study starting tomorrow, so if there are any questions you think I should be asking participants, please let me know!"
       content: PlateauSlide {
+        branding: true
         content: Freeform {
           children: [
             TextBox {
@@ -1114,7 +1172,7 @@ Deck {
               fontSize: 82
               fontWeight: "700"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 Paragraph {
@@ -1133,7 +1191,7 @@ Deck {
               fontSize: 44
               fontWeight: "400"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 List {
@@ -1164,7 +1222,7 @@ Deck {
               fontSize: 76
               fontWeight: "700"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 Paragraph {
@@ -1183,7 +1241,7 @@ Deck {
               fontSize: 40
               fontWeight: "400"
               lineHeight: 1.25
-              color: "#111"
+              color: ink
               align: "left"
               content: [
                 List {

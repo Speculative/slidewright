@@ -1,3 +1,4 @@
+import { Button } from './design-system/Controls.js';
 // Registry-driven insertion search. Tool state and placement live in App.
 import { useEffect, useRef, useState, type PointerEvent, type ReactElement } from 'react';
 
@@ -105,11 +106,11 @@ export function ToolPalette({ placing, tools, onSelect, onDragStart }: Props): R
     <div className="sw-command-results" id="sw-insert-results" role="listbox" aria-label="Elements">
       {matches.map((tool, i) => <div key={tool.id}>
         {(i === 0 || tool.category !== matches[i - 1]?.category) && <div className="sw-tool-section-header">{tool.category ?? 'Other'}</div>}
-        <button type="button" tabIndex={-1} id={`sw-insert-${tool.id}`} role="option" aria-selected={current === i}
+        <Button type="button" tabIndex={-1} id={`sw-insert-${tool.id}`} role="option" aria-selected={current === i}
           className="sw-tool" title={[tool.description, tool.shortcut].filter(Boolean).join(' · ')} aria-keyshortcuts={tool.shortcut} onMouseMove={() => setIndex(i)}
           onClick={() => confirm(tool.id)} onPointerDown={event => {
             if (tool.gestures.includes('drag') && onDragStart) onDragStart(tool.id, event);
-          }}>{tool.label}</button>
+          }}>{tool.label}</Button>
       </div>)}
       {!matches.length && <div className="sw-tool-empty" role="status">No matching elements</div>}
       <div className="sw-command-help">↑↓ Choose · Enter Insert · Esc Close</div>

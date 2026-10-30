@@ -1,3 +1,4 @@
+import { Button } from './design-system/Controls.js';
 import type { SourceChange, DocumentSnapshot } from '../runtime/document.js';
 import { Group, Ungroup } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
@@ -46,8 +47,8 @@ export function GroupingControls({ source, snapshot, selected, shapes, disabled,
   if (!selected.some(target => target.kind === 'component')) return null;
   return <section className="sw-alignment" aria-label="Grouping">
     <div className="sw-distribute-buttons">
-      <button type="button" className="sw-icon-button" aria-label="Group" disabled={disabled || !availability.group} title="Group (Ctrl/Cmd+G)" onClick={() => apply(false)}><Group size={20} aria-hidden="true" focusable="false" /></button>
-      <button type="button" className="sw-icon-button" aria-label="Ungroup" disabled={disabled || !availability.ungroup} title="Ungroup (Ctrl/Cmd+Shift+G)" onClick={() => apply(true)}><Ungroup size={20} aria-hidden="true" focusable="false" /></button>
+      <Button type="button" className="sw-icon-button" aria-label="Group" disabled={disabled || !availability.group} title="Group (Ctrl/Cmd+G)" onClick={() => apply(false)}><Group size={20} aria-hidden="true" focusable="false" /></Button>
+      <Button type="button" className="sw-icon-button" aria-label="Ungroup" disabled={disabled || !availability.ungroup} title="Ungroup (Ctrl/Cmd+Shift+G)" onClick={() => apply(true)}><Ungroup size={20} aria-hidden="true" focusable="false" /></Button>
     </div>
     {message && <p role="status">{message}</p>}
   </section>;

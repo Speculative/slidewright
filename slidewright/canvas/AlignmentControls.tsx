@@ -1,3 +1,4 @@
+import { Button, Select } from './design-system/Controls.js';
 import type { SourceChange, DocumentSnapshot } from '../runtime/document.js';
 import { measureLayoutSnapshot } from './layout-measurement.js';
 import {
@@ -163,26 +164,26 @@ export function AlignmentControls({ selected, shapes, source, snapshot, disabled
   const unavailable = disabled || !context;
   return <section className="sw-alignment" aria-label="Selection alignment">
     <div className="sw-sidebar-heading">{selected.length > 1 ? `${selected.length} selected` : 'Arrange'}</div>
-    <label>Align to <select aria-label="Align to" value={context?.items.length === 1 ? 'container' : reference}
+    <label>Align to <Select aria-label="Align to" value={context?.items.length === 1 ? 'container' : reference}
       disabled={unavailable || context?.items.length === 1} onChange={event => setReference(event.target.value as typeof reference)}>
       <option value="selection">Selection</option><option value="container">Container</option>
-    </select></label>
+    </Select></label>
     <div className="sw-alignment-buttons">
       {(['left', 'center', 'right', 'top', 'middle', 'bottom'] as const).map(command => {
         const label = command === 'center' ? 'Align horizontal center' : command === 'middle' ? 'Align vertical center' : `Align ${command}`;
         const Icon = COMMAND_ICONS[command];
-        return <button className="sw-icon-button" key={command} type="button" title={label} aria-label={label} disabled={unavailable} onClick={() => apply(command)}>
+        return <Button className="sw-icon-button" key={command} type="button" title={label} aria-label={label} disabled={unavailable} onClick={() => apply(command)}>
           <Icon size={20} aria-hidden="true" focusable="false" />
-        </button>;
+        </Button>;
       })}
     </div>
     <div className="sw-distribute-buttons">{(['horizontal', 'vertical'] as const).map(command => {
       const label = `Distribute ${command} space`;
       const Icon = COMMAND_ICONS[command];
-      return <button type="button" className="sw-icon-button" key={command} aria-label={label} title={label}
+      return <Button type="button" className="sw-icon-button" key={command} aria-label={label} title={label}
         disabled={unavailable || (context?.items.length ?? 0) < 3} onClick={() => apply(command)}>
         <Icon size={20} aria-hidden="true" focusable="false" />
-      </button>;
+      </Button>;
     })}</div>
     {!context && selected.length > 0 && <p>Select freely positioned siblings to arrange. Use layout properties for stack children.</p>}
     {message && <p role="status">{message}</p>}

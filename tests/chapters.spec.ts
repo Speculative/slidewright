@@ -24,8 +24,7 @@ test('chapter rename propagates, boundaries survive hidden footers, and slides c
   await page.getByRole('option', { name: 'Slide 4', exact: true }).click();
   await expect(crumb).toContainText('Demo');
   await page.locator('.sw-hierarchy-slide-row').click();
-  await page.getByLabel('chromeless (default)', { exact: true }).fill('true');
-  await page.getByLabel('chromeless (default)', { exact: true }).press('Enter');
+  await page.getByRole('switch', { name: 'chromeless (default)', exact: true }).click();
   await expect(crumb).toHaveCount(0);
 });
 

@@ -50,7 +50,16 @@ chrome. `registry.ts` shares the current host component catalog. Named asset
 references resolve to files in `assets/` through the standalone host, including
 hashed Vite URLs in built output. The browser hosts bundle the original Lato
 and Monaspace Neon fonts through `presentation.css`, scoped to PLATEAU slides
-so host/reference typography is preserved. Box border width/color and corner
+so host/reference typography is preserved. The UIST working deck opts into
+`PlateauSlide.branding: true`: its body/display faces are Lato, code is
+JetBrains Mono, and shared debugger code/terminal/variable panels use the
+personal design system's light colors. `Deck.tokens` contains the brand
+palette, text-safe tag colors and legacy-name aliases for source-backed
+color picking. Authored text and panels use those names. The palette and
+scoped CSS values come from the imported design system v0.1. Place-time
+and state-time SVG chart colors remain the original blue/red/orange;
+embedded raster images and videos are preserved. The PLATEAU snapshot
+keeps its original typefaces and colors because branding is opt-in. Box border width/color and corner
 radius are source-backed; decorative title highlights have no border. `migration.json` records the original source
 hash and normalized speaker-note hashes for preservation checks.
 

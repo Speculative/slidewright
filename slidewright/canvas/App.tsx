@@ -1,3 +1,4 @@
+import { Button } from './design-system/Controls.js';
 // Slidewright canvas — host-agnostic React app.
 //
 // Receives source-of-truth from a Host (VSCodeHost in the extension,
@@ -469,7 +470,11 @@ function hitTestDropTarget(
   clientY: number,
   produces: SlotTypeName,
 ): { target: ToolDragDropTarget | null; invalidHover: boolean } {
-  const hit = document.elementFromPoint(clientX, clientY);
+  // The picker closes once a drag starts, but batched pointer events can
+  // arrive before React removes it. Its current size must not obscure the
+  // drop target during that render window.
+  const hit = document.elementsFromPoint(clientX, clientY)
+    .find(element => !element.closest('.sw-tool-palette'));
   // Empty-slot placeholder: unambiguous, check first.
   if (hit instanceof HTMLElement) {
     const placeholder = hit.closest<HTMLElement>(
@@ -1466,10 +1471,14 @@ export function App({
         // know which origin each came from. Source-declared wins
         // on name collision, matching loader resolution order.
         colorTokens: {
-          ...Object.fromEntries(
-            Object.keys(staticTokens).map((n) => [n, `var(--${n})`]),
-          ),
+          // Source palette names take precedence when swatches deduplicate
+          // equivalent colors. Font bindings are not color swatches.
           ...result.tokens,
+          ...Object.fromEntries(
+            Object.keys(staticTokens)
+              .filter(n => !(n in result.tokens) && !['body', 'display', 'mono'].includes(n))
+              .map((n) => [n, `var(--${n})`]),
+          ),
         },
       };
       // Read activeIdx via ref (not closure) so this effect's
@@ -3203,19 +3212,19 @@ export function App({
       <DiagnosticsPanel diagnostics={errors} />
       {activeSlide?.authoredComp.name === 'Slide' && <div className="sw-build-controls" role="toolbar" aria-label="Build controls">
         <span>Frame {activeBuildIndex + 1} of {1 + (state.buildThumbnails.get(activeIdx)?.length ?? 0)}</span>
-        <button type="button" onClick={() => handleBuildAction('add')} disabled={!!richEditing || !!gestureMeta}>Add build</button>
-        <button type="button" onClick={() => handleBuildAction('duplicate')} disabled={!!richEditing || !!gestureMeta}>Duplicate frame</button>
-        <button type="button" onClick={() => handleBuildAction('up')} disabled={activeBuildIndex < 2 || !!richEditing || !!gestureMeta} title="Move authored changes earlier; inherited values recompute">Move build up</button>
-        <button type="button" onClick={() => handleBuildAction('down')} disabled={!activeBuildIndex || activeBuildIndex >= (state.buildThumbnails.get(activeIdx)?.length ?? 0) || !!richEditing || !!gestureMeta} title="Move authored changes later; inherited values recompute">Move build down</button>
-        <button type="button" onClick={() => handleBuildAction('delete')} disabled={!activeBuildIndex || !!richEditing || !!gestureMeta}>Delete build</button>
-        <button type="button" className="sw-build-direction" aria-label="Propagation direction"
+        <Button type="button" onClick={() => handleBuildAction('add')} disabled={!!richEditing || !!gestureMeta}>Add build</Button>
+        <Button type="button" onClick={() => handleBuildAction('duplicate')} disabled={!!richEditing || !!gestureMeta}>Duplicate frame</Button>
+        <Button type="button" onClick={() => handleBuildAction('up')} disabled={activeBuildIndex < 2 || !!richEditing || !!gestureMeta} title="Move authored changes earlier; inherited values recompute">Move build up</Button>
+        <Button type="button" onClick={() => handleBuildAction('down')} disabled={!activeBuildIndex || activeBuildIndex >= (state.buildThumbnails.get(activeIdx)?.length ?? 0) || !!richEditing || !!gestureMeta} title="Move authored changes later; inherited values recompute">Move build down</Button>
+        <Button type="button" onClick={() => handleBuildAction('delete')} disabled={!activeBuildIndex || !!richEditing || !!gestureMeta}>Delete build</Button>
+        <Button type="button" className="sw-build-direction" aria-label="Propagation direction"
           aria-keyshortcuts="Alt+Shift+B" title="Switch propagation direction (Alt+Shift+B)" disabled={!!richEditing || !!gestureMeta}
           onClick={() => { operationSnapshotRef.current = undefined; setBuildDirection(nextBuildDirection); }}>
           {buildDirection === 'forward' ? 'Forward →' : buildDirection === 'backward' ? '← Backward' : 'Everywhere'}
-        </button>
+        </Button>
         <span className="sw-build-scope-hint">{buildDirection === 'everywhere' ? 'All frames · replaces keyframes for edited properties' : buildDirection === 'backward' ? 'Stops at the previous property keyframe or appearance' : 'Stops at the next property keyframe or appearance'}</span>
         {activeSlide.authoredComp.fills.some(fill => fill.name === 'builds') && <details className="sw-hidden-objects"><summary>Hidden objects</summary>
-          {hiddenBuildObjects.map(object => <button type="button" key={objectId(object)} onClick={() => restoreBuildObject(objectId(object)!)}>Restore {object.name} · {objectId(object)}</button>)}
+          {hiddenBuildObjects.map(object => <Button type="button" key={objectId(object)} onClick={() => restoreBuildObject(objectId(object)!)}>Restore {object.name} · {objectId(object)}</Button>)}
         </details>}
       </div>}
       <ToolPalette
@@ -3484,8 +3493,8 @@ export function App({
             {richEditing && <>
             <FormattingToolbar session={richSessionRef} state={textFormatting} colorTokens={state.colorTokens} slideColors={slideColors} />
             <span>Editing text</span>
-            <button type="button" onPointerDown={event => { if (!(document.activeElement instanceof HTMLInputElement)) event.preventDefault(); }} onClick={() => richSessionRef.current?.finish('commit')}>Done</button>
-            <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => richSessionRef.current?.finish('cancel')}>Cancel</button>
+            <Button variant="primary" type="button" onPointerDown={event => { if (!(document.activeElement instanceof HTMLInputElement)) event.preventDefault(); }} onClick={() => richSessionRef.current?.finish('commit')}>Done</Button>
+            <Button type="button" onPointerDown={event => event.preventDefault()} onClick={() => richSessionRef.current?.finish('cancel')}>Cancel</Button>
             </>}
           </div>}
         </aside>

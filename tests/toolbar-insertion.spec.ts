@@ -180,7 +180,7 @@ test('drag VStack onto an empty block slot materializes the fill', async ({ page
   // The body slot's empty placeholder. `data-sw-slot-name="body"`
   // is the wrapper; the dashed box visual is its first child.
   const placeholder = page
-    .locator('[data-sw-slot-name="body"][data-sw-slot-empty="true"] > *')
+    .locator('.sw-canvas-stage [data-sw-slot-name="body"][data-sw-slot-empty="true"] > *')
     .first();
   await expect(placeholder).toBeVisible();
   await dragToolToTarget(page, 'VStack', placeholder);
@@ -204,7 +204,7 @@ test('drag with mismatched type rejects (no source change)', async ({ page }) =>
   // ContentSlide (produces 'slide') onto a `block` placeholder.
   // No commit should happen.
   const placeholder = page
-    .locator('[data-sw-slot-name="body"][data-sw-slot-empty="true"] > *')
+    .locator('.sw-canvas-stage [data-sw-slot-name="body"][data-sw-slot-empty="true"] > *')
     .first();
   const beforeSrc = await getSource(page);
   await dragToolToTarget(page, 'ContentSlide', placeholder);
@@ -216,7 +216,7 @@ for (const cancel of [false, true]) {
   test(`tool drag handles batched pointer events (${cancel ? 'cancel' : 'drop'})`, async ({ page }) => {
     await page.goto('/canvas.html?fixture=empty-block-slot');
     const before = await getSource(page);
-    const placeholder = page.locator('[data-sw-slot-name="body"][data-sw-slot-empty="true"] > *').first();
+    const placeholder = page.locator('.sw-canvas-stage [data-sw-slot-name="body"][data-sw-slot-empty="true"] > *').first();
     const target = await placeholder.boundingBox();
     if (!target) throw new Error('placeholder not visible');
     await openInsertionPicker(page);
@@ -329,7 +329,7 @@ test('Esc during tool-drag cancels without inserting', async ({ page }) => {
   await page.goto('/canvas.html?fixture=empty-block-slot');
   const before = await getSource(page);
   const placeholder = page
-    .locator('[data-sw-slot-name="body"][data-sw-slot-empty="true"] > *')
+    .locator('.sw-canvas-stage [data-sw-slot-name="body"][data-sw-slot-empty="true"] > *')
     .first();
   const pb = await placeholder.boundingBox();
   if (!pb) throw new Error('placeholder not visible');

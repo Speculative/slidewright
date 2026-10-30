@@ -1,3 +1,4 @@
+import { Button } from '../design-system/Controls.js';
 import { useMemo, useRef, useState, type RefObject } from 'react';
 import { ColorPicker } from '../ColorPicker.js';
 import { ColorPalette, ColorPopover, readColorValueCss } from '../ColorControls.js';
@@ -30,7 +31,7 @@ export function TextColorPicker({ field, label, current, session, colorTokens, s
     if (color) session.current?.formatColor(field, color);
   };
   return <>
-    <button ref={anchor} type="button" className="sw-text-color-preview"
+    <Button ref={anchor} type="button" className="sw-text-color-preview"
       aria-label={`${label} picker`} aria-expanded={open} aria-haspopup="dialog"
       title={current?.mixed ? 'Mixed colors' : css || 'Inherited color'}
       style={{ background: css || undefined }}
@@ -48,7 +49,7 @@ export function TextColorPicker({ field, label, current, session, colorTokens, s
           session.current?.colorGesture(text === null ? 'cancel' : 'commit');
         }} />
       <ColorPalette tokens={colorTokens} slideColors={slideColors} currentCss={css} onPick={apply} />
-      <button type="button" onClick={() => session.current?.formatColor(field, null)}>Use inherited color</button>
+      <Button type="button" onClick={() => session.current?.formatColor(field, null)}>Use inherited color</Button>
     </ColorPopover>}
   </>;
 }

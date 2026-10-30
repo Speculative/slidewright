@@ -1,0 +1,176 @@
+/* Jeff Tao — generated from tokens.json */
+:root, [data-theme="light"] {
+  --sw-paper: #ffffff;
+  --sw-ink: #000000;
+  --sw-surface: #f3f3f3;
+  --sw-rule: #d9d9d9;
+  --sw-ink-muted: #616161;
+  --sw-ink-dimmed: #cfcfcf;
+  --sw-band: var(--sw-ink);
+  --sw-on-band: var(--sw-paper);
+  --sw-canvas: var(--sw-canvas-grey);
+  --sw-canvas-grey: #e8e8e8;
+  --sw-canvas-neutral: #f5f5f5;
+  --sw-canvas-warm: #f8f6f1;
+  --sw-canvas-dot: #9a9a9a;
+  --sw-canvas-grid-line: #ebebeb;
+  --sw-canvas-blueprint-line: #e8eeff;
+  --sw-tag-1: #0000ff;
+  --sw-on-tag-1: #ffffff;
+  --sw-tag-1-text: #0000ff;
+  --sw-tag-2: #ff8b1e;
+  --sw-on-tag-2: #000000;
+  --sw-tag-2-text: #a84f00;
+  --sw-tag-3: #007d70;
+  --sw-on-tag-3: #ffffff;
+  --sw-tag-3-text: #007d70;
+  --sw-tag-4: #d42a0c;
+  --sw-on-tag-4: #ffffff;
+  --sw-tag-4-text: #d42a0c;
+  --sw-tag-5: #ffd100;
+  --sw-on-tag-5: #000000;
+  --sw-tag-5-text: #966e00;
+  --sw-tag-6: #00a8e8;
+  --sw-on-tag-6: #000000;
+  --sw-tag-6-text: #007ab5;
+  --sw-tag-7: #ff3d8b;
+  --sw-on-tag-7: #000000;
+  --sw-tag-7-text: #df1b74;
+  --sw-tag-8: #8a8a8a;
+  --sw-on-tag-8: #000000;
+  --sw-tag-8-text: #616161;
+  --sw-marker-yellow: #fff2b3;
+  --sw-marker-cyan: #d8f3ff;
+  --sw-accent-blue: var(--sw-tag-1);
+  --sw-on-accent-blue: var(--sw-on-tag-1);
+  --sw-accent-blue-text: var(--sw-tag-1-text);
+  --sw-accent-blue-tint: #e5f0ff;
+  --sw-accent-red: var(--sw-tag-4);
+  --sw-on-accent-red: var(--sw-on-tag-4);
+  --sw-accent-red-text: var(--sw-tag-4-text);
+  --sw-accent-red-tint: #ffeae3;
+  --sw-accent-orange: var(--sw-tag-2);
+  --sw-on-accent-orange: var(--sw-on-tag-2);
+  --sw-accent-orange-text: var(--sw-tag-2-text);
+  --sw-accent-orange-tint: #fff0e0;
+  --sw-accent-purple: #8000ff;
+  --sw-on-accent-purple: #ffffff;
+  --sw-accent-purple-text: #8000ff;
+  --sw-accent-purple-tint: #f2e5ff;
+  --sw-accent: var(--sw-accent-blue);
+  --sw-on-accent: var(--sw-on-accent-blue);
+  --sw-accent-text: var(--sw-accent-blue-text);
+  --sw-accent-tint: var(--sw-accent-blue-tint);
+  --sw-focus: var(--sw-accent-text);
+  --sw-danger: #c2300e;
+  --sw-on-danger: #ffffff;
+  --sw-shadow-float: 4px 4px 0 #000000;
+  --sw-shadow-dialog: 8px 8px 0 #000000;
+  --sw-shadow-offset: 8px 8px 0 #0000ff;
+  --sw-shadow-offset-sm: 4px 4px 0 #0000ff;
+}
+[data-theme="dark"] {
+  --sw-paper: #000000;
+  --sw-ink: #ffffff;
+  --sw-surface: #1a1a1a;
+  --sw-rule: #333333;
+  --sw-ink-muted: #a0a0a0;
+  --sw-ink-dimmed: #4d4d4d;
+  --sw-band: var(--sw-ink);
+  --sw-on-band: var(--sw-paper);
+  --sw-canvas: var(--sw-canvas-grey);
+  --sw-canvas-grey: #111111;
+  --sw-canvas-neutral: #0f0f0f;
+  --sw-canvas-warm: #14120f;
+  --sw-canvas-dot: #4d4d4d;
+  --sw-canvas-grid-line: #1f1f1f;
+  --sw-canvas-blueprint-line: #121a3d;
+  --sw-tag-1: #5c5cff;
+  --sw-on-tag-1: #ffffff;
+  --sw-tag-1-text: #9494ff;
+  --sw-tag-2: #ff8b1e;
+  --sw-on-tag-2: #000000;
+  --sw-tag-2-text: #ffa255;
+  --sw-tag-3: #1fb3a2;
+  --sw-on-tag-3: #000000;
+  --sw-tag-3-text: #71d2c3;
+  --sw-tag-4: #de381e;
+  --sw-on-tag-4: #000000;
+  --sw-tag-4-text: #ff967f;
+  --sw-tag-5: #ffd100;
+  --sw-on-tag-5: #000000;
+  --sw-tag-5-text: #dfba32;
+  --sw-tag-6: #00a8e8;
+  --sw-on-tag-6: #000000;
+  --sw-tag-6-text: #47ccff;
+  --sw-tag-7: #ff3d8b;
+  --sw-on-tag-7: #000000;
+  --sw-tag-7-text: #ff92b6;
+  --sw-tag-8: #8a8a8a;
+  --sw-on-tag-8: #000000;
+  --sw-tag-8-text: #b4b4b4;
+  --sw-marker-yellow: #5a4800;
+  --sw-marker-cyan: #004466;
+  --sw-accent-blue: var(--sw-tag-1);
+  --sw-on-accent-blue: var(--sw-on-tag-1);
+  --sw-accent-blue-text: var(--sw-tag-1-text);
+  --sw-accent-blue-tint: #0d0d3a;
+  --sw-accent-red: var(--sw-tag-4);
+  --sw-on-accent-red: var(--sw-on-tag-4);
+  --sw-accent-red-text: var(--sw-tag-4-text);
+  --sw-accent-red-tint: #39150e;
+  --sw-accent-orange: var(--sw-tag-2);
+  --sw-on-accent-orange: var(--sw-on-tag-2);
+  --sw-accent-orange-text: var(--sw-tag-2-text);
+  --sw-accent-orange-tint: #3a2108;
+  --sw-accent-purple: #a65cff;
+  --sw-on-accent-purple: #000000;
+  --sw-accent-purple-text: #bda3ff;
+  --sw-accent-purple-tint: #24103f;
+  --sw-accent: var(--sw-accent-blue);
+  --sw-on-accent: var(--sw-on-accent-blue);
+  --sw-accent-text: var(--sw-accent-blue-text);
+  --sw-accent-tint: var(--sw-accent-blue-tint);
+  --sw-focus: var(--sw-accent-text);
+  --sw-danger: #ff6a47;
+  --sw-on-danger: #000000;
+  --sw-shadow-float: 4px 4px 0 #ffffff;
+  --sw-shadow-dialog: 8px 8px 0 #ffffff;
+  --sw-shadow-offset: 8px 8px 0 #5c5cff;
+  --sw-shadow-offset-sm: 4px 4px 0 #5c5cff;
+}
+:root {
+  --sw-space-1: 4px;
+  --sw-space-2: 8px;
+  --sw-space-3: 16px;
+  --sw-space-4: 24px;
+  --sw-space-5: 32px;
+  --sw-space-6: 64px;
+  --sw-radius-0: 0;
+  --sw-radius-full: 9999px;
+  --sw-border-hair: 1px;
+  --sw-border-rule: 2px;
+  --sw-border-heavy: 4px;
+  --sw-offset-lg: 8px;
+  --sw-offset-sm: 4px;
+  --sw-control-sm: 24px;
+  --sw-control-md: 32px;
+  --sw-control-touch: 44px;
+  --sw-bar-h: 40px;
+  --sw-panel-w: 272px;
+  --sw-grid-dots: 16px;
+  --sw-grid-lines: 32px;
+  --sw-content-width: 832px;
+  --sw-font-sans: "Lato", "Helvetica Neue", Arial, sans-serif;
+  --sw-font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  --sw-font-sans-alt: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+}
+@font-face { font-family: "Lato"; src: url("fonts/lato-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Lato"; src: url("fonts/lato-latin-400-italic.woff2") format("woff2"); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: "Lato"; src: url("fonts/lato-latin-700-normal.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: "Lato"; src: url("fonts/lato-latin-700-italic.woff2") format("woff2"); font-weight: 700; font-style: italic; font-display: swap; }
+@font-face { font-family: "Lato"; src: url("fonts/lato-latin-900-normal.woff2") format("woff2"); font-weight: 900; font-style: normal; font-display: swap; }
+@font-face { font-family: "Lato"; src: url("fonts/lato-latin-900-italic.woff2") format("woff2"); font-weight: 900; font-style: italic; font-display: swap; }
+@font-face { font-family: "JetBrains Mono"; src: url("fonts/jetbrains-mono-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "JetBrains Mono"; src: url("fonts/jetbrains-mono-latin-400-italic.woff2") format("woff2"); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: "JetBrains Mono"; src: url("fonts/jetbrains-mono-latin-700-normal.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: swap; }

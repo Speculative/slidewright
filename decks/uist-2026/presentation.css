@@ -25,3 +25,47 @@
   --font-body: 'Plateau Lato', sans-serif;
   --font-mono: 'Plateau Monaspace Neon', monospace;
 }
+
+/* Personal design system v0.1. Opt-in keeps the preserved PLATEAU demo intact.
+ * Values are fixed to light mode, including when editor chrome is dark. */
+@font-face {
+  font-family: 'JetBrains Mono'; font-style: normal; font-weight: 400; font-display: swap;
+  src: url('../../slidewright/canvas/design-system/fonts/jetbrains-mono-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono'; font-style: normal; font-weight: 700; font-display: swap;
+  src: url('../../slidewright/canvas/design-system/fonts/jetbrains-mono-latin-700-normal.woff2') format('woff2');
+}
+@keyframes sw-uist-demo-accent {
+  from { background-color: #fff2b3; }
+  to { background-color: transparent; }
+}
+[data-sw-branding="light"] {
+  --uist-code-accent-animation: sw-uist-demo-accent;
+  --font-body: "Lato", sans-serif;
+  --font-display: "Lato", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+  --uist-paper: #ffffff;
+  --uist-ink: #000000;
+  --uist-surface: #f3f3f3;
+  --uist-rule: #d9d9d9;
+  --uist-muted: #616161;
+  --uist-dimmed: #cfcfcf;
+  --uist-blue: #0000ff;
+  --uist-orange: #ff8b1e;
+  --uist-teal: #007d70;
+  --uist-red: #d42a0c;
+  --uist-yellow: #ffd100;
+  --uist-cyan: #00a8e8;
+  --uist-pink: #ff3d8b;
+  --uist-graphite: #8a8a8a;
+  --uist-purple: #8000ff;
+  --uist-orangeText: #a84f00;
+  --uist-yellowText: #966e00;
+  --uist-cyanText: #007ab5;
+  --uist-pinkText: #df1b74;
+  --uist-selection: #e5f0ff;
+  --uist-markerYellow: #fff2b3;
+  --uist-markerCyan: #d8f3ff;
+  --uist-danger: #c2300e;
+}

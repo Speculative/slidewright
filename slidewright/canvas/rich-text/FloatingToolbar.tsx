@@ -1,3 +1,4 @@
+import { Select } from '../design-system/Controls.js';
 import { useLayoutEffect, useState, type ReactNode, type RefObject } from 'react';
 import type { SlideColor } from '../InspectorPanels.js';
 import { commitOnTextBlur } from './focus.js';
@@ -50,7 +51,7 @@ export function FloatingToolbar({ session, state, children, colorTokens, slideCo
       commitOnTextBlur(event.relatedTarget, () => session.current?.finish('commit'));
     }}>
     <div className="sw-floating-text-fields">
-      <label>Text preset <select aria-label="Text preset" value={TEXT_PRESETS.find(preset =>
+      <label>Text preset <Select aria-label="Text preset" value={TEXT_PRESETS.find(preset =>
         (['font', 'size', 'weight'] as const).every(field => !state?.inline[field].mixed && String(state?.inline[field].value) === String(preset[field])))?.id ?? ''}
         onChange={event => {
           const preset = TEXT_PRESETS.find(preset => preset.id === event.target.value);
@@ -58,7 +59,7 @@ export function FloatingToolbar({ session, state, children, colorTokens, slideCo
         }}>
         <option value="" disabled>Custom</option>
         {TEXT_PRESETS.map(preset => <option key={preset.id} value={preset.id}>{preset.label}</option>)}
-      </select></label>
+      </Select></label>
       {inline('font', 'Font family')}
       {inline('size', 'Font size', true, 1)}
       {inline('color', 'Foreground color')}

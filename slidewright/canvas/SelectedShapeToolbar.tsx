@@ -1,3 +1,4 @@
+import { Button, Select } from './design-system/Controls.js';
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { Value } from '../runtime/ast.js';
 import { nameRef, numberLit, stringLit } from '../runtime/ast-builders.js';
@@ -49,7 +50,7 @@ function ShapeColor({ label, value, mixed, colorTokens, slideColors, onChange, o
         if (event.key === 'Enter') { event.preventDefault(); commit(); }
         if (event.key === 'Escape') { event.preventDefault(); setDraft(authored); }
       }} />
-    <button ref={anchor} type="button" className="sw-text-color-preview" aria-label={`${label} picker`}
+    <Button ref={anchor} type="button" className="sw-text-color-preview" aria-label={`${label} picker`}
       title={mixed ? 'Mixed colors' : css ?? undefined} aria-haspopup="dialog" aria-expanded={open} style={css ? { background: css } : undefined}
       onClick={() => setOpen(!open)} />
   </span>
@@ -63,7 +64,7 @@ function ShapeColor({ label, value, mixed, colorTokens, slideColors, onChange, o
           callbacks.current.onGesture(text === null ? 'cancel' : 'commit');
         }} />
       <ColorPalette tokens={colorTokens} slideColors={slideColors} currentCss={css} onPick={apply} />
-      <button type="button" onClick={() => onChange(stringLit('transparent'), false)}>No color</button>
+      <Button type="button" onClick={() => onChange(stringLit('transparent'), false)}>No color</Button>
     </ColorPopover>}
   </div>;
 }
@@ -136,11 +137,11 @@ export function SelectedShapeToolbar({ shapes, colorTokens, slideColors, onChang
         const heads = shapes.map(shape => String(shape.params[field] ?? (field === 'endHead' && shape.comp.name === 'Arrow' ? 'arrow' : 'none')));
         const mixed = heads.some(head => head !== heads[0]);
         return <label key={field}>{field === 'startHead' ? 'Start head' : 'End head'}
-          <select aria-label={field === 'startHead' ? 'Start head' : 'End head'} value={mixed ? '' : heads[0]}
+          <Select aria-label={field === 'startHead' ? 'Start head' : 'End head'} value={mixed ? '' : heads[0]}
             onChange={event => onChange(field, stringLit(event.target.value), false)}>
             {mixed && <option value="" disabled>Mixed</option>}
             <option value="none">None</option><option value="arrow">Arrow</option><option value="circle">Circle</option>
-          </select></label>;
+          </Select></label>;
       })}
     </div>
   </FloatingSelectionToolbar>;

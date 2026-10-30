@@ -1,3 +1,4 @@
+import { Button, Select } from '../design-system/Controls.js';
 import { Bold, Italic, Underline, Strikethrough, RemoveFormatting, Diamond } from 'lucide-react';
 import type { SlideColor } from '../InspectorPanels.js';
 import { commitOnTextBlur } from './focus.js';
@@ -69,13 +70,13 @@ export function FormattingToolbar({ session, state, colorTokens, slideColors }: 
     const status = state?.keyframes?.[field as TextStyleField];
     if (!status) return null;
     const pinned = status.pinned === true;
-    return <button type="button" className="sw-keyframe-toggle sw-formatting-keyframe" data-range-keyframe={field}
+    return <Button type="button" className="sw-keyframe-toggle sw-formatting-keyframe" data-range-keyframe={field}
       data-appearance-barrier={status.appearance || undefined} aria-label={`${pinned ? 'Inherit' : 'Keyframe'} range ${field}`}
       aria-pressed={status.pinned} disabled={!status.available || status.initial}
       title={`${status.appearance ? 'Protected by appearance. ' : ''}${status.pinned === 'mixed' ? 'Mixed keys. Pin the selected range here.' : pinned ? 'Keyframed here. Click to inherit from the preceding frame.' : 'Inherited. Click to pin this range here, even if unchanged.'} Pin/unpin is local to this frame.`}
       onPointerDown={event => event.preventDefault()} onClick={() => session.current?.keyframe(field as TextStyleField, !pinned)}>
       <Diamond size={12} fill={pinned ? 'currentColor' : 'none'} />{status.pinned === 'mixed' && <span aria-hidden="true">−</span>}
-    </button>;
+    </Button>;
   };
   const buttons = <TextStyleButtons session={session} state={state} keyframe={keyframe} />;
   return <div className="sw-text-formatting" data-sw-text-formatting role="group" aria-label="Text formatting"
@@ -86,37 +87,37 @@ export function FormattingToolbar({ session, state, colorTokens, slideColors }: 
     <span aria-label="Formatting target">{state?.caret ? 'Typing at caret' : 'Selected range'}</span>
     <div style={{ visibility: floating ? 'hidden' : undefined }} aria-hidden={floating || undefined} inert={floating}>{buttons}</div>
     {floating && <FloatingToolbar session={session} state={state} colorTokens={colorTokens} slideColors={slideColors} keyframe={keyframe}>{buttons}</FloatingToolbar>}
-    <label>Style <select aria-label="Text style" value={field} onChange={event => { setField(event.target.value as TextStyleField); setValue(''); }}>
+    <label>Style <Select aria-label="Text style" value={field} onChange={event => { setField(event.target.value as TextStyleField); setValue(''); }}>
       <option value="size">Font size</option><option value="font">Font family</option>
       <option value="weight">Font weight</option><option value="color">Color</option>
       <option value="strokeWidth">Stroke width</option><option value="strokeColor">Stroke color</option>
       <option value="letterSpacing">Letter spacing</option><option value="href">Link URL</option>
-    </select></label>
+    </Select></label>
     <output aria-label="Current text style">{describe(state?.inline[field])}</output>{keyframe(field)}
     <input aria-label="Style value" value={value} placeholder="Empty removes style" onChange={event => setValue(event.target.value)}
       onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); apply(); } }} />
-    <button type="button" onPointerDown={event => event.preventDefault()} onClick={apply}>Apply style</button>
-    <label>Paragraph <select aria-label="Paragraph style" value={paragraphField} onChange={event => { setParagraphField(event.target.value as ParagraphField); setParagraphValue(''); }}>
+    <Button type="button" onPointerDown={event => event.preventDefault()} onClick={apply}>Apply style</Button>
+    <label>Paragraph <Select aria-label="Paragraph style" value={paragraphField} onChange={event => { setParagraphField(event.target.value as ParagraphField); setParagraphValue(''); }}>
       <option value="align">Alignment</option><option value="lineHeight">Line height</option>
       <option value="spaceBefore">Space before</option><option value="spaceAfter">Space after</option>
       <option value="indent">Left indent</option><option value="firstLineIndent">First line indent</option>
-    </select></label>
+    </Select></label>
     <output aria-label="Current paragraph style">{describe(state?.paragraph[paragraphField])}</output>
     <input aria-label="Paragraph value" value={paragraphValue} placeholder={paragraphField === 'align' ? 'left / center / right / justify' : 'Pixels; negative hangs first line'} onChange={event => setParagraphValue(event.target.value)}
       onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); applyParagraph(); } }} />
-    <button type="button" onPointerDown={event => event.preventDefault()} onClick={applyParagraph}>Apply paragraph</button>
+    <Button type="button" onPointerDown={event => event.preventDefault()} onClick={applyParagraph}>Apply paragraph</Button>
     <output aria-label="Current list">{state?.list ? `${state.list.style}, start ${state.list.start}` : 'No list'}</output>
-    <label>List <select aria-label="List style" value={listStyle} onChange={event => setListStyle(event.target.value as ListStyle)}>
+    <label>List <Select aria-label="List style" value={listStyle} onChange={event => setListStyle(event.target.value as ListStyle)}>
       <option value="disc">Bullets</option><option value="circle">Circles</option><option value="square">Squares</option>
       <option value="decimal">Numbers</option><option value="lower-alpha">a, b, c</option><option value="upper-alpha">A, B, C</option>
       <option value="lower-roman">i, ii, iii</option><option value="upper-roman">I, II, III</option>
-    </select></label>
+    </Select></label>
     <label>Start <input aria-label="List start" type="number" min="1" step="1" value={listStart} onChange={event => setListStart(event.target.value)} /></label>
-    <button type="button" onPointerDown={event => event.preventDefault()} onClick={() => setListMessage(session.current?.list(listStyle, Number(listStart)) ? '' : 'Select paragraphs or items in one list.')}>Apply list</button>
-    {([-1, 1] as const).map(direction => <button key={direction} type="button" onPointerDown={event => event.preventDefault()}
+    <Button type="button" onPointerDown={event => event.preventDefault()} onClick={() => setListMessage(session.current?.list(listStyle, Number(listStart)) ? '' : 'Select paragraphs or items in one list.')}>Apply list</Button>
+    {([-1, 1] as const).map(direction => <Button key={direction} type="button" onPointerDown={event => event.preventDefault()}
       onClick={() => setListMessage(session.current?.listDepth(direction) ? '' : 'Select list items that can move one level.')}>
       {direction < 0 ? 'Outdent item' : 'Indent item'}
-    </button>)}
+    </Button>)}
     {listMessage && <span role="status">{listMessage}</span>}
   </div>;
 }
@@ -128,10 +129,10 @@ export function TextStyleButtons({ session, state, keyframe }: { session: RefObj
   }
   return <div className="sw-text-formatting-buttons">
       {([['weight', 'Bold', Bold, 'Ctrl/Cmd+B'], ['italic', 'Italic', Italic, 'Ctrl/Cmd+I'],
-        ['underline', 'Underline', Underline, 'Ctrl/Cmd+U'], ['strikethrough', 'Strikethrough', Strikethrough, 'Ctrl/Cmd+Shift+X']] as const).map(([name, label, Icon, shortcut]) => <span key={name} className="sw-formatting-button-key"><button type="button" className="sw-icon-button" aria-label={label} title={`${label} (${shortcut})`}
+        ['underline', 'Underline', Underline, 'Ctrl/Cmd+U'], ['strikethrough', 'Strikethrough', Strikethrough, 'Ctrl/Cmd+Shift+X']] as const).map(([name, label, Icon, shortcut]) => <span key={name} className="sw-formatting-button-key"><Button type="button" className="sw-icon-button" aria-label={label} title={`${label} (${shortcut})`}
         aria-pressed={pressed(name)} onPointerDown={event => { if (!(document.activeElement instanceof HTMLInputElement)) event.preventDefault(); }} onClick={() => session.current?.toggle(name)}>
         <Icon size={18} aria-hidden="true" focusable="false" />
-      </button>{keyframe?.(name)}</span>)}
-      <button type="button" className="sw-icon-button" aria-label="Clear formatting" title="Clear formatting" onPointerDown={event => { if (!(document.activeElement instanceof HTMLInputElement)) event.preventDefault(); }} onClick={() => session.current?.clearFormatting()}><RemoveFormatting size={18} aria-hidden="true" focusable="false" /></button>
+      </Button>{keyframe?.(name)}</span>)}
+      <Button type="button" className="sw-icon-button" aria-label="Clear formatting" title="Clear formatting" onPointerDown={event => { if (!(document.activeElement instanceof HTMLInputElement)) event.preventDefault(); }} onClick={() => session.current?.clearFormatting()}><RemoveFormatting size={18} aria-hidden="true" focusable="false" /></Button>
     </div>;
 }

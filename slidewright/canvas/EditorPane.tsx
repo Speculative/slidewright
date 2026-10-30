@@ -1,3 +1,4 @@
+import { Button } from './design-system/Controls.js';
 // Slidewright canvas — standalone source editor.
 //
 // CodeMirror owns the editable view and its text-level history. The Host
@@ -485,7 +486,7 @@ export function EditorPane({
       style={height != null ? { height: `${height}px` } : undefined}
     >
       <div className="sw-editor-toolbar" role="tablist" aria-label="Source view">
-        <button
+        <Button
           type="button"
           role="tab"
           aria-selected={effectiveMode === 'deck'}
@@ -493,8 +494,8 @@ export function EditorPane({
           onClick={() => chooseMode('deck')}
         >
           Deck source
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           role="tab"
           aria-selected={effectiveMode === 'slide'}
@@ -503,8 +504,8 @@ export function EditorPane({
           onClick={() => chooseMode('slide')}
         >
           Slide {projection.activeSlideIndex + 1}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           role="tab"
           aria-selected={effectiveMode === 'notes'}
@@ -513,7 +514,7 @@ export function EditorPane({
           onClick={() => chooseMode('notes')}
         >
           Notes
-        </button>
+        </Button>
       </div>
       <div ref={containerRef} className="sw-editor-view" />
     </div>
