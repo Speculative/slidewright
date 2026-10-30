@@ -77,6 +77,8 @@ export interface ComponentMeta {
   inlineEditing?: InlineEditing;
   // Inspector membership is presentation metadata, independent of schema.
   editor?: { inspector: readonly string[] };
+  // Explicit authoring capability; independent of inspector presentation.
+  editing?: { params: readonly string[] };
 }
 
 export type InlineEditing =

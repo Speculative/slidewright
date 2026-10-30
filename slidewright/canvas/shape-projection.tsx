@@ -19,6 +19,8 @@ import { createElement, useContext, useMemo, useRef, type ReactElement } from 'r
 import type { WrapShape, WrapShapeInput } from '../runtime/loader.js';
 import { SourceLocationContext, useSourceAdapter, useSourceComponent } from '../runtime/source-location.js';
 import type { ComponentRenderProps } from '../runtime/contract.js';
+import { ComponentEditingContext } from '../runtime/component-editing.js';
+import { ComponentEditHostContext } from './component-editing.js';
 
 import { useShapeDelta, spanKey } from './gesture-context.js';
 import { useComponentPreview } from './component-preview.js';
@@ -27,6 +29,7 @@ import type { ShapeAdapter } from './shape-adapter.js';
 import { TextDocumentEditorContext, TextDocumentSessionContext } from './text-document-context.js';
 
 function ShapeProjection(input: WrapShapeInput): ReactElement {
+  const editHost = useContext(ComponentEditHostContext);
   const sourceLocation = useContext(SourceLocationContext);
   const currentComp = useSourceComponent(input.comp);
   const preview = useComponentPreview(spanKey({ start: currentComp.span.start.offset, end: currentComp.span.end.offset }));
@@ -73,7 +76,8 @@ function ShapeProjection(input: WrapShapeInput): ReactElement {
       'data-sw-span-end': comp.span.end.offset,
       style: { display: 'contents' },
     },
-    createElement(SourceLocationContext.Provider, { value: preview ? null : sourceLocation }, rendered),
+    createElement(ComponentEditingContext.Provider, { value: preview ? null : editHost?.(currentComp) ?? null },
+      createElement(SourceLocationContext.Provider, { value: preview ? null : sourceLocation }, rendered)),
   );
 }
 

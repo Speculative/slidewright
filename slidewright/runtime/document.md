@@ -139,6 +139,33 @@ host parsing for canvas nudge/undo and source updates in 100 slides.
 
 ## Source-preserving editor commits
 
+Custom components can opt into literal parameter write-back with
+`ComponentMeta.editing: { params: ['content'] }` and call
+`useComponentEditing()` from `runtime/component-editing.ts`. This capability is
+independent of inspector visibility. It is available only to authored
+occurrences in the active canvas; previews, SSR, and presentation are read-only.
+It returns `null` when unavailable. Render controls conditionally, and stop
+their pointer/key events from triggering canvas manipulation or navigation.
+
+`updateParams(patch)` or `updateParams(current => patch)` validates all fields
+before one source-preserving, build-aware transaction. The callback receives
+effective literal values, including component defaults, for opted-in params.
+Strings, finite numbers, booleans, and schema-matching arrays are supported;
+references and structured slots are not writable through this API. An
+occurrence with nonliteral opted-in values rejects updates. Unknown/unlisted
+params and invalid values reject the entire patch; no-ops create no history.
+Host publication and undo use the existing canvas path. A `submitted` result
+means the edit was submitted to that path, not that a host has confirmed disk
+persistence. The result can also be `unchanged` or `rejected` with a reason.
+
+The capability belongs to one document revision and authoring context. Delayed
+actions reject after source, slide/build, propagation direction, or editing
+availability changes, even if navigation later returns to the old frame.
+Components with drafts should discard them when the opaque `contextId` changes
+or the capability becomes unavailable. Components do not receive source spans,
+AST mutation access, or a host reference. This first version does not provide
+continuous previews, text-range formatting, or structured content replacement.
+
 `commitSourceEdit` captures the parsed authored tree before a command mutates it.
 `SourceEditWriter` descends unchanged owners and emits only changed fragments.
 Unchanged source, including comments, commas, CRLFs and string boundaries, stays

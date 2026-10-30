@@ -49,6 +49,7 @@ import { sourceUndoEntry, type SourceUndoEntry as UndoEntry } from './source-his
 import { numberLit, stringLit, booleanLit, nameRef, omitLit, paragraphDocument } from '../runtime/ast-builders.js';
 import type { Component, SourceFile, Value } from '../runtime/ast.js';
 import { ComponentPreviews, ComponentPreviewContext } from './component-preview.js';
+import { ComponentEditHostContext, prepareComponentParamEdit } from './component-editing.js';
 import type { Diagnostic } from '../runtime/diagnostics.js';
 import type { Scope } from '../runtime/scope.js';
 import { slotFill } from '../runtime/ast-builders.js';
@@ -2997,9 +2998,48 @@ export function App({
     ? bottomExtra(editorProjection)
     : bottomExtra;
 
+  const componentEditState = {
+    enabled: !!host.setSource && !presenting && !richEditing && !editing && !gestureMeta &&
+      !createPreview && !marquee && !toolDrag && activeTool === SELECT_TOOL && !colorPreviews.isActive,
+    slideIndex: activeIdx, buildIndex: activeBuildIndex, direction: buildDirection,
+    snapshot: state?.snapshot,
+  };
+  const componentEditStateRef = useRef({ ...componentEditState, epoch: 0 });
+  const previousEditContext = componentEditStateRef.current;
+  const editEpoch = previousEditContext.epoch + (previousEditContext.enabled !== componentEditState.enabled ||
+    previousEditContext.slideIndex !== activeIdx || previousEditContext.buildIndex !== activeBuildIndex ||
+    previousEditContext.direction !== buildDirection || previousEditContext.snapshot !== state?.snapshot ? 1 : 0);
+  componentEditStateRef.current = { ...componentEditState, epoch: editEpoch };
+
   if (!state) {
     return <div className="sw-canvas-status">waiting for source…</div>;
   }
+
+  const bindComponentEditor: NonNullable<React.ContextType<typeof ComponentEditHostContext>> = component => {
+    if (!componentEditState.enabled || !components[component.name]?.meta.editing?.params.length) return null;
+    const bound = state.snapshot;
+    const occurrence = bound.occurrences.find(item => item.range.start === component.span.start.offset && item.range.end === component.span.end.offset);
+    const slide = state.slidesData[activeIdx]?.authoredComp;
+    if (!occurrence || !slide || occurrence.range.start < slide.span.start.offset || occurrence.range.end > slide.span.end.offset) return null;
+    return { contextId: `${bound.revision}:${editEpoch}`, updateParams: update => {
+      const now = componentEditStateRef.current;
+      const snapshot = canonicalSnapshotRef.current;
+      if (!now.enabled || now.epoch !== editEpoch || now.slideIndex !== componentEditState.slideIndex || now.buildIndex !== componentEditState.buildIndex ||
+        now.direction !== componentEditState.direction || activeIdxRef.current !== now.slideIndex ||
+        (buildIndicesRef.current.get(now.slideIndex) ?? 0) !== now.buildIndex || directionRef.current !== now.direction ||
+        snapshot !== bound || sourceRef.current !== bound.source) {
+        return { status: 'rejected', reason: 'The authoring context changed. Reopen the component editor.' };
+      }
+      const editingSnapshot = createBuildEditingSnapshot(snapshot, {
+        slideIndex: now.slideIndex, buildIndex: now.buildIndex, direction: now.direction, registry: components,
+      });
+      const result = prepareComponentParamEdit(editingSnapshot, components, occurrence.handle, update);
+      if (!result) return { status: 'rejected', reason: 'This parameter edit is unavailable or invalid.' };
+      if (result.newSource === snapshot.source) return { status: 'unchanged' };
+      commitToHost(result.newSource, result.newSelections, result.changes, result.baseRevision);
+      return { status: 'submitted' };
+    } };
+  };
 
   const errors = state.diagnostics.filter((d) => d.severity === 'error');
   const slide = state.slides[activeIdx];
@@ -3270,6 +3310,7 @@ export function App({
                 }}>
                 {activeTool !== SELECT_TOOL && !toolDrag?.committed && <div className="sw-placement-hint sw-tool-status" role="status">{components[activeTool]?.meta.insertion?.modalPlacement === 'point' ? 'Click to place' : 'Draw'} {activeTool} · Esc to cancel</div>}
                 {toolDrag?.committed && <div className="sw-placement-hint" role="status">Click a compatible slot or gap to insert {toolDrag.tool} · Esc to cancel</div>}
+                <ComponentEditHostContext.Provider value={bindComponentEditor}>
                 <TextDocumentSessionContext.Provider value={richEditing ? {
                   span: { start: richEditing.component.span.start.offset, end: richEditing.component.span.end.offset },
                   defaults: { ...boxDraft, ...(typeof boxDraft.color === 'string' ? { color: richEditing.colorTokens[boxDraft.color] ?? boxDraft.color } : {}) },
@@ -3367,6 +3408,7 @@ export function App({
                   <ToolDragOverlay toolDrag={toolDrag} />
                 </GestureProvider>
                 </TextDocumentSessionContext.Provider>
+                </ComponentEditHostContext.Provider>
               </div>
             ) : null}
           </div>

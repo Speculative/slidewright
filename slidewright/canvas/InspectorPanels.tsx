@@ -735,7 +735,7 @@ function MissingPropertyRow({
   const snapshot = useContext(InspectorDocumentContext);
   const focusSnapshotRef = useRef(snapshot);
   const editable =
-    !slotType.startsWith('array<') &&
+    (!slotType.startsWith('array<') || slotType === 'array<number>') &&
     !['block', 'slide', 'slide-content'].includes(slotType);
   const initial = missingValueSource(slotType, defaultValue);
   const [draft, setDraft] = useState(initial);
@@ -816,6 +816,7 @@ function MissingPropertyRow({
 }
 
 function valueMatchesSlotType(value: Value, type: SlotType): boolean {
+  if (type === 'array<number>') return value.kind === 'list' && value.items.every(item => item.kind === 'number');
   if (type === 'number') return value.kind === 'number';
   if (type === 'boolean') return value.kind === 'boolean';
   if (type === 'text' || type === 'text-document') {
@@ -1327,6 +1328,7 @@ function PropertyRow({
   const isColor = slotType === 'color-token' && !isOmit;
   const isComponent = fill.value.kind === 'component';
   const isList = fill.value.kind === 'list';
+  const isNumberList = isList && slotType === 'array<number>';
   const editable = !isOmit && isEditableValue(fill.value);
   const sourceText = readValueSource(fill.value, source);
   const [draft, setDraft] = useState<string>(sourceText);
@@ -1365,6 +1367,14 @@ function PropertyRow({
 
   const commit = (): void => {
     if (draftRef.current === sourceText) return;
+    if (isNumberList) {
+      const probe = parse(`Probe { value: ${draftRef.current} }`, '<inspector-number-list>');
+      const value = probe.ast.items[0]?.fills[0]?.value;
+      if (probe.diagnostics.some(d => d.severity === 'error') || !value || !valueMatchesSlotType(value, 'array<number>')) {
+        setDraftSync(sourceText);
+        return;
+      }
+    }
     const next = sliceReplace(
       source,
       fill.value.span.start.offset,
@@ -1670,6 +1680,27 @@ function PropertyRow({
             <ArrowRightIcon />
           </Button>
         </div>
+      ) : isNumberList ? (
+        <input
+          className="sw-property-value"
+          aria-label={fill.name}
+          title="Numbers, for example [7, 9]. Use [] to clear."
+          placeholder="[7, 9]"
+          value={draft}
+          spellCheck={false}
+          onChange={event => setDraftSync(event.currentTarget.value)}
+          onBlur={commit}
+          onKeyDown={event => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              event.currentTarget.blur();
+            } else if (event.key === 'Escape') {
+              event.preventDefault();
+              setDraftSync(sourceText);
+              event.currentTarget.blur();
+            }
+          }}
+        />
       ) : isList && fill.value.kind === 'list' ? (
         // Array-typed value: enumerate the items. Each item shows
         // its component name (or a short literal preview for
