@@ -120,8 +120,20 @@ disappear, and position/style changes jump. Grouping, reparenting, and scene
 child reordering are unavailable on slides with builds; arrange those structural
 relationships before adding builds. Moving/resizing objects, inserting them,
 editing text/style, and hiding/restoring them are supported. Insertion and
-removal begin at the selected frame and propagate forward. Slide labels, notes,
-and chrome remain owned by the slide.
+removal begin at the selected frame and propagate forward. Slide labels and chrome remain owned by the slide.
+
+Speaker notes live on `Slide.notes`. A string shares the same notes across
+all frames. An array supplies separate strings in frame order, starting with
+the initial frame: `notes: ["Opening", "Explain the reveal", "Wrap up"]`.
+Missing entries are empty; notes do not inherit from earlier frames. The Notes
+editor and presenter console show the selected frame's notes. Editing shared
+notes on a slide with builds converts them to an array while preserving the
+other frames' text.
+
+Adding a build inserts an empty note, duplicating a frame copies its note,
+and reordering or deleting builds moves or removes the matching entries.
+Adding the first build converts string notes to an array; deleting the last
+build converts the remaining initial note back to a string.
 
 ```sw
 Slide {

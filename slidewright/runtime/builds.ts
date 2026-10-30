@@ -289,12 +289,35 @@ export function toggleBuildKeyframe(slide: Component, index: number, id: string,
   return true;
 }
 
+/** Strings are shared across frames; arrays are indexed from the initial
+ * frame. Missing entries are intentionally empty rather than inherited. */
+export function buildNotes(slide: Component, index: number): string {
+  const notes = field(slide, 'notes');
+  const value = notes?.kind === 'list' ? notes.items[index] : notes;
+  return value?.kind === 'string' ? value.value : '';
+}
+
+function editableNotes(slide: Component): ListLit {
+  const notes = field(slide, 'notes');
+  if (notes?.kind === 'list') {
+    while (notes.items.length < buildFrames(slide).length) notes.items.push(stringLit(''));
+    return notes;
+  }
+  const list = listLit(buildFrames(slide).map(frame => stringLit(buildNotes(slide, frame.index))));
+  // Keep the live list so callers can splice entries alongside frames.
+  const fill = slide.fills.find(fill => fill.name === 'notes');
+  if (fill) fill.value = list;
+  else slide.fills.push(slotFill('notes', list));
+  return list;
+}
+
 export function addBuild(slide: Component, after: number, label?: string): BuildFrame {
   frameAt(slide, after);
   ensureBuildObjectIds(slide);
   const id = unusedId('build', new Set(buildFrames(slide).map(frame => frame.id)));
   const build = makeComponent('Build', [slotFill('id', stringLit(id)),
     ...(label === undefined ? [] : [slotFill('label', stringLit(label))]), slotFill('changes', listLit([]))]);
+  editableNotes(slide).items.splice(after + 1, 0, stringLit(''));
   listField(slide, 'builds', true)!.items.splice(after, 0, build);
   return frameAt(slide, after + 1);
 }
@@ -305,6 +328,8 @@ export function duplicateBuild(slide: Component, index: number,
   isStructuralProperty?: (object: Component, property: string) => boolean): BuildFrame {
   const original = frameAt(slide, index);
   const duplicate = addBuild(slide, index, `${original.label} copy`);
+  const notes = editableNotes(slide);
+  notes.items[index + 1] = copy(notes.items[index]!);
   const changes = listField(duplicate.component, 'changes', true)!;
   if (index === 0) {
     changes.items = buildObjects(slide).flatMap(object => {
@@ -329,6 +354,12 @@ function containsSceneObject(value: Value): boolean {
 export function moveBuild(slide: Component, from: number, to: number): void {
   frameAt(slide, from); frameAt(slide, to);
   if (from === 0 || to === 0) throw new Error('The initial frame cannot be reordered');
+  const notes = field(slide, 'notes');
+  if (notes?.kind === 'list') {
+    const entries = editableNotes(slide).items;
+    const [moving] = entries.splice(from, 1);
+    entries.splice(to, 0, moving!);
+  }
   const items = listField(slide, 'builds')!.items;
   const [moving] = items.splice(from - 1, 1);
   items.splice(to - 1, 0, moving!);
@@ -336,7 +367,12 @@ export function moveBuild(slide: Component, from: number, to: number): void {
 export function removeBuild(slide: Component, index: number, registry: ComponentRegistry = {}): void {
   frameAt(slide, index);
   if (index === 0) throw new Error('The initial frame cannot be deleted');
+  const notes = field(slide, 'notes');
+  if (notes?.kind === 'list') editableNotes(slide).items.splice(index, 1);
   listField(slide, 'builds')!.items.splice(index - 1, 1);
+  if (buildFrames(slide).length === 1 && notes?.kind === 'list') {
+    setField(slide, 'notes', notes.items[0] ?? stringLit(''));
+  }
   pruneTextStyleTargets(slide, registry);
 }
 

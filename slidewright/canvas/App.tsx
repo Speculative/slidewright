@@ -1,3 +1,4 @@
+import { projectBuildNotes } from './editor-projection.js';
 import { Button } from './design-system/Controls.js';
 // Slidewright canvas — host-agnostic React app.
 //
@@ -2975,25 +2976,7 @@ export function App({
           end: slide.comp.span.end.offset,
         }
       : null;
-    const notesFill = slide?.comp.fills.find((fill) => fill.name === 'notes');
-    const notesValue = notesFill?.value;
-    const notes = notesValue?.kind === 'string'
-      ? {
-          sourceRange: {
-            start: notesValue.span.start.offset,
-            end: notesValue.span.end.offset,
-          },
-          value: notesValue.value,
-          multiline: notesValue.multiline,
-        }
-      : !notesFill && activeSlide
-        ? {
-            sourceRange: { start: activeSlide.end - 1, end: activeSlide.end - 1 },
-            value: '',
-            multiline: false,
-            insertField: true,
-          }
-        : null;
+    const notes = slide ? projectBuildNotes(slide.authoredComp, activeIdx, activeBuildIndex) : null;
     return {
       source: state?.source ?? '',
       activeSlide,
@@ -3001,7 +2984,7 @@ export function App({
       totalSlides: state?.slidesData.length ?? 0,
       notes,
     };
-  }, [state, activeIdx]);
+  }, [state, activeIdx, activeBuildIndex]);
 
   const renderedBottomExtra = typeof bottomExtra === 'function'
     ? bottomExtra(editorProjection)

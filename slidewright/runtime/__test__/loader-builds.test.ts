@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createElement, type ReactNode } from 'react';
+import { createElement, type ReactElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { chromium } from 'playwright';
 import { DeckDocument } from '../document.js';
@@ -186,4 +186,17 @@ test('universal opacity preserves Freeform coordinates and stack layout, hidden 
   } finally {
     await browser.close();
   }
+});
+
+test('speaker notes accept strings or per-frame arrays and validate every array entry', () => {
+  for (const notes of ['"Shared"', '["Initial", "Enter", "", "Reset"]', '[]']) {
+    for (let index = 0; index < 4; index++) {
+      const result = load(index, source.replace('Slide { content:', `Slide { notes: ${notes} content:`));
+      assert.deepEqual(result.diagnostics, []);
+      const note = (result.slides[0]! as ReactElement<{ children: ReactElement<{ notes: string }> }>).props.children.props.notes;
+      assert.equal(note, notes === '"Shared"' ? 'Shared' : notes === '[]' ? '' : ['Initial', 'Enter', '', 'Reset'][index]);
+    }
+  }
+  const bad = load(0, source.replace('Slide { content:', 'Slide { notes: ["Initial", 42] content:'));
+  assert.ok(bad.diagnostics.some(d => d.message.includes('notes entries must be strings')));
 });

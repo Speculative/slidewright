@@ -54,7 +54,7 @@ import {
 import { parse, type ParseResult } from './parser.js';
 import { lookup, type Scope, type ScopeValue } from './scope.js';
 import { TEXT_STYLE_FIELDS } from './text-builds.js';
-import { buildObjects, objectId, resolveBuild, validateBuilds } from './builds.js';
+import { buildNotes, buildObjects, objectId, resolveBuild, validateBuilds } from './builds.js';
 
 export interface LoadDeckInput {
   source: string;
@@ -700,7 +700,8 @@ function renderBuiltinSlide(comp: Component, ctx: LoadCtx, idx: number, chapter?
   ctx.slidesData.push({ comp, authoredComp, buildIndex, meta: BUILTIN_META.Slide! });
   const contentFill = fills.get('content');
   const label = readString(fills.get('label'), ctx);
-  const notes = readText(fills.get('notes'), ctx);
+  validateNotes(fills.get('notes'), ctx);
+  const notes = buildNotes(authoredComp, buildIndex);
   const chromeless = readBoolean(fills.get('chromeless'), ctx);
   // Missing `content` is a warning, not a fatal — emit the
   // diagnostic AND a slot-typed placeholder so the slide still
@@ -1661,12 +1662,17 @@ function readBoolean(fill: SlotFill | undefined, ctx: LoadCtx): boolean | undefi
   return undefined;
 }
 
-function readText(fill: SlotFill | undefined, ctx: LoadCtx): string | undefined {
-  if (!fill) return undefined;
-  const v = fill.value;
-  if (v.kind === 'string') return v.value;
-  emit(ctx, 'slot-type-mismatch', v.span, `expected a text/string value for \`${fill.name}\``);
-  return undefined;
+function validateNotes(fill: SlotFill | undefined, ctx: LoadCtx): void {
+  if (!fill) return;
+  const value = fill.value;
+  if (value.kind === 'string') return;
+  if (value.kind === 'list') {
+    for (const item of value.items) {
+      if (item.kind !== 'string') emit(ctx, 'slot-type-mismatch', item.span, 'Speaker notes entries must be strings');
+    }
+    return;
+  }
+  emit(ctx, 'slot-type-mismatch', value.span, `expected a string or list of strings for \`${fill.name}\``);
 }
 
 function readNameOrString(fill: SlotFill | undefined, ctx: LoadCtx): string | undefined {

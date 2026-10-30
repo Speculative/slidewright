@@ -157,21 +157,29 @@ function notesDocumentEdit(
   let start = projection.globalStart;
   let encoded: string;
   let nextSource: string;
+  const materialize = projection.notes.materialize;
+  const arrayPrefix = materialize
+    ? '[' + materialize.values.slice(0, materialize.index).map(value => JSON.stringify(value) + ', ').join('')
+    : '';
+  const arraySuffix = materialize
+    ? materialize.values.slice(materialize.index + 1).map(value => ', ' + JSON.stringify(value)).join('') + ']'
+    : '';
   if (projection.notes.insertField) {
     if (!document || source[start] !== '}') return null;
     const lineStart = source.lastIndexOf('\n', projection.globalStart - 1) + 1;
     const indentation = /^[ \t]*/.exec(source.slice(lineStart, projection.globalStart))?.[0] ?? '';
     const before = source.slice(0, projection.globalStart).replace(/[ \t]+$/, '');
     const prefix = before + (before.endsWith('\n') ? '' : '\n') + `${indentation}  notes: `;
-    start = prefix.length;
+    start = prefix.length + arrayPrefix.length;
     encoded = JSON.stringify(document);
     nextSource = (
-      prefix + encoded + `\n${indentation}` +
+      prefix + arrayPrefix + encoded + arraySuffix + `\n${indentation}` +
       source.slice(projection.globalEnd)
     );
   } else {
     encoded = encodeNotesValue(document, source, projection.notes);
-    nextSource = source.slice(0, start) + encoded + source.slice(projection.globalEnd);
+    nextSource = source.slice(0, start) + arrayPrefix + encoded + arraySuffix + source.slice(projection.globalEnd);
+    start += arrayPrefix.length;
   }
   const end = start + encoded.length;
   return {
@@ -182,7 +190,7 @@ function notesDocumentEdit(
       text: document,
       globalStart: start,
       globalEnd: end,
-      notes: { sourceRange: { start, end }, value: document, multiline: encoded.startsWith('"""') },
+      notes: { contextKey: projection.notes.contextKey, sourceRange: { start, end }, value: document, multiline: encoded.startsWith('"""') },
     },
   };
 }
@@ -406,6 +414,7 @@ export function EditorPane({
     // Same-source host notifications (for example, saving a browser draft)
     // must not replace the text still being typed in Notes.
     if (pendingNotesRef.current && next.mode === 'notes' &&
+        next.notes?.contextKey === pendingNotesRef.current.projection.notes?.contextKey &&
         next.globalStart === pendingNotesRef.current.projection.globalStart) return;
     flushNotesRef.current();
     const previous = documentProjectionRef.current;
@@ -415,7 +424,7 @@ export function EditorPane({
     const view = viewRef.current;
     if (!view) return;
 
-    if (previous.mode !== next.mode || (previous.mode !== 'deck' && previous.source === next.source &&
+    if (previous.mode !== next.mode || previous.notes?.contextKey !== next.notes?.contextKey || (previous.mode !== 'deck' && previous.source === next.source &&
         (previous.globalStart !== next.globalStart || previous.globalEnd !== next.globalEnd))) {
       // Navigating to another projection is a new editing context.
       const cursor = clamp(view.state.selection.main.from, 0, next.text.length);

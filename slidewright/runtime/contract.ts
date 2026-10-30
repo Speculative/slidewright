@@ -371,6 +371,7 @@ export const BUILTIN_META: Record<string, ComponentMeta> = {
     produces: 'slide',
     slots: {
       content: { type: 'slide-content', required: true },
+      // Speaker notes accept a string (shared) or strings in frame order.
       notes: { type: 'text', required: false },
     },
     params: {

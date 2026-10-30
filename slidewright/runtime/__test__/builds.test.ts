@@ -387,3 +387,31 @@ test('redundant visible pins do not create appearances and unpinning property ke
   assert.equal(buildProperty(slide,1,'node','x').keyframed,false);
   assert.deepEqual(buildEditRange(slide,2,'node',['x'],'backward'),{first:2,last:2});
 });
+
+test('notes track frame identity through insertion, duplication, reordering and removal', () => {
+  const slide = initial();
+  slide.fills.push({ kind: 'slot_fill', name: 'notes', value: stringLit('Opening'), span: slide.span });
+  addBuild(slide, 0);
+  const notes = slide.fills.find(fill => fill.name === 'notes')!.value;
+  assert.equal(notes.kind, 'list');
+  if (notes.kind !== 'list') return;
+  notes.items[1] = stringLit('Reveal', true);
+  duplicateBuild(slide, 1);
+  notes.items[2] = stringLit('Copy');
+  moveBuild(slide, 2, 1);
+  assert.deepEqual(notes.items.map(scalar), ['Opening', 'Copy', 'Reveal']);
+  removeBuild(slide, 1);
+  assert.deepEqual(notes.items.map(scalar), ['Opening', 'Reveal']);
+  removeBuild(slide, 1);
+  assert.equal(scalar(slide.fills.find(fill => fill.name === 'notes')!.value), 'Opening');
+});
+
+test('duplicating the initial frame copies notes and short arrays grow with empty entries', () => {
+  const slide = scene(3);
+  slide.fills.find(fill => fill.name === 'notes')!.value = listLit([stringLit('Initial')]);
+  duplicateBuild(slide, 0);
+  const notes = slide.fills.find(fill => fill.name === 'notes')!.value;
+  assert.equal(notes.kind, 'list');
+  if (notes.kind !== 'list') return;
+  assert.deepEqual(notes.items.map(scalar), ['Initial', 'Initial', '', '']);
+});

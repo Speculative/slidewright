@@ -1,3 +1,4 @@
+import { buildNotes } from '../slidewright/runtime/builds.js';
 import { PresentationBuild, PresentationContext } from '../slidewright/runtime/presentation.js';
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
@@ -51,7 +52,8 @@ export function PresenterView({ host, index, popup, build, navigation }: { host:
     return () => popup.removeEventListener('keydown', key);
   }, [popup, navigation]);
   if (!deck) return null;
-  const note = deck.slidesData[active]?.comp.fills.find(fill => fill.name === 'notes')?.value;
+  const slide = deck.slidesData[active];
+  const note = slide ? buildNotes(slide.authoredComp, buildIndex) : '';
   const label = deck.slidesData[active]?.comp.fills.find(fill => fill.name === 'label')?.value;
   const elapsed = Math.max(0, Math.floor((now - started) / 1000));
   return createPortal(<DeckMetaContext.Provider value={{ ...deck.meta, total: deck.slides.length }}>
@@ -67,7 +69,7 @@ export function PresenterView({ host, index, popup, build, navigation }: { host:
         {deck.slides[active] && <Preview width={deck.meta.width} height={deck.meta.height} key={`${active}:${buildIndex}`} slide={deck.slides[active]!} label="Current slide overview" build={build} />}
         {nextDeck?.slides[nextIndex] ? <Preview width={deck.meta.width} height={deck.meta.height} key={`${nextIndex}:${nextIsBuild ? buildIndex + 1 : 0}`} slide={nextDeck.slides[nextIndex]!} label="Next slide overview" /> : <p>End of deck</p>}
       </div>
-      <section aria-label="Speaker notes"><h2>Speaker notes</h2><div className="sw-presenter-notes">{note?.kind === 'string' && note.value ? note.value : 'No speaker notes.'}</div></section>
+      <section aria-label="Speaker notes"><h2>Speaker notes</h2><div className="sw-presenter-notes">{note || 'No speaker notes.'}</div></section>
       <p className="sw-presenter-help">Arrow keys advance or reverse builds, then navigate slides. R resets the current build. The current preview follows the audience; the next preview shows the next authored build, or the next slide’s initial build. Previous slide and Next slide buttons follow the same build sequence.</p>
     </main>
   </DeckMetaContext.Provider>, popup.document.body);
