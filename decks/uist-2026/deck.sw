@@ -1348,117 +1348,206 @@ Deck {
     
     
     Slide {
-      content: Freeform {
-        TextBox {
-          x: 102
-          y: 61
-          sizing: "auto-width"
-          font: "body"
-          fontSize: 76
-          fontWeight: "700"
-          lineHeight: 1.25
-          letterSpacing: 0
-          align: "left"
-          content: [
-            Paragraph {
-              content: [
-                "Queries"
-              ]
+      label: "Place & Time — Calculator"
+      notes: [
+        "An on to the other half of the paper title, across Place and Time. If we think of debugging as involving querying a program's execution and getting some output, then it's helpful to have a way to talk about the structure of that execution data\n\nWe visualize this using the orthogonal axes of Place and Time\n\nPlace refers to all of the locations in the code and the variables contained there. You can kind of imagine the source code exploded vertically across this axis.\n\n"
+      ]
+      content: PlateauSlide {
+        branding: true
+        content: Freeform {
+          children: [
+            TextBox {
+              x: 102
+              y: 61
+              sizing: "auto-width"
+              font: "body"
+              fontSize: 76
+              fontWeight: "700"
+              content: [Paragraph { content: [
+                Span { content: "Place" color: cyanText }
+                " & "
+                Span { content: "Time" color: pinkText }
+              ] }]
             }
-          ]
-        }
-        TextBox {
-          x: 119
-          y: 262
-          sizing: "auto-width"
-          font: "body"
-          fontSize: 38
-          fontWeight: "400"
-          lineHeight: 1.25
-          letterSpacing: 0
-          align: "left"
-          content: [
-            List {
-              items: [
-                ListItem {
-                  content: [
-                    "What sorts of information can you debugging tool get at?"
-                  ]
-                  children: List {
-                    items: [
-                      ListItem {
-                        content: [
-                          Span {
-                            content: [
-                              "Show me all of the times this line executed."
-                            ]
-                            italic: true
-                          }
-                        ]
-                        lineHeight: 1.5
-                      }
-                      ListItem {
-                        content: [
-                          Span {
-                            content: [
-                              "What happened after this?"
-                            ]
-                            italic: true
-                          }
-                        ]
-                        lineHeight: 1.5
-                      }
-                      ListItem {
-                        content: [
-                          Span {
-                            content: [
-                              "What was the value of this variable at this time?"
-                            ]
-                            italic: true
-                          }
-                        ]
-                        lineHeight: 1.5
-                      }
-                    ]
-                  }
-                }
-              ]
-            }
-            Paragraph {
-              content: []
-            }
-            List {
-              items: [
-                ListItem {
-                  content: [
-                    Span {
-                      content: [
-                        "How"
-                      ]
-                    }
-                    " do you get at that information?"
-                  ]
-                  children: List {
-                    items: [
-                      ListItem {
-                        content: [
-                          "Add print statements, rerun, examine logs"
-                        ]
-                      }
-                      ListItem {
-                        content: [
-                          "Set a breakpoint, run, look at inspector"
-                        ]
-                      }
-                    ]
-                  }
-                }
-              ]
+            DebuggerDemo {
+              mode: "calculator-place-time"
+              x: 100
+              y: 225
+              width: 1720
+              height: 780
             }
           ]
         }
       }
     }
+
+    Slide {
+      label: "Place & Time — Print debugging"
+      notes: [
+        "Continue with the same empty Place–Time axes from the end of the previous slide."
+        "Let's start with print debugging on the same calculator. A print statement samples a particular place in the program across time."
+        "Add print(node.op) just before the result is returned."
+        "Follow evaluate() for the exponentiation operation. Recursive operand evaluation is elided here. When execution reaches print, the ^ appears in the terminal and we record a point on the Place–Time chart."
+        "Now follow the multiplication and addition operations. Each print adds another log entry and another point at the same place across time. The output is ^, *, +, followed by the incorrect result 26."
+      ]
+      content: PlateauSlide {
+        branding: true
+        content: Freeform {
+          children: [
+            TextBox {
+              x: 102
+              y: 61
+              sizing: "auto-width"
+              font: "body"
+              fontSize: 76
+              fontWeight: "700"
+              content: [Paragraph { content: [
+                Span { content: "Place" color: cyanText }
+                " & "
+                Span { content: "Time" color: pinkText }
+              ] }]
+            }
+            DebuggerDemo {
+              mode: "calculator-print-place-time"
+              x: 100
+              y: 225
+              width: 1720
+              height: 780
+            }
+          ]
+        }
+      }
+    }
+
+
+    Slide {
+      label: "Place & Time — Breakpoint debugging"
+      notes: [
+        "A breakpoint exposes state across Place at one point in Time. Pause at line 6 while evaluating 4 ^ 2: left is 4, right is 2, and result has not been assigned."
+        "Execute the exponentiation case on line 9. The time bar moves forward, the highlight moves to that line, and the inspector now shows result = 8. The faulty implementation multiplies instead of exponentiating."
+      ]
+      content: PlateauSlide {
+        branding: true
+        content: Freeform {
+          children: [
+            TextBox {
+              x: 102
+              y: 61
+              sizing: "auto-width"
+              font: "body"
+              fontSize: 76
+              fontWeight: "700"
+              content: [Paragraph { content: [
+                Span { content: "Place" color: cyanText }
+                " & "
+                Span { content: "Time" color: pinkText }
+              ] }]
+            }
+            DebuggerDemo {
+              mode: "calculator-breakpoint-place-time"
+              x: 100
+              y: 225
+              width: 1720
+              height: 780
+            }
+          ]
+        }
+      }
+    }
+
+    Slide {
+      label: "Place & Time — Debugging tools"
+      notes: [
+        "Print debugging samples one place across time. A breakpoint gives a vertical slice across place at one moment. Whyline follows causal links from an observed value back to earlier events at different places in the program."
+      ]
+      content: PlateauSlide {
+        branding: true
+        content: Freeform {
+          children: [
+            TextBox {
+              x: 102
+              y: 61
+              sizing: "auto-width"
+              font: "body"
+              fontSize: 76
+              fontWeight: "700"
+              content: [Paragraph { content: [
+                Span { content: "Place" color: ink }
+                " & "
+                Span { content: "Time" color: ink }
+              ] }]
+            }
+            PlaceTimeDiagram {
+              kind: "print"
+              x: 100
+              y: 260
+              width: 546.67
+              height: 573.5
+            }
+            TextBox {
+              x: 100
+              y: 843
+              width: 547
+              height: 67
+              font: "body"
+              fontSize: 42
+              fontWeight: "700"
+              lineHeight: 1.25
+              align: "center"
+              color: ink
+              content: [Paragraph { content: "Print debugging" }]
+              sizing: "fixed"
+
+            }
+            PlaceTimeDiagram {
+              kind: "breakpoint"
+              x: 686.67
+              y: 260
+              width: 546.67
+              height: 573.5
+            }
+            TextBox {
+              x: 687
+              y: 843
+              width: 547
+              height: 67
+              font: "body"
+              fontSize: 42
+              fontWeight: "700"
+              lineHeight: 1.25
+              align: "center"
+              color: ink
+              content: [Paragraph { content: "Breakpoint debugging" }]
+              sizing: "fixed"
+
+            }
+            PlaceTimeDiagram {
+              kind: "whyline"
+              x: 1273.33
+              y: 260
+              width: 546.67
+              height: 573.5
+            }
+            TextBox {
+              x: 1273
+              y: 843
+              width: 547
+              height: 69
+              font: "body"
+              fontSize: 42
+              fontWeight: "700"
+              lineHeight: 1.25
+              align: "center"
+              color: ink
+              content: [Paragraph { content: "Whyline" }]
+              sizing: "fixed"
+
+            }
+          ]
+        }
+      }
+    }
+
     Slide {
       content: Freeform {
         TextBox {
