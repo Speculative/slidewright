@@ -335,7 +335,12 @@ export class TextProjection {
       const bound = original(authoredId(node) ?? node.attrs.origin);
       if (node.isText || node.type.name === 'hard_break') {
         const text = node.isText ? node.text! : '\n';
-        return bound?.value.kind === 'string' ? bound.value.value === text ? bound.value : { ...bound.value, value: text } : stringLit(text);
+        // A fragment of a triple-quoted string may begin with meaningful
+        // spaces. Re-emitting it as an indented block would dedent those
+        // spaces and invalidate the source transaction. Fresh fragments use
+        // escaped literals; rejoining an unchanged string below reuses its
+        // original authored node and spelling.
+        return bound?.value.kind === 'string' ? bound.value.value === text ? bound.value : { ...bound.value, value: text, multiline: false } : stringLit(text);
       }
       if (node.type.name === 'reference') return bound?.value.kind === 'name_ref' && bound.value.name === node.attrs.name ? bound.value : nameRef(node.attrs.name);
       const value: Component | undefined = node.attrs.value;

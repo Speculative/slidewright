@@ -37,6 +37,14 @@ export function codeDocumentLines(content: ReactNode): CodeLine[] {
     if (tag(node) === 'br') return [{ text: '', content: '' }, { text: '', content: '' }];
     if (node.props.children === undefined) return [{ text: '\ufffc', content: node }];
     return visit(node.props.children).map((line, index) => {
+      // Splitting a literal at a newline can leave an empty fragment on
+      // either side. Do not clone its editable wrapper onto that line:
+      // the canvas would display it as an empty-text placeholder. The
+      // line itself remains, and genuinely empty authored literals stay
+      // editable because they do not contain a newline.
+      if (line.text === '' && typeof node.props.children === 'string' && node.props.children.includes('\n')) {
+        return { text: '', content: null };
+      }
       // Paragraph wrappers become inline inside a numbered line. Keep their
       // styles and source identity; block separation is represented above.
       const props: TextElementProps & { key: number } = { key: index };

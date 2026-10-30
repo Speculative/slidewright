@@ -9,6 +9,21 @@ import { migrateTextDocumentParam } from '../../runtime/text-document-migration.
 import { components } from '../../../decks/v0-reference/registry.js';
 import { loadDeck } from '../../runtime/loader.js';
 import { codeDocumentLines } from '../../../decks/uist-2026/components/code-document.js';
+import { sourceElement } from '../../runtime/source-location.js';
+
+test('line projection omits synthetic empty literal wrappers at formatting boundaries', () => {
+  const literal = (text: string, start: number) => sourceElement('span', { 'data-sw-text-span-start': start }, text);
+  const lines = codeDocumentLines([
+    literal('^', 1),
+    literal('\n*\n+', 2),
+    literal('\n26', 3),
+  ]);
+  assert.deepEqual(lines.map(line => line.text), ['^', '*', '+', '26']);
+  const html = renderToStaticMarkup(createElement('div', null, ...lines.map(line => line.content)));
+  assert.doesNotMatch(html, /<span[^>]*><\/span>/);
+  // An actually empty authored literal still has its editing target.
+  assert.match(renderToStaticMarkup(codeDocumentLines(literal('', 4))[0]!.content), /data-sw-text-span-start="4"/);
+});
 
 test('line projection preserves empty lines and marked fragments across paragraph/soft-break boundaries', () => {
   const lines = codeDocumentLines([
