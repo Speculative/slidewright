@@ -43,7 +43,7 @@ function useFloatingSelection() {
 
 // Controls keep the editor's draft selection while inputs own DOM focus.
 // Applying a value changes authored marks, never the surrounding source.
-export function FormattingToolbar({ session, state, colorTokens, slideColors }: { session: RefObject<TextSessionHandle | null>; state: TextFormattingState | null; colorTokens: Record<string, string>; slideColors: SlideColor[] }) {
+export function FormattingToolbar({ session, state, colorTokens, slideColors, lineMode = false }: { session: RefObject<TextSessionHandle | null>; state: TextFormattingState | null; colorTokens: Record<string, string>; slideColors: SlideColor[]; lineMode?: boolean }) {
   const selected = useFloatingSelection();
   const floating = selected && !!state && !state.caret;
   const [field, setField] = useState<TextStyleField>('size');
@@ -97,7 +97,7 @@ export function FormattingToolbar({ session, state, colorTokens, slideColors }: 
     <input aria-label="Style value" value={value} placeholder="Empty removes style" onChange={event => setValue(event.target.value)}
       onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); apply(); } }} />
     <Button type="button" onPointerDown={event => event.preventDefault()} onClick={apply}>Apply style</Button>
-    <label>Paragraph <Select aria-label="Paragraph style" value={paragraphField} onChange={event => { setParagraphField(event.target.value as ParagraphField); setParagraphValue(''); }}>
+    {!lineMode && <><label>Paragraph <Select aria-label="Paragraph style" value={paragraphField} onChange={event => { setParagraphField(event.target.value as ParagraphField); setParagraphValue(''); }}>
       <option value="align">Alignment</option><option value="lineHeight">Line height</option>
       <option value="spaceBefore">Space before</option><option value="spaceAfter">Space after</option>
       <option value="indent">Left indent</option><option value="firstLineIndent">First line indent</option>
@@ -118,7 +118,7 @@ export function FormattingToolbar({ session, state, colorTokens, slideColors }: 
       onClick={() => setListMessage(session.current?.listDepth(direction) ? '' : 'Select list items that can move one level.')}>
       {direction < 0 ? 'Outdent item' : 'Indent item'}
     </Button>)}
-    {listMessage && <span role="status">{listMessage}</span>}
+    {listMessage && <span role="status">{listMessage}</span>}</>}
   </div>;
 }
 

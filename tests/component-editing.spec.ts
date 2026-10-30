@@ -31,22 +31,22 @@ test('component clicks persist parameter edits with keyboard access and canvas u
   await line.press('Enter');
   await expect(line).toHaveAttribute('aria-pressed', 'true');
 
-  // One Save publishes one transaction; typing does not publish drafts.
+  // Done publishes one transaction; typing does not publish drafts.
   const before = await getEditorSource(page);
   await stage.getByRole('button', { name: 'Edit output', exact: true }).click();
-  const input = stage.getByRole('textbox', { name: 'Edit output', exact: true });
+  const input = stage.getByRole('textbox', { name: 'Edit text', exact: true });
   const transcript = '>>> calculate("🙂")\n\n  output <>&\n';
   await input.fill(transcript);
   expect(await getEditorSource(page)).toBe(before);
-  await stage.getByRole('button', { name: 'Save output', exact: true }).click();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(input).toHaveCount(0);
-  await expect(stage.getByLabel('Demo terminal').locator(':scope > div')).toHaveText(transcript.split('\n'));
+  await expect(stage.locator('[data-sw-terminal-line]')).toHaveText(transcript.split('\n'));
   await page.keyboard.press('ControlOrMeta+z');
   await expect(stage.getByLabel('Demo terminal')).toContainText('original output');
   expect(await getEditorSource(page)).toBe(before);
 
   await stage.getByRole('button', { name: 'Edit code', exact: true }).click();
-  const code = stage.getByRole('textbox', { name: 'Edit code', exact: true });
+  const code = stage.getByRole('textbox', { name: 'Edit text', exact: true });
   await code.fill('def edited():\n    return 7');
   await code.press('ControlOrMeta+Enter');
   await expect(stage.getByLabel('Python code')).toContainText('edited');
@@ -81,7 +81,7 @@ test('cancel and external source/build/slide changes discard output drafts', asy
   const stage = page.locator('.sw-canvas-stage');
   const open = async () => {
     await stage.getByRole('button', { name: 'Edit output', exact: true }).click();
-    const input = stage.getByRole('textbox', { name: 'Edit output', exact: true });
+    const input = stage.getByRole('textbox', { name: 'Edit text', exact: true });
     await input.fill('discard this draft');
     return input;
   };

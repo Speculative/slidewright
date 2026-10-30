@@ -3,10 +3,16 @@ import { test } from 'node:test';
 import { DeckDocument, type DocumentSnapshot, type OccurrenceHandle } from '../../runtime/document.js';
 import type { Component, SourceFile } from '../../runtime/ast.js';
 import { buildProperty } from '../../runtime/builds.js';
-import { components } from '../../../decks/v0-reference/registry.js';
+import { components as realComponents } from '../../../decks/v0-reference/registry.js';
 import type { ParamPatch } from '../../runtime/component-editing.js';
 import { createBuildEditingSnapshot } from '../build-editing.js';
 import { prepareComponentParamEdit } from '../component-editing.js';
+
+// Exercise the literal-parameter contract independently of the panels' new
+// rich content path. A custom component may still opt into string parameters.
+const components = { ...realComponents, CodeDisplay: { ...realComponents.CodeDisplay!, meta: {
+  ...realComponents.CodeDisplay!.meta, editing: { params: ['code', 'highlightedLines'] },
+} } };
 
 const source = `// keep header\r\nDeck { slides: [Slide {
   content: Freeform { children: [
@@ -93,10 +99,10 @@ test('defaults and empty patches are no-ops; multiline content and literal array
   assert.ok(result.changes.length);
 });
 
-test('terminal transcript uses the same generic command', () => {
+test('terminal title uses the same generic parameter command', () => {
   const { document } = setup();
   const terminal = document.snapshot.occurrences.find(item => item.component.name === 'TerminalDisplay')!;
-  const result = prepareComponentParamEdit(frame(document.snapshot), components, terminal.handle, { content: '>>> custom()\n\n42' })!;
+  const result = prepareComponentParamEdit(frame(document.snapshot), components, terminal.handle, { title: 'Custom output' })!;
   assert.ok(result);
-  assert.ok(result.newSource.includes('custom()'));
+  assert.ok(result.newSource.includes('Custom output'));
 });

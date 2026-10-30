@@ -25,7 +25,7 @@ test('calculator terminal fits beside code and accepts custom transcripts', asyn
   const transcript = '>>> custom()\n\n  indented output\n' + 'long output '.repeat(12);
   await content.fill(JSON.stringify(transcript));
   await content.press('Enter');
-  await expect(terminal.getByLabel('Demo terminal').locator(':scope > div')).toHaveText(transcript.split('\n'));
+  await expect(terminal.locator('[data-sw-terminal-line]')).toHaveText(transcript.split('\n'));
   await expect.poll(async () => (await getEditorSource(page)).includes('custom()')).toBe(true);
   expect(await terminal.getByLabel('Demo terminal').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
 });

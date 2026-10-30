@@ -1128,7 +1128,12 @@ export function App({
     setGestureMeta(null);
     setSelected([componentTarget(target.span)]);
     boxDraftRef.current = {}; setBoxDraft({});
-    setRichEditing({ component, content: component.fills.find(f => f.name === 'content')?.value,
+    const contract = components[component.name]?.meta.editing?.text;
+    const legacy = contract?.fallbackParam ? component.fills.find(f => f.name === contract.fallbackParam)?.value : undefined;
+    const fallbackDefault = contract?.fallbackParam ? components[component.name]?.meta.params?.[contract.fallbackParam]?.default : undefined;
+    const content = component.fills.find(f => f.name === 'content' && f.value.kind !== 'omit')?.value ??
+      (legacy && legacy.kind !== 'omit' ? legacy : typeof fallbackDefault === 'string' ? stringLit(fallbackDefault) : undefined);
+    setRichEditing({ component, content, plainLines: contract?.mode === 'lines', fallbackParam: contract?.fallbackParam,
       source: sourceRef.current, slideIdx: activeIdxRef.current, scope: current.scope, colorTokens: current.colorTokens,
       persistentRuns: !!sourceSnapshotRef.current && hasBuildEditingContext(sourceSnapshotRef.current),
       buildStyle: current.slidesData[activeIdxRef.current]?.authoredComp.fills.some(fill => fill.name === 'builds') ? {
@@ -1150,11 +1155,11 @@ export function App({
       // Empty freeform boxes still use the ordinary deletion/visibility route.
       const probe = structuredClone(snapshot.component);
       const empty = isEmptyTextDocument(value);
-      if (!empty) {
+      if (!empty || snapshot.component.name !== 'TextBox') {
         const settings = Object.fromEntries(Object.entries(defaults).map(([field, setting]) => [field,
           typeof setting === 'boolean' ? booleanLit(setting) : typeof setting === 'number' ? numberLit(setting)
             : field === 'color' && setting in snapshot.colorTokens ? nameRef(setting) : stringLit(setting)]));
-        const result = commitBuildTextDraft(snapshot.source, editing, probe, value, draft, settings);
+        const result = commitBuildTextDraft(snapshot.source, editing, probe, value, draft, settings, snapshot.fallbackParam);
         if (result) commitToHost(result.newSource, result.newSelections, result.changes, result.baseRevision);
         return;
       }
@@ -1179,6 +1184,10 @@ export function App({
       });
       if (removed) return {};
       if (intent !== 'commit' || (!changed && !Object.keys(defaults).length)) return null;
+      if (snapshot.fallbackParam) {
+        const legacy = comp.fills.find(fill => fill.name === snapshot.fallbackParam);
+        if (legacy && !comp.fills.some(fill => fill.name === 'content')) legacy.name = 'content';
+      }
       if (value) {
         const fill = comp.fills.find(f => f.name === 'content');
         if (fill) fill.value = value; else comp.fills.push(slotFill('content', value));
@@ -3016,12 +3025,22 @@ export function App({
   }
 
   const bindComponentEditor: NonNullable<React.ContextType<typeof ComponentEditHostContext>> = component => {
-    if (!componentEditState.enabled || !components[component.name]?.meta.editing?.params.length) return null;
+    const contract = components[component.name]?.meta.editing;
+    if (!componentEditState.enabled || !contract || !contract.params?.length && !contract.text) return null;
     const bound = state.snapshot;
     const occurrence = bound.occurrences.find(item => item.range.start === component.span.start.offset && item.range.end === component.span.end.offset);
     const slide = state.slidesData[activeIdx]?.authoredComp;
     if (!occurrence || !slide || occurrence.range.start < slide.span.start.offset || occurrence.range.end > slide.span.end.offset) return null;
-    return { contextId: `${bound.revision}:${editEpoch}`, updateParams: update => {
+    const validContext = () => componentEditStateRef.current.enabled && componentEditStateRef.current.epoch === editEpoch &&
+      canonicalSnapshotRef.current === bound && activeIdxRef.current === activeIdx &&
+      (buildIndicesRef.current.get(activeIdx) ?? 0) === activeBuildIndex && directionRef.current === buildDirection;
+    return { contextId: `${bound.revision}:${editEpoch}`, editText: contract.text ? () => {
+      if (!validContext()) return { status: 'rejected', reason: 'The authoring context changed.' };
+      if (components[component.name]?.meta.slots.content?.type !== 'text-document') return { status: 'rejected', reason: 'No editable text document.' };
+      operationSnapshotRef.current = sourceSnapshotRef.current;
+      startRichEditing({ span: occurrence.range, clientX: 0, clientY: 0 });
+      return { status: 'submitted' };
+    } : undefined, updateParams: update => {
       const now = componentEditStateRef.current;
       const snapshot = canonicalSnapshotRef.current;
       if (!now.enabled || now.epoch !== editEpoch || now.slideIndex !== componentEditState.slideIndex || now.buildIndex !== componentEditState.buildIndex ||
@@ -3533,7 +3552,7 @@ export function App({
             onBlur={event => commitOnTextBlur(event.relatedTarget, () => richSessionRef.current?.finish('commit'))}>
             <BoxSettings onApply={applyBoxSetting} current={{ ...boxShape?.params, ...boxDraft }} />
             {richEditing && <>
-            <FormattingToolbar session={richSessionRef} state={textFormatting} colorTokens={state.colorTokens} slideColors={slideColors} />
+            <FormattingToolbar session={richSessionRef} state={textFormatting} colorTokens={state.colorTokens} slideColors={slideColors} lineMode={!!richEditing?.plainLines} />
             <span>Editing text</span>
             <Button variant="primary" type="button" onPointerDown={event => { if (!(document.activeElement instanceof HTMLInputElement)) event.preventDefault(); }} onClick={() => richSessionRef.current?.finish('commit')}>Done</Button>
             <Button type="button" onPointerDown={event => event.preventDefault()} onClick={() => richSessionRef.current?.finish('cancel')}>Cancel</Button>

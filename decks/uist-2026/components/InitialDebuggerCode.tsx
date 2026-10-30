@@ -1,4 +1,6 @@
 import { Highlight, type PrismTheme } from 'prism-react-renderer';
+import type { ReactNode } from 'react';
+import { highlightedCodeLine } from './code-document.js';
 
 // Palette from the original talk's github-light theme in @shikijs/themes
 // 3.23.0 (pinned by its lockfile). Prism supplies the existing browser lexer;
@@ -28,7 +30,7 @@ const colorful: PrismTheme = {
   ],
 };
 
-export function InitialDebuggerCode({ lines, highlightedLines = [], breakpointLine, activeLine, animateActiveLine = false, insertedLines = [], showInsertedLines = true, colorfulSyntax = false, onToggleLine }: { lines: string[]; highlightedLines?: number[]; breakpointLine?: number; activeLine?: number; animateActiveLine?: boolean; insertedLines?: number[]; showInsertedLines?: boolean; colorfulSyntax?: boolean; onToggleLine?(line: number): void }) {
+export function InitialDebuggerCode({ lines, highlightedLines = [], breakpointLine, activeLine, animateActiveLine = false, insertedLines = [], showInsertedLines = true, colorfulSyntax = false, onToggleLine, lineContent }: { lines: string[]; highlightedLines?: number[]; breakpointLine?: number; activeLine?: number; animateActiveLine?: boolean; insertedLines?: number[]; showInsertedLines?: boolean; colorfulSyntax?: boolean; onToggleLine?(line: number): void; lineContent?: ReactNode[] }) {
   return <Highlight code={lines.join('\n')} language="python" theme={colorfulSyntax ? colorful : githubLight}>
     {({ tokens, getTokenProps, style }) => <div style={{ color: style.color, position: 'relative', isolation: 'isolate' }}>
       {animateActiveLine && activeLine !== undefined && <div aria-hidden="true" data-demo-line-highlight style={{ position: 'absolute', zIndex: -1, left: 0, right: 0, top: 0, height: '1.625em', borderRadius: 4, background: 'var(--uist-markerYellow, #fef08a)', transform: `translateY(${activeLine * 100}%)`, transition: 'transform 360ms ease-in-out', pointerEvents: 'none' }} />}
@@ -50,7 +52,7 @@ export function InitialDebuggerCode({ lines, highlightedLines = [], breakpointLi
           onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') event.stopPropagation(); }}
           onClick={event => { event.stopPropagation(); onToggleLine(lineNumber); }}
           style={{ border: 0, padding: 0, background: 'transparent', color: 'var(--uist-muted, #888)', font: 'inherit', cursor: 'pointer', whiteSpace: 'pre' }}>{lineNumber} </button> : <span style={{ color: 'var(--uist-muted, #888)' }}>{lineNumber} </span>}
-        {line.map((token, tokenIndex) => <span key={tokenIndex} {...getTokenProps({ token })}>{token.content}</span>)}
+        {lineContent ? highlightedCodeLine(lineContent[index], line, getTokenProps) : line.map((token, tokenIndex) => <span key={tokenIndex} {...getTokenProps({ token })}>{token.content}</span>)}
       </div>;
       })}
     </div>}

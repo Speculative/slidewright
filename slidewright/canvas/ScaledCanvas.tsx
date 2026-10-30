@@ -429,7 +429,7 @@ export function ScaledCanvas({
     const target = event.target as Element | null;
     if (!target?.closest) return;
     if (target.closest('.sw-rich-text-editor')) return;
-    const documentRoot = target.closest('[data-sw-textbox-content]');
+    const documentRoot = target.closest('[data-sw-textbox-content], [data-sw-text-document]');
     const component = documentRoot?.closest('[data-sw-component]');
     if (component instanceof HTMLElement && onTextDocumentEdit) {
       const start = Number(component.getAttribute('data-sw-span-start'));

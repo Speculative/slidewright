@@ -2,6 +2,7 @@
 // and undecorated document snapshots always describe canonical source.
 import { clearTextStyleOverrides, TEXT_STYLE_FIELDS, type TextStyleProperty } from '../runtime/text-builds.js';
 import { applyTextBuildDraft, type TextBuildDraft } from '../runtime/text-build-edit.js';
+import { migrateTextDocumentParam } from '../runtime/text-document-migration.js';
 import type { Component, SourceFile, Value } from '../runtime/ast.js';
 import { booleanLit, numberLit, omitLit, slotFill, stringLit } from '../runtime/ast-builders.js';
 import { buildFrames, buildObjects, editBuildProperties, objectId, resolveBuild, transformBuildProperty, validateBuilds, type BuildDirection } from '../runtime/builds.js';
@@ -361,13 +362,17 @@ export function commitBuildSourceCandidate(candidate: string, label: string, sna
 /** Accepted rich draft: source IDs, content and independent style channels
  * become one canonical transaction and one canvas undo entry. */
 export function commitBuildTextDraft(source: string, snapshot: DocumentSnapshot, owner: Component,
-  content: Value, draft: TextBuildDraft, defaults: Readonly<Record<string, Value>> = {}): CommitResult | null {
+  content: Value, draft: TextBuildDraft, defaults: Readonly<Record<string, Value>> = {}, fallbackParam?: string): CommitResult | null {
   const state = contexts.get(snapshot);
   const id = objectId(owner);
   if (!state || !id) return null;
   return commitSourceEdit(source, '<text-session>', ast => {
     const slide = slideAt(ast, state.context.slideIndex)!;
     try {
+      if (fallbackParam) {
+        const fallback = state.context.registry?.[owner.name]?.meta.params?.[fallbackParam]?.default;
+        migrateTextDocumentParam(slide, owner, fallbackParam, typeof fallback === 'string' ? fallback : '');
+      }
       applyTextBuildDraft(slide, state.context.buildIndex, id, content, draft, state.context.direction, state.context.registry);
       if (Object.keys(defaults).length) editBuildProperties(slide, state.context.buildIndex, id, defaults, state.context.direction);
       if (validateBuilds(slide, state.context.registry).length) return null;

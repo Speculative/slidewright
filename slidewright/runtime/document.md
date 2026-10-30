@@ -163,8 +163,23 @@ actions reject after source, slide/build, propagation direction, or editing
 availability changes, even if navigation later returns to the old frame.
 Components with drafts should discard them when the opaque `contextId` changes
 or the capability becomes unavailable. Components do not receive source spans,
-AST mutation access, or a host reference. This first version does not provide
-continuous previews, text-range formatting, or structured content replacement.
+AST mutation access, or a host reference. Parameter updates do not provide
+continuous previews or arbitrary structured content replacement.
+
+Components may also opt into the existing rich-text session with
+`editing: { text: {} }` and a declared `content:text-document` slot.
+`useComponentEditing().editText()` opens the host-owned session; rendering the
+`TextDocumentEditorContext` island mounts it in the component. A text container
+marked `data-sw-text-document` also supports double-click entry. The ordinary
+text selection, formatting, draft history and build text-style channels apply.
+`text.mode: 'lines'` uses soft breaks for Enter, four-space Tab, and hides list
+and paragraph controls. CodeDisplay and TerminalDisplay use this mode.
+`text.fallbackParam` supports a legacy literal text parameter until the first
+accepted edit. Migration preserves its wording channels across builds,
+including equal-valued barriers and explicit content/fallback transitions.
+Syntax decorations are a view over the marked document; authored foreground
+color takes precedence over syntax color. No editor-engine positions are
+exposed to the component.
 
 `commitSourceEdit` captures the parsed authored tree before a command mutates it.
 `SourceEditWriter` descends unchanged owners and emits only changed fragments.

@@ -36,6 +36,8 @@ export interface TextEditorSnapshot {
   persistentRuns?: boolean;
   buildStyle?: { slide: Component; index: number; direction: BuildDirection };
   reservedRunIds?: readonly string[];
+  plainLines?: boolean;
+  fallbackParam?: string;
 }
 export type TextStyleField = typeof STYLE_FIELDS[number];
 
@@ -230,10 +232,15 @@ export function RichTextEditor({ snapshot, registry, onReady, onFinish, onFormat
         };
       }
       const keys = richTextKeys(projection.schema);
+      if (snapshot.plainLines) {
+        keys.Enter = keys['Shift-Enter']!;
+        keys.Tab = (state, dispatch) => { dispatch?.(state.tr.insertText('    ').scrollIntoView()); return true; };
+        keys['Shift-Tab'] = () => true;
+      }
       keys['Mod-Enter'] = () => { finish('commit'); return true; };
       keys.Escape = () => { finish('cancel'); return true; };
       view = new EditorView(mount, {
-        state: EditorState.create({ doc: projection.doc, plugins: [history(), leafIdentityPlugin(), listInputPlugin(), keymap(keys)] }), nodeViews,
+        state: EditorState.create({ doc: projection.doc, plugins: [history(), leafIdentityPlugin(), ...(snapshot.plainLines ? [] : [listInputPlugin()]), keymap(keys)] }), nodeViews,
         attributes: { role: 'textbox', 'aria-label': 'Edit text', 'aria-multiline': 'true' },
         dispatchTransaction(tr) {
           if (closed) return;
@@ -260,6 +267,10 @@ export function RichTextEditor({ snapshot, registry, onReady, onFinish, onFormat
         handleDOMEvents: {
           blur(_view, event) {
             const next = (event as FocusEvent).relatedTarget;
+            if (next instanceof Element && next.closest('.sw-thumb, .sw-build-thumb, .sw-build-controls')) {
+              finish('cancel');
+              return false;
+            }
             if (!(next instanceof Node) || (!mount.contains(next) && !(next instanceof Element && next.closest('[data-sw-text-formatting]')))) finish('commit');
             return false;
           },
@@ -323,7 +334,7 @@ export function RichTextEditor({ snapshot, registry, onReady, onFinish, onFormat
         },
         range: () => textRange(view.state.doc, view.state.selection.anchor, view.state.selection.head),
         format,
-        list(style, start) { return !closed && setListStyle(style, start)(view.state, tr => view.dispatch(tr), view); },
+        list(style, start) { return !closed && !snapshot.plainLines && setListStyle(style, start)(view.state, tr => view.dispatch(tr), view); },
         listDepth(direction) { if (closed) return false; const changed = changeListDepth(direction)(view.state, tr => view.dispatch(tr), view); view.focus(); return changed; },
         paragraph(field, value) { if (!closed) setParagraphStyle(field, value)(view.state, tr => view.dispatch(tr)); },
         toggle(field) {

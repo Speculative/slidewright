@@ -21,7 +21,7 @@
     "test:selection-mapping": "node --import tsx --test slidewright/canvas/__test__/selection-mapping.test.ts",
     "test:document-parsing": "node --import tsx --test slidewright/runtime/__test__/document-parsing.test.ts",
     "test:document": "node --import tsx --test slidewright/runtime/__test__/document.test.ts",
-    "test:component-editing": "node --import tsx --test slidewright/canvas/__test__/component-editing.test.ts",
+    "test:component-editing": "node --import tsx --test slidewright/canvas/__test__/component-editing.test.ts slidewright/canvas/__test__/panel-text.test.tsx",
     "test:builds": "node --import tsx --test slidewright/runtime/__test__/builds.test.ts slidewright/runtime/__test__/loader-builds.test.ts slidewright/canvas/__test__/build-editing.test.ts",
     "test:parser": "tsx slidewright/runtime/__test__/parser.smoke.ts",
     "test:loader": "tsx slidewright/runtime/__test__/loader.smoke.ts",

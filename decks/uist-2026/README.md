@@ -45,8 +45,7 @@ the draft. Drag objects to move them and use selection handles to resize.
 Their geometry is editable; their local step/playback controls do not write
 source. Video playback uses explicit Play/Pause/Restart controls.
 
-`CodeDisplay` is a standalone Python panel: edit its `code` string in source or
-the inspector. Select the CodeDisplay in the hierarchy and enter `[7, 9]` in
+`CodeDisplay` is a standalone Python panel. Select it in the hierarchy and enter `[7, 9]` in
 the `highlightedLines` inspector field (Enter or blur applies it; `[]` clears).
 In source, set `highlightedLines: [7, 9]` to emphasize one-based line
 numbers. Its geometry and `fontSize` are source-backed; text shrinks to fit
@@ -54,14 +53,19 @@ when the panel is resized to share space with other objects.
 Python syntax uses purple keywords, teal functions/builtins, blue strings,
 and orange numbers/booleans; line emphasis uses a yellow background.
 In the authoring canvas, click a code line number (or focus it and press
-Space/Enter) to toggle its emphasis. **Edit code** and **Edit output** open
-multiline draft editors for CodeDisplay and TerminalDisplay. Save or
-Ctrl/Mod-Enter applies the draft as one undoable source edit; Cancel/Escape
+Space/Enter) to toggle its emphasis. **Edit code**, **Edit output**, or a
+double-click on panel text opens the shared rich-text editor. Select text
+and use its floating toolbar or Ctrl/Mod-B/I/U to format a range. Done,
+Ctrl/Mod-Enter, or blur applies the draft as one undoable source edit; Cancel/Escape
 discards it. Source changes, slide/build navigation, and entering presentation
-discard drafts. Text-range formatting is not implemented for these panels yet.
+discard drafts. Enter inserts a line break; Tab inserts four spaces. Python
+syntax colors reappear on Done, and authored foreground colors take precedence.
+Both panels store marked `content` documents using Paragraph/Span, as TextBox
+does. Legacy `CodeDisplay.code` strings remain readable and migrate to `content`
+on the first accepted rich edit, including their wording overrides on builds.
 
 `TerminalDisplay` is a movable terminal transcript next to the calculator
-example. Edit its `content` string in source or the inspector to reuse it
+example. Its `content` accepts a string or a marked text document to reuse it
 with any transcript; newlines, blank lines, and indentation are preserved.
 Its `title`, `fontSize`, and geometry are also source-backed. Set `title: ""`
 to hide the heading. Long lines wrap within the panel.

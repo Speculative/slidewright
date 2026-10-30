@@ -78,7 +78,12 @@ export interface ComponentMeta {
   // Inspector membership is presentation metadata, independent of schema.
   editor?: { inspector: readonly string[] };
   // Explicit authoring capability; independent of inspector presentation.
-  editing?: { params: readonly string[] };
+  editing?: {
+    params?: readonly string[];
+    // Rich editing owns the declared content:text-document slot. A legacy
+    // literal param can supply its initial text until the first accepted edit.
+    text?: { fallbackParam?: string; mode?: 'lines' };
+  };
 }
 
 export type InlineEditing =

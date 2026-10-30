@@ -37,7 +37,7 @@ export function prepareComponentParamEdit(snapshot: DocumentSnapshot, registry: 
   if (!occurrence || snapshot.diagnostics.some(d => d.severity === 'error')) return null;
   const owner = findComponentAtSpan(readBuildEditingAst(snapshot), occurrence.range.start, occurrence.range.end);
   const meta = owner && registry[owner.name]?.meta;
-  if (!owner || !meta?.editing?.params.length) return null;
+  if (!owner || !meta?.editing?.params?.length) return null;
   const current: Record<string, EditableParam> = {};
   for (const name of meta.editing.params) {
     const schema = meta.params?.[name];

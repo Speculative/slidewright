@@ -10,6 +10,7 @@ export interface ComponentEditing {
   readonly contextId: string;
   /** One atomic, build-aware canvas transaction. Submitted does not mean saved to disk. */
   updateParams(update: ParamUpdate): ComponentEditResult;
+  editText?(): ComponentEditResult;
 }
 export const ComponentEditingContext = createContext<ComponentEditing | null>(null);
 /** Null in read-only hosts, previews, presentation, and non-opted-in components. */

@@ -2,12 +2,13 @@ import type { ComponentMeta, ComponentRenderProps } from '../../../slidewright/r
 import { makeRectAdapter } from '../../../slidewright/canvas/rect-adapter.js';
 import { InitialDebuggerCode } from './InitialDebuggerCode.js';
 import { useComponentEditing } from '../../../slidewright/runtime/component-editing.js';
-import { useState } from 'react';
-import { PanelTextEditor } from './PanelTextEditor.js';
+import { useContext, useState } from 'react';
+import { TextDocumentEditorContext } from '../../../slidewright/canvas/text-document-context.js';
+import { codeDocumentLines } from './code-document.js';
 
 /** Source-backed Python panel; line emphasis uses one-based displayed numbers. */
 export const slidewright: ComponentMeta = {
-  produces: 'block', slots: {},
+  produces: 'block', slots: { content: { type: 'text-document' } },
   params: {
     x: { type: 'number', default: 0 },
     y: { type: 'number', default: 0 },
@@ -17,16 +18,18 @@ export const slidewright: ComponentMeta = {
     fontSize: { type: 'number', default: 40 },
     highlightedLines: { type: 'array<number>', default: [] },
   },
-  editor: { inspector: ['x', 'y', 'width', 'height', 'code', 'fontSize', 'highlightedLines'] },
-  editing: { params: ['code', 'highlightedLines'] },
+  editor: { inspector: ['x', 'y', 'width', 'height', 'content', 'fontSize', 'highlightedLines'] },
+  editing: { params: ['highlightedLines'], text: { fallbackParam: 'code', mode: 'lines' } },
 };
 
 export const canvas = makeRectAdapter({ width: 1720, height: 740 });
 
-export default function CodeDisplay({ params }: ComponentRenderProps) {
+export default function CodeDisplay({ params, slots, slotsState }: ComponentRenderProps) {
   const editing = useComponentEditing();
+  const editor = useContext(TextDocumentEditorContext);
   const [error, setError] = useState('');
-  const lines = String(params.code).split('\n');
+  const document = slotsState.content === 'filled' ? codeDocumentLines(slots.content) : undefined;
+  const lines = document ? document.map(line => line.text) : String(params.code).split('\n');
   const highlightedLines = (params.highlightedLines as number[]).map(line => line - 1);
   const width = Number(params.width), height = Number(params.height);
   // Fit independently of neighboring panels so the object can be narrowed
@@ -41,15 +44,18 @@ export default function CodeDisplay({ params }: ComponentRenderProps) {
     background: 'var(--uist-surface, #f9fafb)',
     fontFamily: 'var(--font-mono, monospace)', fontSize, lineHeight: 1.625,
   }}>
-    <PanelTextEditor field="code" value={String(params.code)} label="code">
-      <InitialDebuggerCode lines={lines} highlightedLines={highlightedLines} colorfulSyntax onToggleLine={editing ? line => {
+    <div data-sw-text-document style={{ whiteSpace: 'pre', overflowWrap: 'normal', minHeight: '1.625em' }}>
+      {editor ?? <InitialDebuggerCode lines={lines} lineContent={document?.map(line => line.content)} highlightedLines={highlightedLines} colorfulSyntax onToggleLine={editing ? line => {
         const result = editing.updateParams(current => {
           const selected = current.highlightedLines as readonly number[];
           return { highlightedLines: selected.includes(line) ? selected.filter(value => value !== line) : [...selected, line].sort((a, b) => a - b) };
         });
         setError(result.status === 'rejected' ? result.reason : '');
-      } : undefined} />
-    </PanelTextEditor>
+      } : undefined} />}
+    </div>
+    {editing?.editText && <button type="button" onPointerDown={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()}
+      onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') event.stopPropagation(); }}
+      onClick={event => { event.stopPropagation(); editing.editText?.(); }} style={{ position: 'absolute', top: 8, right: 12, fontSize: 18 }}>Edit code</button>}
     {error && <div role="alert" style={{ fontSize: 18 }}>{error}</div>}
   </div>;
 }
