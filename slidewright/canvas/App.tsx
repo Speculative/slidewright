@@ -971,24 +971,27 @@ export function App({
   const [activeTool, setActiveTool] = useState<Tool>(SELECT_TOOL);
   // Selection is always an array. Single-select is length === 1.
   // Multi-select is bounded to one layout context (one Freeform).
-  const [selected, setSelected] = useState<SelectionTarget[]>([]);
-  const selectedRef = useRef(selected);
-  selectedRef.current = selected;
-
-  // Object and slot selections belong to the visible slide. Navigation
-  // must drop old targets so floating controls and edit/delete commands
-  // cannot keep acting on a component from the slide we just left.
-  useEffect(() => {
-    if (selected.length === 0) return;
+  const [selectionTargets, setSelected] = useState<SelectionTarget[]>([]);
+  // Navigation can change the visible slide before an effect clears its old
+  // selection. Filter during render so controls never resolve an old object
+  // against the new slide's build IDs (or edit an off-slide component).
+  const selected = useMemo(() => {
     const slideSpan = state?.slidesData[activeIdx]?.comp.span;
-    const visible = selected.filter(target => {
+    return selectionTargets.filter(target => {
       if (!slideSpan) return false;
       if (target.kind === 'slide') return true;
       const span = target.kind === 'component' ? target.span : target.parentSpan;
       return span.start >= slideSpan.start.offset && span.end <= slideSpan.end.offset;
     });
-    if (visible.length !== selected.length) setSelected(visible);
-  }, [activeIdx, state?.slidesData, selected]);
+  }, [activeIdx, state?.slidesData, selectionTargets]);
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+
+  // Also discard stale targets from storage so returning to a slide does not
+  // resurrect its previous selection.
+  useEffect(() => {
+    if (selected.length !== selectionTargets.length) setSelected(selected);
+  }, [selected, selectionTargets]);
 
   // Selection-preservation across host.setSource. Spans shift after
   // every emit; gestures stash the post-emit selection here before
