@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { getEditorSource } from './editor-helpers';
+import { getEditorSource, setHostSource } from './editor-helpers';
 
 test('indented build previews, direction control, and equal-valued pins are source backed', async ({ page }) => {
   const errors: string[] = [];
@@ -62,6 +62,61 @@ test('property changes and exiting objects are highlighted and hidden objects ca
   await page.getByRole('button', { name: 'Restore Box · node', exact: true }).click();
   await expect(page.locator('.sw-canvas-stage [data-sw-component="Box"]')).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Select exiting Box' })).toHaveCount(0);
+});
+
+for (const [forward, backward] of [
+  ['ArrowDown', 'ArrowUp'],
+  ['ArrowRight', 'ArrowLeft'],
+  ['PageDown', 'PageUp'],
+]) {
+  test(`editor ${backward} navigation visits the previous slide's final build`, async ({ page }) => {
+    await page.goto('/canvas.html?fixture=keyframe-builds');
+    const source = await getEditorSource(page);
+    await page.locator('.sw-thumb').first().click();
+    const controls = page.getByRole('toolbar', { name: 'Build controls' });
+    await expect(controls).toContainText('Frame 1 of 3');
+    await page.keyboard.press(backward);
+    await expect(controls).toContainText('Frame 1 of 3');
+    for (const frame of [2, 3]) {
+      await page.keyboard.press(forward);
+      await expect(controls).toContainText(`Frame ${frame} of 3`);
+    }
+    await page.keyboard.press(forward);
+    await expect(page.locator('.sw-canvas-stage')).toContainText('After the diagram');
+    for (const frame of [3, 2, 1]) {
+      await page.keyboard.press(backward);
+      await expect(controls).toContainText(`Frame ${frame} of 3`);
+    }
+    await page.keyboard.press(backward);
+    await expect(controls).toContainText('Frame 1 of 3');
+    expect(await getEditorSource(page)).toBe(source);
+  });
+}
+
+test('navigation previews refresh after editing a selected build', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=keyframe-builds');
+  const base = page.getByRole('option', { name: 'Slide 1', exact: true });
+  const focus = page.getByRole('option', { name: 'Slide 1 build 1: Focus', exact: true });
+  await focus.click();
+  await page.locator('.sw-hierarchy-node[data-sw-component="Box"]').click();
+  const x = page.locator('[data-build-property="x"] input');
+  await x.fill('240');
+  await x.press('Enter');
+  await expect(focus.locator('.sw-build-thumb-summary')).toHaveText('1 changed');
+  await base.click();
+  await expect(focus.locator('.sw-build-thumb-summary')).toHaveText('1 changed');
+  await focus.click();
+  await page.locator('.sw-hierarchy-node[data-sw-component="Box"]').click();
+  await expect(x).toHaveValue('240');
+
+  const source = await getEditorSource(page);
+  await setHostSource(page, source.replace('Diagram caption', 'Revised caption'));
+  await expect(base).toContainText('Revised caption');
+  await expect(focus).toContainText('Revised caption');
+  await base.click();
+  await expect(page.locator('.sw-canvas-stage')).toContainText('Revised caption');
+  await focus.click();
+  await expect(page.locator('.sw-canvas-stage')).toContainText('Revised caption');
 });
 
 test('audience navigation visits authored frames before advancing slides', async ({ page }) => {

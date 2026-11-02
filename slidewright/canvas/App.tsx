@@ -1395,7 +1395,8 @@ export function App({
     const resolver = new DeckResolver();
     let fallbackDocument: DeckDocument | undefined;
     let latest: HostState | undefined;
-    const receive = (hostState: HostState) => {
+    let latestPreviews: ReturnType<typeof buildPreviewSlides> | undefined;
+    const receive = (hostState: HostState, navigation = false) => {
       latest = hostState;
       const { source, fileName, assets, documentUpdate } = hostState;
       colorPreviews.cancel();
@@ -1431,7 +1432,12 @@ export function App({
         slideIndex: activeIdxRef.current, buildIndex: result.slidesData[activeIdxRef.current]?.buildIndex ?? 0,
         direction: directionRef.current, registry: components,
       }); } catch { sourceSnapshotRef.current = document.snapshot; }
-      const previews = buildPreviewSlides(document.snapshot, result.slides, result.slidesData, components, scope, buildPropertyDefault);
+      // Navigation changes the canvas frame, but every strip preview still
+      // represents the same authored frame. Reuse their elements and change
+      // summaries until a host update changes source, assets, or bindings.
+      const previews = navigation && latestPreviews ? latestPreviews
+        : buildPreviewSlides(document.snapshot, result.slides, result.slidesData, components, scope, buildPropertyDefault);
+      latestPreviews = previews;
       const resolution = { ...resolver.stats };
       colorPreviews.resolve = component => {
         let resolved: WrapShapeInput | null = null;
@@ -1576,7 +1582,7 @@ export function App({
       if (!latest) return;
       internalSourceChangeRef.current = true;
       pendingSelectionRef.current = selectedRef.current.slice();
-      receive({ ...latest, documentUpdate: undefined });
+      receive({ ...latest, documentUpdate: undefined }, true);
     };
     const unsubscribe = host.subscribe(receive);
     return () => { refreshBuildsRef.current = () => {}; unsubscribe(); };
@@ -1999,7 +2005,13 @@ export function App({
         else {
           const index = stateRef.current?.slidesData[activeIdxRef.current]?.buildIndex ?? 0;
           if (index > 0) selectBuild(activeIdxRef.current, index - 1);
-          else selectBuild(Math.max(0, activeIdxRef.current - 1), 0);
+          else if (activeIdxRef.current > 0) {
+            const previousSlideIndex = activeIdxRef.current - 1;
+            const previous = stateRef.current?.slidesData[previousSlideIndex];
+            let lastBuild = 0;
+            try { if (previous) lastBuild = buildFrames(previous.authoredComp).length - 1; } catch { /* invalid source: initial frame */ }
+            selectBuild(previousSlideIndex, lastBuild);
+          }
         }
       } else if (presenting && k.toLowerCase() === 'r') {
         resetPresentation();
