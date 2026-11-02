@@ -26,6 +26,7 @@ import * as Line from './components/Line.js';
 import * as Ellipse from './components/Ellipse.js';
 import * as PlateauSlide from '../uist-2026/components/PlateauSlide.js';
 import * as DebuggerDemo from '../uist-2026/components/DebuggerDemo.js';
+import * as AutopsyInterface from '../uist-2026/components/AutopsyInterface.js';
 import * as PlaceTimeDiagram from '../uist-2026/components/PlaceTimeDiagram.js';
 import * as StateTimeChart from '../uist-2026/components/StateTimeChart.js';
 import * as CodeDisplay from '../uist-2026/components/CodeDisplay.js';
@@ -53,6 +54,7 @@ export const components = buildRegistry({
   InlineBadge,
   InlineFormula,
   PlaceTimeDiagram,
+  AutopsyInterface,
   StateTimeChart,
   CodeDisplay,
   TerminalDisplay,
