@@ -1,15 +1,15 @@
 import { buildNotes } from '../slidewright/runtime/builds.js';
 import { PresentationBuild, PresentationContext } from '../slidewright/runtime/presentation.js';
-import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
-import { loadDeck } from '../slidewright/runtime/loader.js';
+import { createPresenterDeck } from './presenter-model.js';
 import { prepareSlide, type BuildNavigation } from '../slidewright/canvas/App.js';
 import { components, staticTokens } from '../decks/v0-reference/registry.js';
 import { DeckMetaContext } from './Slide.jsx';
 import type { HostState } from '../slidewright/canvas/host.js';
 import type { StandaloneHost } from './standalone-host.js';
 
-function Preview({ slide, label, build, width, height }: { slide: ReactElement; label: string; build?: PresentationBuild | null; width: number; height: number }) {
+const Preview = memo(function Preview({ slide, label, build, width, height }: { slide: ReactElement; label: string; build?: PresentationBuild | null; width: number; height: number }) {
   const initial = useMemo(() => new PresentationBuild(), []);
   const frame = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(.25);
@@ -23,7 +23,7 @@ function Preview({ slide, label, build, width, height }: { slide: ReactElement; 
   return <div><h2>{label}</h2><div ref={frame} style={{ position: 'relative', aspectRatio: `${width} / ${height}`, overflow: 'hidden', border: '1px solid #bbb', pointerEvents: 'none' }}>
     <div inert className="sw-presenter-preview-canvas" style={{ width, height, transform: `scale(${scale})`, transformOrigin: 'top left' }}><PresentationContext.Provider value={{ build: build ?? initial, preview: true }}>{prepareSlide(slide)}</PresentationContext.Provider></div>
   </div></div>;
-}
+});
 
 export function PresenterView({ host, index, popup, build, navigation }: { host: StandaloneHost; index: number; popup: Window; build: PresentationBuild | null; navigation: BuildNavigation | null }) {
   const [state, setState] = useState<HostState | null>(null);
@@ -31,16 +31,15 @@ export function PresenterView({ host, index, popup, build, navigation }: { host:
   const [now, setNow] = useState(Date.now());
   useEffect(() => host.subscribe(setState), [host]);
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
-  const deck = useMemo(() => state ? loadDeck({ source: state.source, file: state.fileName, components, scope: { bindings: { ...staticTokens, ...state.assets } }, buildIndices: new Map([[navigation?.slideIndex ?? index, navigation?.buildIndex ?? 0]]) }) : null, [state, navigation?.slideIndex, navigation?.buildIndex, index]);
-  const active = Math.max(0, Math.min(navigation?.slideIndex ?? index, (deck?.slides.length ?? 1) - 1));
+  const deck = useMemo(() => state ? createPresenterDeck({ source: state.source, file: state.fileName,
+    components, scope: { bindings: { ...staticTokens, ...state.assets } } }) : null, [state]);
+  const active = Math.max(0, Math.min(navigation?.slideIndex ?? index, (deck?.total ?? 1) - 1));
   const buildIndex = navigation?.buildIndex ?? 0;
   const buildCount = navigation?.buildCount ?? 1;
   const nextIsBuild = buildIndex + 1 < buildCount;
   const nextIndex = nextIsBuild ? active : active + 1;
-  const nextDeck = useMemo(() => state ? loadDeck({ source: state.source, file: state.fileName, components,
-    scope: { bindings: { ...staticTokens, ...state.assets } },
-    buildIndices: new Map([[nextIndex, nextIsBuild ? buildIndex + 1 : 0]]) }) : null,
-  [state, nextIndex, nextIsBuild, buildIndex]);
+  const currentSlide = deck?.frame(active, buildIndex);
+  const nextSlide = deck?.frame(nextIndex, nextIsBuild ? buildIndex + 1 : 0);
   useEffect(() => {
     function key(event: KeyboardEvent) {
       if (event.ctrlKey || event.metaKey || event.altKey || ((event.target as HTMLElement | null)?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test((event.target as HTMLElement | null)?.tagName ?? ''))) return;
@@ -51,14 +50,15 @@ export function PresenterView({ host, index, popup, build, navigation }: { host:
     popup.addEventListener('keydown', key);
     return () => popup.removeEventListener('keydown', key);
   }, [popup, navigation]);
-  if (!deck) return null;
-  const slide = deck.slidesData[active];
-  const note = slide ? buildNotes(slide.authoredComp, buildIndex) : '';
-  const label = deck.slidesData[active]?.comp.fills.find(fill => fill.name === 'label')?.value;
+  const deckMeta = useMemo(() => deck ? { ...deck.meta, total: deck.total } : null, [deck]);
+  if (!deck || !deckMeta) return null;
+  const slide = deck.authored(active);
+  const note = slide ? buildNotes(slide, buildIndex) : '';
+  const label = slide?.fills.find(fill => fill.name === 'label')?.value;
   const elapsed = Math.max(0, Math.floor((now - started) / 1000));
-  return createPortal(<DeckMetaContext.Provider value={{ ...deck.meta, total: deck.slides.length }}>
+  return createPortal(<DeckMetaContext.Provider value={deckMeta}>
     <main className="sw-presenter-console">
-      <header><h1>Presenter view</h1><span aria-label="Presenter slide">Slide {active + 1} of {deck.slides.length}{label?.kind === 'string' ? ` · ${label.value}` : ''}</span>
+      <header><h1>Presenter view</h1><span aria-label="Presenter slide">Slide {active + 1} of {deck.total}{label?.kind === 'string' ? ` · ${label.value}` : ''}</span>
         <span aria-label="Presenter build">Build {buildIndex + 1} of {buildCount}</span>
         <span aria-label="Elapsed time">{String(Math.floor(elapsed / 60)).padStart(2, '0')}:{String(elapsed % 60).padStart(2, '0')}</span>
         <button type="button" onClick={() => { const time = Date.now(); setStarted(time); setNow(time); }}>Reset timer</button>
@@ -66,8 +66,8 @@ export function PresenterView({ host, index, popup, build, navigation }: { host:
         <button type="button" disabled={!navigation} onClick={() => navigation?.advance(1)}>Next slide</button>
       </header>
       <div className="sw-presenter-previews">
-        {deck.slides[active] && <Preview width={deck.meta.width} height={deck.meta.height} key={`${active}:${buildIndex}`} slide={deck.slides[active]!} label="Current slide overview" build={build} />}
-        {nextDeck?.slides[nextIndex] ? <Preview width={deck.meta.width} height={deck.meta.height} key={`${nextIndex}:${nextIsBuild ? buildIndex + 1 : 0}`} slide={nextDeck.slides[nextIndex]!} label="Next slide overview" /> : <p>End of deck</p>}
+        {currentSlide && <Preview width={deck.meta.width} height={deck.meta.height} key={`${active}:${buildIndex}`} slide={currentSlide} label="Current slide overview" build={build} />}
+        {nextSlide ? <Preview width={deck.meta.width} height={deck.meta.height} key={`${nextIndex}:${nextIsBuild ? buildIndex + 1 : 0}`} slide={nextSlide} label="Next slide overview" /> : <p>End of deck</p>}
       </div>
       <section aria-label="Speaker notes"><h2>Speaker notes</h2><div className="sw-presenter-notes">{note || 'No speaker notes.'}</div></section>
       <p className="sw-presenter-help">Arrow keys advance or reverse builds, then navigate slides. R resets the current build. The current preview follows the audience; the next preview shows the next authored build, or the next slide’s initial build. Previous slide and Next slide buttons follow the same build sequence.</p>
