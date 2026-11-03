@@ -252,7 +252,7 @@ Deck {
           
         ]
       }
-      notes: "I'd like to preface tihs talk by saying this is not your usual UIST talk with a system and an evaluation. Instead, this talk will introduce a way of thinking about what debugging tools are, give an interpretation of debugging behaviors that we've observed, and paint a picture of a possible future for debugging tools."
+      notes: "I'd like to preface tihs talk by saying this is not your usual UIST talk with a system and an evaluation. Instead, I'll introduce a way of thinking about what debugging tools are, give an interpretation of debugging behaviors that we've observed in some studies, and paint a picture of a possible future for debugging tools."
     }
     Slide {
       content: Freeform {
@@ -1465,7 +1465,7 @@ Deck {
       chapter: "Lens"
     
     
-      notes: ["I'll introduce Data-Oriented Debugging by way of this example. This is a basic arithmetic calculator like you might see in an Intro CS course. Here is its evaluate function.", "This calculator has a problem: when you put in 2 + 3 * 4^2, you get 26. For reference, if you're following order of operations, you should get 50.", "So you might think to yourself, \"I wonder if the order of operations is incorrect\".", "You can get at that by adding a print statement to the expression evaluator to print the operator as its executed.", "And when you do this, you can see that the operations do actually print out in the order that you expect, which is exponentiation, then multiplication, then addition", "Which allows you to conclude that the problem is not with the order of operations", "In Data-Oriented Debuggging, when you suspect that the order of operations is wrong but aren't able to tell whether this suspicion is true from looking at the code, we say you have a \"Data Need\" -- something that is answered by looking at some feature of a concrete execution of the code.", "You fulfill this data need by issuing a query using your debugging tool. Here, that's adding a print line", "You interpret the output that your debugging tool gives in response to your query, which is the terminal output here", "And by interpreting this output, you update your mental model of the program"]
+      notes: ["I'll introduce Data-Oriented Debugging by way of this example. This is the expression evaluator from a basic arithmetic calculator program.", "This calculator has a problem: when you put in 2 + 3 * 4^2, you get 26. For reference, if you're following order of operations, you should get 50.", "So you might think to yourself, \"I wonder if the order of operations is incorrect\".", "You can get at that by adding a print statement to see each operator as it's executed.", "And when you do this, you can see that the operations do actually print out in the order that you expect, which is exponentiation, then multiplication, then addition", "Which allows you to conclude that the problem is not with the order of operations", "In Data-Oriented Debuggging, when you suspect that the order of operations is wrong, you aren't able to tell whether this suspicion is true from looking at the code. We say you have a \"Data Need\" -- something that is answered by examining something about how the code really executes.", "You fulfill this data need by issuing a query using your debugging tool. Here, that's adding a print line", "You interpret the output that your debugging tool gives in response to your query, which is the terminal output here", "And by interpreting this output, you update your mental model of the program"]
     }
     
     
@@ -1556,7 +1556,7 @@ Deck {
       label: "Place & Time — Breakpoint debugging"
       notes: [
         """
-          A breakpoint basically gives me the opposite experience: when I'm paused on a breakpoint, I can see across all currently relevant places at this particular moment in time.
+          A breakpoint basically gives me a query across the other axis: when I'm paused on a breakpoint, I can see across all currently relevant places at this particular moment in time.
 
           When I advance the debugger by stepping, I'm getting a different slice of all places at the new point in time.
         """
@@ -1595,7 +1595,7 @@ Deck {
       notes: [
         "So this helps resolve part of the mystery I posed at the beginning: these two tools let me query execution in different ways. Print debugging lets me easily see a particular place across time.",
         "While breakpoint debugging lets me see across Place at a particular point in time.",
-        "We can extend this analysis to other debugging tools, which is what makes this lens so useful. This is the Whyline, a project by Amy Ko from 2009. It analyzes a program's execution and gives us this interface where we can examine events such as method calls or assignments that occur, then lets us ask \"why did this happen?\". If we click on one of these \"why\" links, we navigate backwards in time to the cause of that event.",
+        "We can extend this analysis to other debugging tools, which is what makes this lens so useful. This is the Whyline, by Amy Ko. It analyzes a program's execution and gives us this interface where we can look at things that happen in the program and follow these \"why\" links to navigate backwards in time to the causes of events.",
         "This provides a different type of debugging, one which links points in place-time by their causal relationships, which I've illustrated using these arrows between points."
       
       
@@ -1787,6 +1787,15 @@ Deck {
               id: "object-21"
               visible: false
             }
+            Box {
+              x: 819
+              y: 650
+              width: 531
+              height: 286
+              id: "object-22"
+              visible: false
+            }
+          
           
           
           
@@ -1818,6 +1827,17 @@ Deck {
               target: "object-21"
               visible: true
             }
+            Change {
+              target: "object-22"
+              visible: true
+              fill: "transparent"
+              borderColor: blue
+              borderWidth: 8
+            
+            
+            
+            }
+          
           ]
         }
         Build {
@@ -1835,6 +1855,11 @@ Deck {
               target: "object-21"
               visible: false
             }
+            Change {
+              target: "object-22"
+              visible: false
+            }
+          
           
           ]
         }
@@ -1981,7 +2006,7 @@ Deck {
       notes: """
         We did two studies, first a set of interviews with 12 experienced industry programmers where we asked them about their debugging process, then a study where we had 19 participants use different debugging tools to solve two debugging tasks and qualitatively compared how they used them.
 
-        In the lab study, we had participants solve 2 bugs each, using print debugging, breakpoints, and another tool I'll tell you about later
+        In the lab study, we had participants solve 2 bugs each using different debuggers and compared their debugging behaviors.
       """
     }
     Slide {
@@ -2553,9 +2578,7 @@ Deck {
       notes: """
         And this corroborates something we saw in our formative interviews: industry software engineers spoke of this negotiation process they did with themselves where they wanted to capture enough information to answer their questions, but not so much that they'd be overwhelmed by noise. This applied across preferred debugging tools.
 
-        One breakpoint user said that putting a breakpoint in the wrong place could get called a ton and drive them crazy.
-
-        A print user said something similar, that logging too much could be too much information and would hinder their ability to process it.
+        For example, a print user said that logging too much could be too much information and would hinder their ability to process it.
 
         This, to me, smells like a tooling issue. Programmers are modifying their behavior and shifting from "what do I need?" to "what am I allowed to ask for?" Which suggests that future debugging tools need to give them ways to handle the data that they collect and transform how their query outputs are presented.
       """
