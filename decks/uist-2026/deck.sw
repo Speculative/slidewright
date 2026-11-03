@@ -31,8 +31,6 @@ Deck {
     purple: "#8000ff"
     orangeText: "#a84f00"
     yellowText: "#966e00"
-    cyanText: "#007ab5"
-    pinkText: "#df1b74"
     selection: "#e5f0ff"
     markerYellow: "#fff2b3"
     markerCyan: "#d8f3ff"
@@ -178,8 +176,8 @@ Deck {
       content: Freeform {
         children: [
           TextBox {
-            x: 101
-            y: 119
+            x: 117
+            y: 197
             sizing: "auto-width"
             font: "body"
             fontSize: 100
@@ -193,20 +191,68 @@ Deck {
                   "This is an "
                   Span {
                     content: [
-                      "unusual"
+                      "unconventional"
                     ]
                     color: blue
                   }
                   " talk!"
                 
+                
+                
                 ]
               }
             ]
           }
+          TextBox {
+            x: 117
+            y: 400
+            sizing: "auto-width"
+            font: "body"
+            fontSize: 64
+            fontWeight: "400"
+            lineHeight: 1.25
+            letterSpacing: 0
+            align: "left"
+            content: [
+              List {
+                items: [
+                  ListItem {
+                    content: [
+                      "Intro to Data-Oriented Debugging"
+                    ]
+                  }
+                  ListItem {
+                    content: [
+                      "Observing DOD in studies"
+                    ]
+                  }
+                  ListItem {
+                    content: [
+                      "Future directions for debugging tools"
+                    ]
+                  }
+                ]
+                style: "decimal"
+              }
+              Paragraph {
+                content: []
+              }
+              Paragraph {
+                content: [
+                  "There will be no AI! But ask during Q&A ",
+                  "😊"
+                
+                ]
+              }
+            
+            ]
+          }
+        
         
           
         ]
       }
+      notes: "I'd like to preface tihs talk by saying this is not your usual UIST talk with a system and an evaluation. Instead, this talk will introduce a way of thinking about what debugging tools are, give an interpretation of debugging behaviors that we've observed, and paint a picture of a possible future for debugging tools."
     }
     Slide {
       content: Freeform {
@@ -379,11 +425,11 @@ Deck {
       notes: ["""
         I'd like to start with a mystery. Think back a year or two ago, when most of you in this room were writing and debugging code by hand.
 
-        Do you use print debugging? I'm willing to bet that even in a room full of programming interface and tooling researchers, a good number of you use print debugging. I certainly do.
+        Do you use print debugging? I'm willing to bet that even amongst people who research novel interfaces, a good number of you use print debugging. I certainly do.
       """, """
         What about breakpoint debugging? Some of you almost certainly feel that a breakpoint debugger confers great advantages by being interactive.
       """, """
-        What I'd like to show you today is a framework for thinking about what each of those debugging tools is doing for you, why you might prefer different tools in different situations, and what I think that means about future debugging tools.
+        What I'd like to show you today is a framework for thinking about what each of those debugging tools is doing for you and why you might prefer different tools in different situations.
       """]
     }
     
@@ -1419,7 +1465,7 @@ Deck {
       chapter: "Lens"
     
     
-      notes: ["I'll introduce Data-Oriented Debugging by way of this example. This is a basic arithmetic calculator like you might see in an Intro CS course. Here is its evaluate function.", "This calculator has a problem: when you put in 2 + 3 * 4^2, you get 26. For reference, if you're following order of operations, you should get 50.", "So you might think to yourself, \"I wonder if the order of operations is incorrect\".", "You can get at that by adding a print statement to the expression evaluator to print the operator as its executed. You know that they'll print out in order, which will let you infer the order that the operations were executed", "And when you do this, you can see that the operations do actually print out in the order that you expect, which is exponentiation, then multiplication, then addition", "Which allows you to conclude that the problem is not with the order of operations", "In Data-Oriented Debuggging, when you suspect that the order of operations is wrong but aren't able to tell whether this suspicion is true from looking at the code, we say you have a \"Data Need\" -- something that is answered by looking at some feature of a concrete execution of the code.", "You fulfill this data need by issuing a query using your debugging tool. Here, that's adding a print line", "You interpret the output that your debugging tool gives in response to your query, which is the terminal output here", "And by interpreting this output, you update your mental model of the program"]
+      notes: ["I'll introduce Data-Oriented Debugging by way of this example. This is a basic arithmetic calculator like you might see in an Intro CS course. Here is its evaluate function.", "This calculator has a problem: when you put in 2 + 3 * 4^2, you get 26. For reference, if you're following order of operations, you should get 50.", "So you might think to yourself, \"I wonder if the order of operations is incorrect\".", "You can get at that by adding a print statement to the expression evaluator to print the operator as its executed.", "And when you do this, you can see that the operations do actually print out in the order that you expect, which is exponentiation, then multiplication, then addition", "Which allows you to conclude that the problem is not with the order of operations", "In Data-Oriented Debuggging, when you suspect that the order of operations is wrong but aren't able to tell whether this suspicion is true from looking at the code, we say you have a \"Data Need\" -- something that is answered by looking at some feature of a concrete execution of the code.", "You fulfill this data need by issuing a query using your debugging tool. Here, that's adding a print line", "You interpret the output that your debugging tool gives in response to your query, which is the terminal output here", "And by interpreting this output, you update your mental model of the program"]
     }
     
     
@@ -1431,7 +1477,7 @@ Deck {
 
           We visualize this using the orthogonal axes of Place and Time
 
-          Place refers to all of the locations in the code and the variables contained there. You can kind of imagine the source code exploded vertically across this axis.
+          Place refers to all of the locations in the code and the variables contained there. You can kind of imagine lines of source code  mapping to vertical positions.
 
           Time, as you might expect, refers to the progression of execution, with things that happen later in execution appearing rightwards on the axis.
         """
@@ -1448,9 +1494,9 @@ Deck {
               fontSize: 76
               fontWeight: "700"
               content: [Paragraph { content: [
-                Span { content: "Place" color: cyanText }
+                Span { content: "Place" color: cyan }
                 " & "
-                Span { content: "Time" color: pinkText }
+                Span { content: "Time" color: pink }
               ] }]
             }
             DebuggerDemo {
@@ -1471,11 +1517,9 @@ Deck {
         """
           We can use the Place-Time chart to understand what different debugging tools are doing for us.
 
-          After I add a print statement to my code, when that line of code executes, it prints the expressions that I added to the print statement.
+          After I add a print statement to my code, when that line of code executes, it prints the expressions that queried for.
 
-          This happens every time the print statement executes, and what I get is an ordered list of log lines in my terminal.
-
-          So the expression being logged is a particular Place in the code, and the query that I'm expressing using print debugging is "show me this place across all time".
+          This happens every time the print statement executes. So the expression being logged is a particular Place in the code, and the query that I'm expressing is "show me this place across all time".
         """
       ]
       content: PlateauSlide {
@@ -1490,9 +1534,9 @@ Deck {
               fontSize: 76
               fontWeight: "700"
               content: [Paragraph { content: [
-                Span { content: "Place" color: cyanText }
+                Span { content: "Place" color: cyan }
                 " & "
-                Span { content: "Time" color: pinkText }
+                Span { content: "Time" color: pink }
               ] }]
             }
             DebuggerDemo {
@@ -1529,9 +1573,9 @@ Deck {
               fontSize: 76
               fontWeight: "700"
               content: [Paragraph { content: [
-                Span { content: "Place" color: cyanText }
+                Span { content: "Place" color: cyan }
                 " & "
-                Span { content: "Time" color: pinkText }
+                Span { content: "Time" color: pink }
               ] }]
             }
             DebuggerDemo {
@@ -1551,7 +1595,7 @@ Deck {
       notes: [
         "So this helps resolve part of the mystery I posed at the beginning: these two tools let me query execution in different ways. Print debugging lets me easily see a particular place across time.",
         "While breakpoint debugging lets me see across Place at a particular point in time.",
-        "We can extend this analysis to other debugging tools, which is what makes this lens so useful. This is the Whyline, a project by Amy Ko that was at CHI in 2004 and 2009. It analyzes a program's execution and gives us this interface where we can examine events such as method calls or assignments that occur, then lets us ask \"why did this happen?\". If we click on one of these \"why\" links, we navigate backwards in time to the cause of that event.",
+        "We can extend this analysis to other debugging tools, which is what makes this lens so useful. This is the Whyline, a project by Amy Ko from 2009. It analyzes a program's execution and gives us this interface where we can examine events such as method calls or assignments that occur, then lets us ask \"why did this happen?\". If we click on one of these \"why\" links, we navigate backwards in time to the cause of that event.",
         "This provides a different type of debugging, one which links points in place-time by their causal relationships, which I've illustrated using these arrows between points."
       
       
@@ -1819,7 +1863,7 @@ Deck {
             content: [
               Paragraph {
                 content: [
-                  "Findings"
+                  "Study Findings"
                 ]
               }
             ]
@@ -1845,8 +1889,9 @@ Deck {
         ]
       }
       chapter: "Study Findings"
-      notes: "On to things that we learned from applying the Data-Oriented Debugging to understand debugging behavior."
+      notes: "On to things that we learned from applying Data-Oriented Debugging to understand debugging behavior."
     }
+    
     Slide {
       content: Freeform {
         TextBox {
@@ -2022,9 +2067,9 @@ Deck {
         }
       }
       notes: """
-        First, the basic types of queries that we saw participants issuing in that lab study. It's worth mentioning that every participant issued more than one type of query, which I think underscores the need for flexible debugging tools.
+        First, the basic types of queries that we saw participants issuing in that lab study.
 
-        The most common one by far was looking across time. Participants did this with print lines, or by setting one breakpoint and pressing continue to see every time it's hit. This fulfills data needs such as "What are all of the values this can have?"
+        The most common one by far was looking across time. This fulfills data needs such as "What are all of the values this can have?"
       """
     }
     Slide {
@@ -2104,7 +2149,7 @@ Deck {
           ]
         }
       }
-      notes: "We also saw queries across place, such as by stopping at a breakpoint and looking at the variables panel. Participants oftentimes used this as a discovery mechanism to see what else there was to look at"
+      notes: "We also saw queries across place, such as stopping on a breakpoint and looking at the variables panel. Participants oftentimes used this as a discovery mechanism to see what else there was to look at"
     }
     
     Slide {
@@ -2180,7 +2225,7 @@ Deck {
           ]
         }
       }
-      notes: "We saw this simple type of query where participants were looking to see what a value from an event that only occurred one time, or ignoring values completely and just checking that a certain line ever executed."
+      notes: "We saw these point queries where they were looking for something that only happened one time."
     }
     Slide {
       label: "Types of Queries — Across Place and Time"
@@ -2264,11 +2309,12 @@ Deck {
         }
       }
       notes: """
-        And the most complex type of query was when participants assembled composite views of multiple places and then compared them across time. These sorts of queries showed complex analyses that went beyond retrieving some singular fact about execution, instead looking at 
+        And the most complex type of query was when participants assembled views of multiple places and and times. These were complex analyses that went beyond retrieving some singular fact, instead looking at patterns.
 
-        An example from our study was when one participant, debugging a web server, logged each middleware invocation and its response. Initially they wanted to see what middleware was responsible for each rejected request, but then they saw that the number of middleware running per-request was variable, and multiple different middleware were responsible for rejections.
+        An example from our study was in a web processing pipeline when one participant realized a particular line executes a variable number of times per request, which was an important step towards them discovering that a certain processing layer had a problem.
       """
     }
+    
     Slide {
       label: "Transformations"
       notes: [
@@ -2518,10 +2564,53 @@ Deck {
     
     
     Slide {
+      content: Freeform {
+        children: [
+          TextBox {
+            x: 110
+            y: 407
+            sizing: "auto-width"
+            font: "body"
+            fontSize: 100
+            fontWeight: "700"
+            lineHeight: 1.25
+            letterSpacing: 0
+            align: "left"
+            content: [
+              Paragraph {
+                content: [
+                  "The Future"
+                ]
+              }
+            ]
+          }
+          TextBox {
+            x: 110
+            y: 572
+            sizing: "auto-width"
+            font: "body"
+            fontSize: 48
+            fontWeight: "400"
+            lineHeight: 1.25
+            letterSpacing: 0
+            align: "left"
+            content: [
+              Paragraph {
+                content: [
+                  "Tools for better Data-Oriented Debugging"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+      chapter: "Future Directions"
+      notes: "On to things that we learned from applying the Data-Oriented Debugging to understand debugging behavior."
+    }
+    Slide {
       label: "autopsy — Across Place & Time"
-      chapter: "The Future of Debugging"
       notes: ["""
-        I think that Data-Oriented Debugging points in a potential future direction for debugging tools. One that makes it easy to express many different types of queries while staying in flow. I've been working on a tool like this that I call "autopsy"
+        I think that Data-Oriented Debugging points towards a tool that makes it easy to express many different types of queries with the same tool, since we saw in our study that programmers issue multiple different query shapes in a single debugging session. I've been working on a tool like this that I call "autopsy"
       """,
       "Using autopsy initially looks like using print debugging. You add these log calls to your code",
       "When a particular log call executes, it logs the expression you gave it. But it also takes a snapshot that gives you a view across all place at the time of the log",
@@ -2715,6 +2804,8 @@ Deck {
       
       ]
     }
+    
+    
     Slide {
       label: "autopsy — From logs to a table"
       notes: [
@@ -2763,109 +2854,264 @@ Deck {
       content: Freeform {
         children: [
           TextBox {
-            x: 83
-            y: 80
-            sizing: "auto-width"
+          x: 102
+          y: 61
+          sizing: "auto-width"
+          font: "body"
+          fontSize: 76
+          fontWeight: "700"
+          color: ink
+          content: [
+            Paragraph {
+              content: "autopsy"
+              id: "object-4"
+            }
+          ]
+          id: "object-3"
+        }
+          CodeDisplay {
+          id: "autopsy-code"
+          x: 560
+          y: 258
+          width: 800
+          height: 567
+          fontSize: 30
+          visible: true
+          highlightedLines: [
+            10
+          
+            
+          ]
+          content: [
+            Paragraph {
+              content: Span {
+                runId: "run-1"
+                content: "def evaluate(node):\n    if isinstance(node, Num):\n        return node.value\n    left = evaluate(node.left)\n    right = evaluate(node.right)\n    match node.op:\n        case \"+\": result = left + right\n        case \"*\": result = left * right\n        case \"^\": result = left * right\n    log(node.op)\n    return result"
+                  id: "object-2"
+                
+              }
+              id: "object-5"
+            }
+          ]
+        }
+          AutopsyInterface {
+            id: "object-6"
+            x: 1110
+            y: 258
+            width: 700
+            height: 567
+            tableOnly: true
+            visible: false
+          }
+        
+        ]
+        id: "object-1"
+      
+      }
+      notes: [
+        "",
+        "",
+        ""
+      
+      ]
+      builds: [
+        Build {
+          id: "build-1"
+          changes: [
+            Change {
+              target: "autopsy-code"
+              x: 180
+              highlightedLines: []
+              content: [
+                Paragraph {
+                  content: Span {
+                    runId: "run-1"
+                    content: "def evaluate(node):\n    if isinstance(node, Num):\n        return node.value\n    left = evaluate(node.left)\n    right = evaluate(node.right)\n    match node.op:\n        case \"+\": result = left + right\n        case \"*\": result = left * right\n        case \"^\": result = left * right\n\n    return result"
+                    id: "object-2"
+                  }
+                  id: "object-5"
+                }
+              ]
+            
+            }
+            Change { target: "object-6" visible: true }
+          ]
+        }
+        Build {
+          id: "build-2"
+          changes: [
+            Change {
+              target: "object-6"
+              draggingResult: true
+            }
+          
+          ]
+        }
+      
+        Build {
+          id: "autopsy-result-values"
+          label: "Project result into the table"
+          changes: [
+            Change { target: "object-6" draggingResult: false resultColumn: true }
+          ]
+        }
+      ]
+    
+    }
+    
+    Slide {
+      content: Freeform {
+        children: [
+          TextBox {
+            x: 154
+            y: 178
+            width: 1330
+            height: 266
             font: "body"
-            fontSize: 76
+            fontSize: 100
             fontWeight: "700"
             lineHeight: 1.25
-            letterSpacing: 0
+            color: ink
             align: "left"
             content: [
               Paragraph {
                 content: [
-                  "The Future of Debugging"
+                  Span {
+                    content: [
+                      "Data-Oriented"
+                    ]
+                    color: ink
+                  }
+                  Span {
+                    content: [
+                      " Debugging"
+                    ]
+                    color: ink
+                  }
+                ]
+              }
+              Paragraph {
+                content: [
+                  "Across "
+                  Span {
+                    content: [
+                      "Place"
+                    ]
+                    color: cyan
+                  }
+                  " and "
+                  Span {
+                    content: [
+                      "Time"
+                    ]
+                    color: pink
+                  }
                 ]
               }
             ]
           }
           TextBox {
-            x: 109
-            y: 261
+            x: 1488
+            y: 657
+            width: 1260
+            height: 72
+            font: "body"
+            fontSize: 45
+            fontWeight: "400"
+            lineHeight: 1.25
+            color: ink
+            align: "left"
+            content: [
+              Paragraph {
+                content: [
+                  Span {
+                    content: [
+                      "Jeffrey Tao"
+                    ]
+                    color: ink
+                  
+                  }
+                
+                ]
+              }
+            ]
+            sizing: "auto-width"
+          }
+          
+          Image {
+            x: 1469
+            y: 376
+            width: 270
+            height: 270
+            src: plateauHeadshot
+            alt: "Jeffrey Tao"
+            fit: "cover"
+            radius: 135
+          }
+          Image {
+            x: 766
+            y: 476
+            width: 433
+            height: 433
+            src: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAfQAAAH0CAYAAADL1t+KAAAe6ElEQVR4Ae3AA6AkWZbG8f937o3IzKdyS2Oubdu2bdu2bdu2bWmMnpZKr54yMyLu+Xa3anqmhztr1a/aNlddddVVV1111f9mBFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92VP6XksRV/zq2+e8mif+rbPOiksSLyjYvKkm8qGzz300SLyrb/GeQxH8G2/x3k8RV/zq2+V+K4Kqrrrrqqquu+t+O4Kqrrrrqqquu+t+O4Kqrrrrqqquu+t+O4Kqrrrrqqquu+t+O4Kqrrrrqqquu+t+O4Kqrrrrqqquu+t+O4Kqrrrrqqquu+t+O4Kqrrrrqqquu+t+O4Kqrrrrqqquu+t+O4Kqrrrrqqquu+t+Oyv8Dtvm/ShL/GSTxn8E2LypJvKhs86KSxIvKNi8qSbyobPOiksSLyjb/GSTxv4kkrvrXsc3/VZL4f4Dgqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347KVc9BEv/dbPPfzTb/3WzzopLEi8o2/xls86KSxFX/OpJ4UdnmRSWJq/51JPHfzTZXPQeCq6666qqrrrrqfzuCq6666qqrrrrqfzuCq6666qqrrrrqfzuCq6666qqrrrrqfzuCq6666qqrrrrqfzuCq6666qqrrrrqfzuCq6666qqrrrrqfzuCq6666qqrrrrqfzuCq6666qqrrrrqfzuCq6666qqrrrrqfzsqV131fEjiP4Nt/jeRxH8G21wFtnlRSeK/m23+M0jiRWWbq656Pgiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7ahcddV/IUm8qGzzn0ES/90k8aKyzYtKEv+bSOJFZZv/DLb572abq676dyK46qqrrrrqqqv+tyO46qqrrrrqqqv+tyO46qqrrrrqqqv+tyO46qqrrrrqqqv+tyO46qqrrrrqqqv+tyO46qqrrrrqqqv+tyO46qqrrrrqqqv+tyO46qqrrrrqqqv+tyO46qqrrrrqqqv+tyO46qqrrrrqqqv+t6Ny1XOwzVVgm/9NbPOiksR/N9v8d7PNfwZJ/GeQxIvKNv8ZJPGiss3/Vba56n8cgquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87Kv8PSOKqfx1JvKhs86KSxIvKNi8qSbyobPOiksSLyjYvKkm8qGzz300SLyrbvKgk8aKyzYtKEi8q2/x3k8SLyjb/GSRx1f9qBFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92VP6Xss1V/zNI4kVlmxeVJF5UtvnfxDYvKkm8qGzzn8E2/90k8aKyzYtKEi8q27yoJPHfzTZX/b9BcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9H5f8BSbyobPOiksT/Jrb5v0oS/xls859BEv8ZJPGiss2LShIvKtu8qGzzopLEi0oSLyrbvKgk8aKyzX8GSfxnsM2LShL/GWzzopLEi8o2/w8QXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sh2+Z/IUn8X2Wb/00k8Z/BNi8qSfx3s83/JpL4z2CbF5Uk/jPY5kUlif9utvnvJon/TWxz1XMguOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rej8r+UbV5UkvjvZpv/DJJ4Udnmv5tt/rvZ5r+bJF5UtnlRSeJFZZsXlST+M9jmRSWJ/262eVFJ4j+DJP6vss1/Bkm8qGzzvxTBVVddddVVV131vx3BVVddddVVV131vx3BVVddddVVV131vx3BVVddddVVV131vx3BVVddddVVV131vx3BVVddddVVV131vx3BVVddddVVV131vx3BVVddddVVV131vx3BVVddddVVV131vx3BVVddddVVV131vx2ybf4XksT/Jrb57yaJ/wy2eVFJ4kVlm/8MkvjPYJv/DJJ4UdnmfxNJ/GewzX8GSVz1f5tt/pciuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rdDts3/QpL438Q2LypJXPWvY5v/TSTx3802LypJvKhs859BEv8ZbPOfQRL/GWzzopLEi8o2/xkk8aKyzYtKEv8ZbPO/FMFVV1111VVXXfW/HcFVV1111VVXXfW/HcFVV1111VVXXfW/HcFVV1111VVXXfW/HcFVV1111VVXXfW/HcFVV1111VVXXfW/HcFVV1111VVXXfW/HcFVV1111VVXXfW/HcFVV1111VVXXfW/HcFVV1111VVXXfW/HZX/pWzzopLE/ya2+c8gif8MtnlRSeK/myT+M9jmRWWbF5UkrvrPI4kXlW3+u0niRWWb/wySeFHZ5kUliReVba56DgRXXXXVVVddddX/dgRXXXXVVVddddX/dgRXXXXVVVddddX/dgRXXXXVVVddddX/dgRXXXXVVVddddX/dgRXXXXVVVddddX/dgRXXXXVVVddddX/dgRXXXXVVVddddX/dgRXXXXVVVddddX/dgRXXXXVVVddddX/dlT+l5LEfwbbvKgk8d9NEi8q27yoJPGiksT/VbZ5UUniv5tt/q+yzX8GSbyoJPHfzTYvKkn8Z7DNi0oS/xkk8Z/BNv9LEVx11VVXXXXVVf/bEVx11VVXXXXVVf/bEVx11VVXXXXVVf/bEVx11VVXXXXVVf/bEVx11VVXXXXVVf/bEVx11VVXXXXVVf/bEVx11VVXXXXVVf/bEVx11VVXXXXVVf/bEVx11VVXXXXVVf/bEVx11VVXXXXVVf/bIdvm/zhJvKhs83+VJP672eZFJYn/brb5v0oS/xls859BEi8q2/xfJYmr/vPY5n8pgquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87Kv9LSeJFZZv/DJJ4UdnmRSWJ/262+e9mmxeVJF5UtrnqX8c2/5tI4v8q27yoJPGiss1/N0m8qGzzopLE/wMEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3ZU/h+QxIvKNv8ZJPGiss1/Bkn8Z5DEi8o2LypJ/HeTxIvKNv8ZJPHfTRIvKtu8qCTxorLN/yaSeFHZ5j+DbV5UknhR2ea/myReVLb5f4Dgqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347K/wO2eVFJ4r+bJK76v00S/xls83+VJF5UtnlRSeJFZZv/bpL47yaJF5VtXlS2+c8giReVbf6XIrjqqquuuuqqq/63I7jqqquuuuqqq/63I7jqqquuuuqqq/63I7jqqquuuuqqq/63I7jqqquuuuqqq/63I7jqqquuuuqqq/63I7jqqquuuuqqq/63I7jqqquuuuqqq/63I7jqqquuuuqqq/63I7jqqquuuuqqq/63o3LVfwnbvKgk8aKyzX8GSbyobPOiksSLyjZXgW1eVJJ4UdnmfxPbvKgk8Z9BEi8q2/x3s81/N0m8qGzzopLEi8o2/w8QXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9tR+V/KNv/dbPOiksSLyjYvKkm8qGzzorLN/yaSeFHZ5iqQxH8G27yobPOiksR/Btu8qCTxn0ESLyrbvKgk8aKyzYtKEi8q2/xnsM1Vz4Hgqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347KVf9mknhR2eY/g23+M0ji/ypJ/HezzX8G27yoJPGiss2LShIvKtv8Z7DNfzdJ/HezzYtKEv8ZJPGiss2LShIvKtv8P0Bw1VVXXXXVVVf9b0dw1VVXXXXVVVf9b0dw1VVXXXXVVVf9b0dw1VVXXXXVVVf9b0dw1VVXXXXVVVf9b0dw1VVXXXXVVVf9b0dw1VVXXXXVVVf9b0dw1VVXXXXVVVf9b0dw1VVXXXXVVVf9b0dw1VVXXXXVVVf9b0flfylJvKhs86KyzX8GSbyobPOiksSLyjYvKtv8Z5DEi0oSLyrb/HeTxH8327yobHMVSOJFZZsXlSReVLb5zyCJF5VtXlSSeFHZ5kUliReVbV5UknhR2eZ/KYKrrrrqqquuuup/O4Krrrrqqquuuup/O4Krrrrqqquuuup/O4Krrrrqqquuuup/O4Krrrrqqquuuup/O4Krrrrqqquuuup/O4Krrrrqqquuuup/O4Krrrrqqquuuup/O4Krrrrqqquuuup/O4Krrrrqqquuuup/O2Tb/C8kiReVbV5UknhR2eZFJYkXlW3+M0jiP4Nt/jNI4kVlm/8MkvjPYJsXlST+M9jmv5sk/jPY5j+DJK4C27yoJPHfzTb/DxBcddVVV1111VX/2xFcddVVV1111VX/2xFcddVVV1111VX/2xFcddVVV1111VX/2xFcddVVV1111VX/2xFcddVVV1111VX/2xFcddVVV1111VX/2xFcddVVV1111VX/2xFcddVVV1111VX/2xFcddVVV1111VX/21H5f0ASLyrb/G8iif8MtnlRSeJ/E0m8qGzzopLEfzfb/GeQxIvKNv8ZbPOiksSLyjYvKtv8Z5DEi8o2LypJ/HezzVX/JQiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7ahc9W8miReVbV5UknhR2eY/gySuAkm8qGzzopLEfwZJ/HeTxIvKNi8qSbyobPOiksT/VbZ5UUniRSWJ/wy2eVFJ4kVlm/8HCK666qqrrrrqqv/tCK666qqrrrrqqv/tCK666qqrrrrqqv/tCK666qqrrrrqqv/tCK666qqrrrrqqv/tCK666qqrrrrqqv/tCK666qqrrrrqqv/tCK666qqrrrrqqv/tCK666qqrrrrqqv/tCK666qqrrrrqqv/tqFz1v5ok/jexzYtKEv8ZbPOiksR/N9v8byKJF5UkXlS2eVFJ4kVlmxeVJP4z2OY/gyT+M9jmP4Mk/jNI4kVlm/+lCK666qqrrrrqqv/tCK666qqrrrrqqv/tCK666qqrrrrqqv/tCK666qqrrrrqqv/tCK666qqrrrrqqv/tCK666qqrrrrqqv/tCK666qqrrrrqqv/tCK666qqrrrrqqv/tCK666qqrrrrqqv/tCK666qqrrrrqqv/tqPw/YJv/DLZ5UUniP4Nt/jNI4v8qSfxnkMSLyjYvKkm8qGzzn0ESLyrb/HezzX8G2/x3k8SLyjYvKkm8qCTxv4lt/h8guOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rejctVzkMR/Btu8qCTxopLE/yaSeFHZ5kUliReVbV5UkvjPIIkXlW1eVJL430QS/xls86KSxIvKNi8qSfx3k8T/Vba56jkQXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sh2+aqq56LJP4z2OY/gyT+N7HNfwZJ/F9lm/8MkvjPYJsXlSReVLb57yaJ/01s8/8AwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dlf+lJHHVv45tXlS2eVFJ4j+DJP4z2Oa/myT+u9nmfxNJvKhs86Kyzf9VknhR2eZ/E9u8qCTxorLN/1IEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3ZU/h+wzf9VkvjPIIn/DJL47yaJF5VtXlSS+L9KEi8q27yoJPHfTRL/V9nmfxPbXPVvRnDVVVddddVVV/1vR3DVVVddddVVV/1vR3DVVVddddVVV/1vR3DVVVddddVVV/1vR3DVVVddddVVV/1vR3DVVVddddVVV/1vR3DVVVddddVVV/1vR3DVVVddddVVV/1vR3DVVVddddVVV/1vR3DVVVddddVVV/1vR+Wq5yCJ/262uQps859BEi8qSbyobPOiksSLyjb/3WzzopLEfwbbvKgk8aKyzYtKEv/dJPG/iW2u+i9BcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9H5aqr/g+QxP9VkvjPYJv/DLZ5UUniRSWJF5Vt/jPY5kUliReVbf4zSOI/g21eVJL472ab/wcIrrrqqquuuuqq/+0Irrrqqquuuuqq/+0Irrrqqquuuuqq/+0Irrrqqquuuuqq/+0Irrrqqquuuuqq/+0Irrrqqquuuuqq/+0Irrrqqquuuuqq/+0Irrrqqquuuuqq/+0Irrrqqquuuuqq/+0Irrrqqquuuuqq/+2oXHXV82GbF5UkXlS2+c9gmxeVJF5UtvnvZpsXlSReVJK46l9HEi8q27yoJPGiss2LyjYvKkm8qCTxorLNfwZJvKgk8aKyzf9SBFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92VK56Dra5CiTxn0ESLyrbvKgk8Z9BEi8q27yobPOfwTYvKkn8Z7DNVf86tvnPIIn/bpK46r8EwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dlf8HJHHVv45t/jNI4kUlif9NJPGiss1/Bkm8qGzzopLEfzdJ/GewzX83SVwFtvnPIIn/Bwiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7ZBtc9VVV1111VVX/W9GcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W/HPwIKicM4aSHsCAAAAABJRU5ErkJggg=="
+          }
+          TextBox {
+            x: 1432
+            y: 733
             sizing: "auto-width"
             font: "body"
-            fontSize: 48
+            fontSize: 32
             fontWeight: "400"
             lineHeight: 1.25
             letterSpacing: 0
             align: "left"
             content: [
-              List {
-                items: [
-                  ListItem {
-                    content: [
-                      "No "
-                      Span {
-                        content: [
-                          "log()"
-                        ]
-                        font: "mono"
-                      }
-                      " and rerun, capture everything"
-                    ]
-                  }
-                  ListItem {
-                    content: [
-                      "Causality tracing (Whyline)"
-                    ]
-                  }
-                  ListItem {
-                    content: [
-                      "Ideas from data analysis:"
-                    ]
-                    children: List {
-                      items: [
-                        ListItem {
-                          content: [
-                            "Exploratory/confirmatory analysis"
-                          ]
-                        }
-                        ListItem {
-                          content: [
-                            "Test suite as sampling inputs"
-                          ]
-                        }
-                      ]
-                    }
-                  
-                  }
-                
-                
-                
+              Paragraph {
+                content: [
+                  "https://speculative.tech"
                 ]
               }
             ]
           }
-        ]
-      }
-      label: ""
-    }
-    Slide {
-      content: Freeform {
-        children: [
           TextBox {
-            x: 807
-            y: 478
+            x: 271
+            y: 644
             sizing: "auto-width"
             font: "body"
-            fontSize: 100
-            fontWeight: "700"
+            fontSize: 64
+            fontWeight: "400"
             lineHeight: 1.25
             letterSpacing: 0
             align: "left"
             content: [
               Paragraph {
                 content: [
-                  "<end>"
+                  Span {
+                    content: [
+                      "Questions?"
+                    ]
+                    weight: "700"
+                  }
                 ]
               }
             ]
+            color: blue
+          
           }
+        
+        
+        
+          
+        
+          
+        
+          
         ]
       }
       label: ""
       chapter: ""
+      chromeless: true
+    
     }
     Slide {
       content: Freeform {
@@ -2892,1105 +3138,98 @@ Deck {
       }
       chapter: "Appendix"
     }
+    Slide {
+      content: Freeform {
+        children: [
+          
+          TextBox {
+            x: 113
+            y: 76
+            sizing: "auto-width"
+            font: "body"
+            fontSize: 76
+            fontWeight: "700"
+            lineHeight: 1.25
+            color: ink
+            content: [
+              Paragraph {
+                content: [
+                  "🚨 Break glass in case of AI question"
+                ]
+              }
+            ]
+          }
+          TextBox {
+            x: 114
+            y: 255
+            sizing: "auto-height"
+            font: "body"
+            fontSize: 64
+            fontWeight: "400"
+            lineHeight: 1.25
+            letterSpacing: 0
+            align: "left"
+            content: [
+              Paragraph {
+                content: [
+                  Span {
+                    content: [
+                      "Hasn't AI made debugging interfaces obsolete?"
+                    ]
+                    italic: true
+                  }
+                ]
+              }
+              List {
+                items: [
+                  ListItem {
+                    content: [
+                      "DOD concerns "
+                      Span {
+                        content: [
+                          "responses to data needs"
+                        ]
+                        italic: true
+                      }
+                    ]
+                  }
+                  ListItem {
+                          content: [
+                            "AI coding agents"
+                            Span {
+                              content: [
+                                " "
+                              ]
+                              italic: true
+                            }
+                            "do better with objective feedback"
+                          ]
+                        }
+                  ListItem {
+                    content: [
+                      "Debugging is still an interesting setting for observing human comprehension of complex systems"
+                    ]
+                  }
+                
+                
+                ]
+              }
+            
+            ]
+            width: 1563
+            height: 416
+          
+          }
+        
+        
+          
+        
+        ]
+      }
+    }
+  
     
-    // Slide 5
-    Slide {
-      label: "Too Much / Too Little Information"
-      notes: "We conducted interviews with 12 experienced industry software engineers to understand their debugging practices and why they preferred certain tools and techniques. One major theme that emerged was that their debugging strategies often involved this active negotiation with collecting and viewing information about execution.\n\nSometimes they worried about collecting too much. One participant told us that unnecessary information could cause them to lose out on the meaningful thing that would help them understand the bug.\n\nAnother participant said that a poorly placed breakpoint could disrupt their workflow if it was hit a lot.\n\n---\n\nOn the other hand, they also worried about not having enough information to understand their bugs. They felt this more acutely the longer it took to get new debugging data."
-      content: PlateauSlide {
-        branding: true
-        content: Freeform {
-          children: [
-            TextBox {
-              x: 115
-              y: 70
-              width: 1690
-              height: 120
-              font: "body"
-              fontSize: 76
-              fontWeight: "700"
-              lineHeight: 1.25
-              color: orangeText
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    Span {
-                      content: [
-                        "Too Much Information"
-                      ]
-                      strokeColor: red
-                      color: red
-                    
-                    }
-                  ]
-                }
-              ]
-            }
-            TextBox {
-              x: 135
-              y: 205
-              width: 1640
-              height: 140
-              font: "body"
-              fontSize: 38
-              fontWeight: "400"
-              lineHeight: 1.25
-              color: ink
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    "P3: \"you don't want to burn up your log files with unnecessary information…otherwise, you will lose out the meaningful logs\""
-                  ]
-                }
-              ]
-            }
-            TextBox {
-              x: 135
-              y: 365
-              width: 1640
-              height: 140
-              font: "body"
-              fontSize: 38
-              fontWeight: "400"
-              lineHeight: 1.25
-              color: ink
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    "P10: \"if it is something that's gonna get called a ton…putting a breakpoint inside that is gonna kind of drive me crazy\""
-                  ]
-                }
-              ]
-            }
-            TextBox {
-              x: 115
-              y: 565
-              width: 1690
-              height: 120
-              font: "body"
-              fontSize: 76
-              fontWeight: "700"
-              lineHeight: 1.25
-              color: blue
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    "Too Little Information"
-                  ]
-                }
-              ]
-            }
-            TextBox {
-              x: 135
-              y: 700
-              width: 1640
-              height: 140
-              font: "body"
-              fontSize: 38
-              fontWeight: "400"
-              lineHeight: 1.25
-              color: ink
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    "P5: \"oh, okay, this is happening. Okay, then what was the state before this? And you don't have a log for that…\""
-                  ]
-                }
-              ]
-            }
-            TextBox {
-              x: 135
-              y: 860
-              width: 1640
-              height: 110
-              font: "body"
-              fontSize: 38
-              fontWeight: "400"
-              lineHeight: 1.25
-              color: ink
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    "P12: \"I just print out everything. As much information as possible.\""
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      }
-    }
-    // Slide 5
-    Slide {
-      label: "Two information needs in tension"
-      notes: "This negotiation process puts these two instincts in tension. On the one hand, I'm inclined to collect more information because it'll help me make sense of the problem. But on the other hand, I worry that if I collect too much, I won't even be able understand what I'm looking at.\n\nNeeding to navigate this tension seems to me like incidental complexity of current debuggers, rather than an inherent part of debugging.\n\nI'm a databases person. When I hear this tension, my instinct is that I should be able to collect everything and that I should have good analysis tools that let me manage all of that data."
-      content: PlateauSlide {
-        branding: true
-        content: Freeform {
-          children: [
-            TextBox {
-              x: 110
-              y: 65
-              width: 1700
-              height: 150
-              font: "body"
-              fontSize: 82
-              fontWeight: "700"
-              lineHeight: 1.25
-              color: ink
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    "Two information needs in tension"
-                  ]
-                }
-              ]
-            }
-            Box {
-              x: 120
-              y: 345
-              width: 790
-              height: 440
-              fill: paper
-              borderWidth: 3
-              borderColor: rule
-              radius: 18
-            }
-            Box {
-              x: 1010
-              y: 345
-              width: 790
-              height: 440
-              fill: paper
-              borderWidth: 3
-              borderColor: rule
-              radius: 18
-            }
-            TextBox {
-              x: 150
-              y: 380
-              width: 715
-              height: 125
-              font: "body"
-              fontSize: 76
-              fontWeight: "700"
-              lineHeight: 1.25
-              color: orange
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    "Collection"
-                  ]
-                }
-              ]
-            }
-            TextBox {
-              x: 150
-              y: 530
-              width: 715
-              height: 220
-              font: "body"
-              fontSize: 48
-              fontWeight: "400"
-              lineHeight: 1.25
-              color: orange
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    "Collect more data — it may be useful in future analysis"
-                  ]
-                }
-              ]
-            }
-            TextBox {
-              x: 1040
-              y: 380
-              width: 715
-              height: 125
-              font: "body"
-              fontSize: 76
-              fontWeight: "700"
-              lineHeight: 1.25
-              color: blue
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    "Analysis"
-                  ]
-                }
-              ]
-            }
-            TextBox {
-              x: 1040
-              y: 530
-              width: 715
-              height: 220
-              font: "body"
-              fontSize: 48
-              fontWeight: "400"
-              lineHeight: 1.25
-              color: blue
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    "Make sense of data and avoid being overwhelmed by it"
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      }
-    }
-    // Slide 6
-    Slide {
-      label: "Why are they in tension?"
-      notes: "But where is this tension coming from in current debuggers? Well, the design of both debugging tools couples collection and analysis.\n\nThere's nothing you can do with print debugging output besides browsing it and performing text search on it. And your print statements fix output, forcing you to see only what you've logged, but also forcing you to see everything you've logged.\n\nOn the other hand, interactive debugging with a breakpoint debugger is almost the opposite: it forces you to continually make decisions about what data to collect next. You're constantly switching between deciding where to go next and analyzing what you can now see.\n\nOn the analysis side, neither has affordances to aid your reasoning beyond just showing you the data. I'll get back to that in a minute. First, let's examine what better collection could look like."
-      content: PlateauSlide {
-        branding: true
-        content: Freeform {
-          children: [
-            TextBox {
-              x: 110
-              y: 65
-              width: 1700
-              height: 150
-              font: "body"
-              fontSize: 82
-              fontWeight: "700"
-              lineHeight: 1.25
-              color: ink
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    "Why are they in tension?"
-                  ]
-                }
-              ]
-            }
-            TextBox {
-              x: 120
-              y: 365
-              width: 1510
-              height: 660
-              font: "body"
-              fontSize: 55
-              fontWeight: "400"
-              lineHeight: 1.25
-              color: ink
-              align: "left"
-              content: [
-                List {
-                  style: "disc"
-                  items: [
-                    ListItem {
-                      content: [
-                        "Current debuggers couple collecting execution data and analyzing it"
-                      ]
-                      spaceAfter: 22
-                    }
-                    ListItem {
-                      content: [
-                        "Current debuggers lack affordances for transforming and comprehending execution data"
-                      ]
-                      spaceAfter: 22
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      }
-    }
-    // Slide 7
-    Slide {
-      label: "Collection"
-      notes: "So we saw that breakpoints let you see all of the state at one particular moment in time.\n\n---\n\nAnd print statements let you see particular pieces of state across many moments in time, and in order.\n\n---\n\nWell, from a pure data collection perspective, it sure would be nice to get all state at all moments in time."
-      content: PlateauSlide {
-        branding: true
-        content: Freeform {
-          children: [
-            TextBox {
-              x: 110
-              y: 65
-              width: 1700
-              height: 150
-              font: "body"
-              fontSize: 82
-              fontWeight: "700"
-              lineHeight: 1.25
-              color: ink
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    "Collection"
-                  ]
-                }
-              ]
-            }
-            StateTimeChart {
-              x: 240
-              y: 235
-              width: 1440
-              height: 790
-              mode: "collection"
-            }
-          ]
-        }
-      }
-    }
-    // Slide 8
-    Slide {
-      label: "autopsy"
-      notes: "This is exactly what we designed autopsy to do. The first part of autopsy is a python debugging library. The way you use it to instrument code looks a lot like print debugging: you just import log from autopsy and sprinkle calls to log throughout your code base.\n\nThe interesting extra bit is that it captures full stack traces, not just the expressions you pass it. Here, a full stack trace means every stack frame, and every variable in every stack frame. This is all of the information you get when paused on a breakpoint."
-      content: PlateauSlide {
-        branding: true
-        content: Freeform {
-          children: [
-            Group {
-              x: 125
-              y: 95
-              width: 570
-              height: 140
-              children: [
-                Box {
-                  x: 0
-                  y: 0
-                  width: 570
-                  height: 140
-                  fill: blue
-                  borderWidth: 0
-                }
-                TextBox {
-                  x: 10
-                  y: 0
-                  width: 550
-                  height: 140
-                  font: "mono"
-                  fontSize: 98
-                  fontWeight: "700"
-                  lineHeight: 1.25
-                  color: paper
-                  align: "left"
-                  content: [
-                    Paragraph {
-                      content: [
-                        "autopsy"
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-            Box {
-              x: 120
-              y: 340
-              width: 1680
-              height: 410
-              fill: surface
-              borderWidth: 1.5
-              borderColor: rule
-              radius: 18
-            }
-            TextBox {
-              x: 155
-              y: 370
-              width: 1600
-              height: 365
-              font: "mono"
-              fontSize: 48
-              fontWeight: "400"
-              lineHeight: 1.25
-              color: ink
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    "import autopsy\n\n...\n\nautopsy.log(\"checkpoint\", order, total)"
-                  ]
-                }
-              ]
-            }
-            TextBox {
-              x: 125
-              y: 830
-              width: 1680
-              height: 130
-              font: "body"
-              fontSize: 53
-              fontWeight: "400"
-              lineHeight: 1.25
-              color: ink
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    "autopsy.log() calls capture full stack traces"
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      }
-    }
-    // Slide 9
-    Slide {
-      label: "Call stack in History view"
-      notes: "And so, one view of the autopsy interface is like your chronological print statement output, except that you can click on any log entry and see the full stack trace for that moment in time, just like you would see if you were paused at a breakpoint.\n\nIt gives you all of the data you asked for, and more on demand."
-      content: PlateauSlide {
-        branding: true
-        content: Freeform {
-          children: [
-            TextBox {
-              x: 110
-              y: 65
-              width: 1700
-              height: 150
-              font: "body"
-              fontSize: 82
-              fontWeight: "700"
-              lineHeight: 1.25
-              color: ink
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    "Call stack in History view"
-                  ]
-                }
-              ]
-            }
-            Video {
-              x: 100
-              y: 235
-              width: 1720
-              height: 760
-              src: plateauStackTrace
-              label: "Call stack in History view"
-              loop: true
-              muted: true
-              fit: "contain"
-              radius: 12
-            }
-          ]
-        }
-      }
-    }
-    // Slide 10
-    Slide {
-      label: "Print Output → DataFrame?"
-      notes: "Next, on to analysis affordances.\n\nThis project was partially born from me looking at the JavaScript console, looking at how different logs were separated by lines, and thinking to myself, \"Isn't this a table? Shouldn't I be able to do more things with this?\" which is when I began to see my debugging logs as a dataset in themselves, where I had previously been thinking of them as the end of where tooling could help me."
-      content: PlateauSlide {
-        branding: true
-        content: Freeform {
-          children: [
-            Image {
-              x: 90
-              y: 240
-              width: 780
-              height: 630
-              src: plateauConsole
-              alt: "JavaScript console output"
-              fit: "contain"
-              radius: 0
-            }
-            Image {
-              x: 1050
-              y: 240
-              width: 780
-              height: 630
-              src: plateauPandas
-              alt: "Pandas DataFrame output"
-              fit: "contain"
-              radius: 0
-            }
-            Arrow {
-              x1: 900
-              y1: 560
-              x2: 1015
-              y2: 560
-              strokeWidth: 5
-              color: muted
-            }
-            TextBox {
-              x: 95
-              y: 900
-              width: 770
-              height: 90
-              font: "body"
-              fontSize: 38
-              fontWeight: "400"
-              lineHeight: 1.25
-              color: muted
-              align: "center"
-              content: [
-                Paragraph {
-                  content: [
-                    "Print Output"
-                  ]
-                }
-              ]
-            }
-            TextBox {
-              x: 1055
-              y: 900
-              width: 770
-              height: 90
-              font: "body"
-              fontSize: 38
-              fontWeight: "400"
-              lineHeight: 1.25
-              color: muted
-              align: "center"
-              content: [
-                Paragraph {
-                  content: [
-                    "DataFrame?"
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      }
-    }
-    // Slide 11
-    Slide {
-      label: "Affordances — Streams"
-      notes: "To start, we briefly hit upon this ordering problem of only being able to see logs chronologically. One obvious affordance is letting you isolate the logs from different places in your code."
-      content: PlateauSlide {
-        branding: true
-        content: Freeform {
-          children: [
-            TextBox {
-              x: 110
-              y: 65
-              width: 1700
-              height: 150
-              font: "body"
-              fontSize: 82
-              fontWeight: "700"
-              lineHeight: 1.25
-              color: ink
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    "Affordances — Streams"
-                  ]
-                }
-              ]
-            }
-            StateTimeChart {
-              x: 240
-              y: 235
-              width: 1440
-              height: 790
-              mode: "streams"
-            }
-          ]
-        }
-      }
-    }
-    // Slide 12
-    Slide {
-      label: "Streams demo"
-      notes: "By default, autopsy shows you this chronological view. But if you switch to this Streams view, they're separated by statement, letting you see all of the logs produced at a particular point in your code. And since all of those logs have the same set of arguments, they're presented in a table view, which has some nice properties we're about to see."
-      content: PlateauSlide {
-        branding: true
-        content: Freeform {
-          children: [
-            TextBox {
-              x: 110
-              y: 65
-              width: 1700
-              height: 150
-              font: "body"
-              fontSize: 82
-              fontWeight: "700"
-              lineHeight: 1.25
-              color: ink
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    "Streams"
-                  ]
-                }
-              ]
-            }
-            Video {
-              x: 100
-              y: 235
-              width: 1720
-              height: 760
-              src: plateauStreams
-              label: "Streams"
-              loop: true
-              muted: true
-              fit: "contain"
-              radius: 12
-            }
-          ]
-        }
-      }
-    }
-    // Slide 13
-    Slide {
-      label: "Affordances — Step Debugging"
-      notes: "So autopsy can replace print debugging, and goes beyond it. But what about breakpoint debugging? We tried to give it a similar treatment for stepping. You should be able to follow along with the order that things were captured in.\n\nAt each point, we can show you the same information the breakpoint debugger would have shown you, because we're capturing the full stack trace. And since this is all post-hoc analysis of captured logs, we can do the omniscient debugging thing of letting you step forwards and backwards and jump to arbitrary points."
-      content: PlateauSlide {
-        branding: true
-        content: Freeform {
-          children: [
-            TextBox {
-              x: 110
-              y: 65
-              width: 1700
-              height: 150
-              font: "body"
-              fontSize: 82
-              fontWeight: "700"
-              lineHeight: 1.25
-              color: ink
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    "Affordances — “Step” Debugging"
-                  ]
-                }
-              ]
-            }
-            StateTimeChart {
-              x: 240
-              y: 235
-              width: 1440
-              height: 790
-              mode: "stepping"
-            }
-          ]
-        }
-      }
-    }
-    // Slide 14
-    Slide {
-      label: "Step Debugging demo"
-      notes: "So here, next to any log in autopsy, I can click on this \"Show in code\" button, which gives me a code lens above the corresponding log statement. Then, I can click these buttons to step forwards and backwards through the logs. If I have multiple log statements, the view will jump around to them. And like I said, since I have the full stack trace, I can click on the log to see all of the information that a breakpoint debugger would have shown me.\n\nThe one glaring difference is that this doesn't give me the same stepping experience as breakpoints since it only works when I have log statements. We'll get back to that at the end."
-      content: PlateauSlide {
-        branding: true
-        content: Freeform {
-          children: [
-            TextBox {
-              x: 110
-              y: 65
-              width: 1700
-              height: 150
-              font: "body"
-              fontSize: 82
-              fontWeight: "700"
-              lineHeight: 1.25
-              color: ink
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    "Step Debugging"
-                  ]
-                }
-              ]
-            }
-            Video {
-              x: 100
-              y: 235
-              width: 1720
-              height: 760
-              src: plateauStepping
-              label: "Step Debugging"
-              loop: true
-              muted: true
-              fit: "contain"
-              radius: 12
-            }
-          ]
-        }
-      }
-    }
-    // Slide 15
-    Slide {
-      label: "Affordances — Computed Columns"
-      notes: "Well now that I've captured all of this extra context at each log line, it seems like I could do more with it. To help with the problem of not having logged the right things, you can now decide that you want to see this other state alongside what you're already seeing.\n\n---\n\nTo do so, you reach into that stack trace that you've captured for this log and pull out the relevant bit of state\n\n---\n\nAnd then your tool projects that for every log you have."
-      content: PlateauSlide {
-        branding: true
-        content: Freeform {
-          children: [
-            TextBox {
-              x: 110
-              y: 65
-              width: 1700
-              height: 150
-              font: "body"
-              fontSize: 82
-              fontWeight: "700"
-              lineHeight: 1.25
-              color: ink
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    "Affordances — Computed Columns"
-                  ]
-                }
-              ]
-            }
-            StateTimeChart {
-              x: 240
-              y: 235
-              width: 1440
-              height: 790
-              mode: "computed"
-            }
-          ]
-        }
-      }
-    }
-    // Slide 16
-    Slide {
-      label: "Computed Columns demo"
-      notes: "So here's me doing that in autopsy. When I'm looking at this table, I can open the call stack and pull out other relevant state to create a new column.\n\nI can also compute arbitrary python expressions over the captured call stack and project it into a new column, like the total being the quantity times the price.\n\nAnd just like that, I can enrich my logs with new information on demand."
-      content: PlateauSlide {
-        branding: true
-        content: Freeform {
-          children: [
-            TextBox {
-              x: 110
-              y: 65
-              width: 1700
-              height: 150
-              font: "body"
-              fontSize: 82
-              fontWeight: "700"
-              lineHeight: 1.25
-              color: ink
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    "Computed Columns"
-                  ]
-                }
-              ]
-            }
-            Video {
-              x: 100
-              y: 235
-              width: 1720
-              height: 760
-              src: plateauComputed
-              label: "Computed Columns"
-              loop: true
-              muted: true
-              fit: "contain"
-              radius: 12
-            }
-          ]
-        }
-      }
-    }
-    // Slide 17
-    Slide {
-      label: "Affordances — Grouping & Filtering"
-      notes: "Last affordance I'll talk about today: ways of getting overviews of the logs and customizing your view.\n\n---\n\nTo make certain comparisons easier, or to narrow my focus to an interesting subset of the data, I should be able to say that I only care about logs with a particular characteristic. So I should be able to select only the stuff I care about...\n\n---\n\n...and then change my view of the logs to just those logs."
-      content: PlateauSlide {
-        branding: true
-        content: Freeform {
-          children: [
-            TextBox {
-              x: 110
-              y: 65
-              width: 1700
-              height: 150
-              font: "body"
-              fontSize: 82
-              fontWeight: "700"
-              lineHeight: 1.25
-              color: ink
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    "Affordances — Grouping & Filtering"
-                  ]
-                }
-              ]
-            }
-            StateTimeChart {
-              x: 240
-              y: 235
-              width: 1440
-              height: 790
-              mode: "filtering"
-            }
-          ]
-        }
-      }
-    }
-    // Slide 18
-    Slide {
-      label: "Grouping & Filtering demo"
-      notes: "So in autopsy, next to each column header is a filter icon.\n\nI can see distributions of values, letting me easily understand properties of the captured data in aggregate. Is this the right distribution of values for this variable? Are there values in here that I don't expect?\n\nAnd then I can go and say \"oh I only care to see when free_shipping was True\". This also cross-filters my chronological view."
-      content: PlateauSlide {
-        branding: true
-        content: Freeform {
-          children: [
-            TextBox {
-              x: 110
-              y: 65
-              width: 1700
-              height: 150
-              font: "body"
-              fontSize: 82
-              fontWeight: "700"
-              lineHeight: 1.25
-              color: ink
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    "Grouping & Filtering"
-                  ]
-                }
-              ]
-            }
-            Video {
-              x: 100
-              y: 235
-              width: 1720
-              height: 760
-              src: plateauFiltering
-              label: "Grouping & Filtering"
-              loop: true
-              muted: true
-              fit: "contain"
-              radius: 12
-            }
-          ]
-        }
-      }
-    }
-    // Slide 19
-    Slide {
-      label: "Future Work"
-      notes: "Up next for this project, well as soon as I get back from PLATEAU I'm running a user study on this.\n\nWe'd also like to work on efficient capture and capture all statements automatically.\n\nI've only covered most most basic queries, I think you could do much more with this data.\n\nBeing able to make a code change and diff the traces could be really powerful as well.\n\nAnd lastly, I think letting coding agents query the dataset might be interesting, both for the agent coding loop and for creating explanations for humans."
-      content: PlateauSlide {
-        branding: true
-        content: Freeform {
-          children: [
-            TextBox {
-              x: 110
-              y: 65
-              width: 1700
-              height: 150
-              font: "body"
-              fontSize: 82
-              fontWeight: "700"
-              lineHeight: 1.25
-              color: ink
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    "Future Work"
-                  ]
-                }
-              ]
-            }
-            TextBox {
-              x: 120
-              y: 270
-              width: 1510
-              height: 660
-              font: "body"
-              fontSize: 44
-              fontWeight: "400"
-              lineHeight: 1.25
-              color: ink
-              align: "left"
-              content: [
-                List {
-                  style: "disc"
-                  items: [
-                    ListItem {
-                      content: [
-                        "Starting tomorrow: controlled lab study vs. print/breakpoints"
-                      ]
-                      spaceAfter: 22
-                    }
-                    ListItem {
-                      content: [
-                        "Capture all statements, no autopsy.log() calls"
-                      ]
-                      spaceAfter: 22
-                    }
-                    ListItem {
-                      content: [
-                        "More complex queries (\"Pairs of logs where X happened, then Y\")"
-                      ]
-                      spaceAfter: 22
-                    }
-                    ListItem {
-                      content: [
-                        "Comparisons across multiple executions (\"How did my change affect the execution?\")"
-                      ]
-                      spaceAfter: 22
-                    }
-                    ListItem {
-                      content: [
-                        "Letting LLMs query the dataset, both for agentic loops and explanations"
-                      ]
-                      spaceAfter: 22
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      }
-    }
-    // Slide 20
-    Slide {
-      label: "Closing / Discussion"
-      notes: "So that's data-oriented debugging and autopsy. For discussion, I'd like to emphasize this first question especially: I'm running a study starting tomorrow, so if there are any questions you think I should be asking participants, please let me know!"
-      content: PlateauSlide {
-        branding: true
-        content: Freeform {
-          children: [
-            TextBox {
-              x: 110
-              y: 55
-              width: 1700
-              height: 190
-              font: "body"
-              fontSize: 82
-              fontWeight: "700"
-              lineHeight: 1.25
-              color: ink
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    "Data-oriented debugging with autopsy"
-                  ]
-                }
-              ]
-            }
-            TextBox {
-              x: 120
-              y: 270
-              width: 1510
-              height: 210
-              font: "body"
-              fontSize: 44
-              fontWeight: "400"
-              lineHeight: 1.25
-              color: ink
-              align: "left"
-              content: [
-                List {
-                  style: "disc"
-                  items: [
-                    ListItem {
-                      content: [
-                        "Separate collection and analysis"
-                      ]
-                      spaceAfter: 22
-                    }
-                    ListItem {
-                      content: [
-                        "New analysis affordances over captured data"
-                      ]
-                      spaceAfter: 22
-                    }
-                  ]
-                }
-              ]
-            }
-            TextBox {
-              x: 110
-              y: 520
-              width: 1700
-              height: 120
-              font: "body"
-              fontSize: 76
-              fontWeight: "700"
-              lineHeight: 1.25
-              color: ink
-              align: "left"
-              content: [
-                Paragraph {
-                  content: [
-                    "Discussion"
-                  ]
-                }
-              ]
-            }
-            TextBox {
-              x: 120
-              y: 685
-              width: 1510
-              height: 325
-              font: "body"
-              fontSize: 40
-              fontWeight: "400"
-              lineHeight: 1.25
-              color: ink
-              align: "left"
-              content: [
-                List {
-                  style: "disc"
-                  items: [
-                    ListItem {
-                      content: [
-                        "Any questions you would want to ask participants of my study?"
-                      ]
-                      spaceAfter: 22
-                    }
-                    ListItem {
-                      content: [
-                        "Is this the right way to think about debugging tools?"
-                      ]
-                      spaceAfter: 22
-                    }
-                    ListItem {
-                      content: [
-                        "Other things you can imagine doing with full traces?"
-                      ]
-                      spaceAfter: 22
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      }
-    }
+    
     
     
     

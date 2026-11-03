@@ -9,8 +9,11 @@ export const slidewright: ComponentMeta = {
     width: { type: 'number', default: 1700 }, height: { type: 'number', default: 700 },
     highlightVariables: { type: 'boolean', default: false },
     expandedColumns: { type: 'boolean', default: false },
+    tableOnly: { type: 'boolean', default: false },
+    resultColumn: { type: 'boolean', default: false },
+    draggingResult: { type: 'boolean', default: false },
   },
-  editor: { inspector: ['x', 'y', 'width', 'height', 'highlightVariables', 'expandedColumns'] },
+  editor: { inspector: ['x', 'y', 'width', 'height', 'highlightVariables', 'expandedColumns', 'tableOnly', 'resultColumn', 'draggingResult'] },
 };
 export const canvas = makeRectAdapter({ width: 1700, height: 700 });
 
@@ -35,8 +38,8 @@ const cell: CSSProperties = { padding: '28px 30px', borderBottom: `1px solid ${i
 
 /** A fixed selected snapshot, with source-backed native build reveals. */
 export default function AutopsyInterface({ params }: ComponentRenderProps) {
-  const columns = (params.expandedColumns ? ['node.op', ...projected] : ['node.op']) as (keyof typeof logs[number])[];
-  return <div data-demo-autopsy-interface style={{ position: 'absolute', left: Number(params.x), top: Number(params.y), width: Number(params.width), height: Number(params.height), display: 'grid', gridTemplateColumns: 'minmax(0, 1.8fr) minmax(0, 1fr)', gap: 32, color: 'var(--uist-ink, #000)', fontFamily: 'var(--font-body, sans-serif)', fontSize: 30 }}>
+  const columns = (params.expandedColumns ? ['node.op', ...projected] : params.resultColumn ? ['node.op', 'result'] : ['node.op']) as (keyof typeof logs[number])[];
+  return <div data-demo-autopsy-interface style={{ position: 'absolute', left: Number(params.x), top: Number(params.y), width: Number(params.width), height: Number(params.height), display: 'grid', gridTemplateColumns: params.tableOnly ? '1fr' : 'minmax(0, 1.8fr) minmax(0, 1fr)', gap: 32, color: 'var(--uist-ink, #000)', fontFamily: 'var(--font-body, sans-serif)', fontSize: 30 }}>
     <section aria-label="Captured logs" style={card}>
       <div style={{ padding: '24px 30px', borderBottom: `1px solid ${ink}`, background: ink, color: paper }}>
         <div style={{ fontSize: 34, fontWeight: 700 }}>Streams</div>
@@ -49,7 +52,7 @@ export default function AutopsyInterface({ params }: ComponentRenderProps) {
         </tr>)}</tbody>
       </table>
     </section>
-    <section aria-label="Captured variables" style={card}>
+    {!params.tableOnly && <section aria-label="Captured variables" style={card}>
       <div style={{ padding: '24px 28px', borderBottom: `1px solid ${ink}`, background: ink, color: paper }}>
         <div style={{ fontSize: 34, fontWeight: 700 }}>Variables</div>
         <div style={{ marginTop: 12, fontFamily: mono, fontSize: 24 }}>evaluate(node) · log 1 of 3</div>
@@ -59,6 +62,16 @@ export default function AutopsyInterface({ params }: ComponentRenderProps) {
           <dt>{name}</dt><dd style={{ margin: 0 }}>{value}</dd>
         </div>)}
       </dl>
-    </section>
+    </section>}
+    {Boolean(params.draggingResult) && <svg aria-label="Drag result from line 11 into the table" width="1460" height="600" viewBox="-700 0 1460 600"
+      style={{ position: 'absolute', left: -700, top: 0, overflow: 'visible', pointerEvents: 'none' }}>
+      <path d="M -610 510 C -390 540, -140 260, 350 210" fill="none" stroke={blue} strokeWidth="5" strokeDasharray="12 10" />
+      <circle cx="-610" cy="510" r="12" fill={paper} stroke={blue} strokeWidth="4" />
+      <g transform="translate(350 210)">
+        <path d="M 0 0 L 0 42 L 12 31 L 23 52 L 33 47 L 22 27 L 39 25 Z" fill={ink} stroke={paper} strokeWidth="3" />
+        <rect x="44" y="16" width="146" height="54" fill={blue} />
+        <text x="61" y="53" fill={paper} fontFamily={mono} fontSize="28">result</text>
+      </g>
+    </svg>}
   </div>;
 }
