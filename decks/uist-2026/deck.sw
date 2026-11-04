@@ -364,7 +364,7 @@ Deck {
       content: Freeform {
         TextBox {
           x: 110
-          y: 407
+          y: 469
           sizing: "auto-width"
           font: "body"
           fontSize: 100
@@ -380,24 +380,7 @@ Deck {
             }
           ]
         }
-        TextBox {
-          x: 110
-          y: 572
-          sizing: "auto-width"
-          font: "body"
-          fontSize: 48
-          fontWeight: "400"
-          lineHeight: 1.25
-          letterSpacing: 0
-          align: "left"
-          content: [
-            Paragraph {
-              content: [
-                "Data Needs, Queries, and Place-Time"
-              ]
-            }
-          ]
-        }
+        
       }
       notes: "We call this framework Data-Oriented Debugging."
     }
@@ -447,17 +430,17 @@ Deck {
                 items: [
                   ListItem {
                     content: [
-                      "Intro to Data-Oriented Debugging"
+                      "Conceptual Lens: Data-Oriented Debugging"
                     ]
                   }
                   ListItem {
                     content: [
-                      "Observing DOD in studies"
+                      "Observing Data-Oriented Debugging in studies"
                     ]
                   }
                   ListItem {
                     content: [
-                      "Future directions for debugging tools"
+                      "Future Data-Oriented Directions"
                     ]
                   }
                 ]
@@ -481,7 +464,7 @@ Deck {
           
         ]
       }
-      notes: "I'd like to preface this talk by saying this is not your usual UIST talk with a system and an evaluation. Instead, I'll introduce this Data-Oriented Debugging framework, give an interpretation of debugging behaviors that we've observed in some studies, and paint a picture of a possible future for debugging tools."
+      notes: "I'd like to preface this talk by saying this is not your usual UIST talk with a system and an evaluation, and is instead more conceptual. I'll introduce this Data-Oriented Debugging conceptual lens, use it to give an interpretation of debugging behaviors that we've observed in some studies, and paint a picture of a possible future for debugging tools."
     }
     Slide {
       label: "Example — evaluate"
@@ -1800,7 +1783,11 @@ Deck {
       chapter: "Lens"
     
     
-      notes: ["I'll introduce Data-Oriented Debugging by way of this example. This is the expression evaluator from a basic arithmetic calculator program.", "This calculator has a problem: when you put in 2 + 3 * 4^2, you get 26. For reference, if you're following order of operations, you should get 50.", "So you might think to yourself, \"I wonder if the order of operations is incorrect\".", "You can get at that by adding a print statement to see each operator as it's executed.", "And when you do this, you can see that the operations do actually print out in the order that you expect, which is exponentiation, then multiplication, then addition", "Which allows you to conclude that the problem is not with the order of operations", "In Data-Oriented Debuggging, when you suspect that the order of operations is wrong, you aren't able to tell whether this suspicion is true from looking at the code. We say you have a \"Data Need\" -- something that is answered by examining something about how the code really executes.", "You fulfill this data need by issuing a query using your debugging tool. Here, that's adding a print line", "You interpret the output that your debugging tool gives in response to your query, which is the terminal output here", "And by interpreting this output, you update your mental model of the program",
+      notes: ["I'll introduce Data-Oriented Debugging by way of this example. This is the expression evaluator from a basic arithmetic calculator program.", "This calculator has a problem: when you put in 2 + 3 * 4^2, you get 26. For reference, if you're following order of operations, you should get 50.", "So you might think to yourself, \"I wonder if the order of operations is incorrect\".", "You can get at that by adding a print statement to see each operator as it's executed.", "And when you do this, you can see that the operations do actually print out in the order that you expect, which is exponentiation, then multiplication, then addition", """
+        Which allows you to conclude that the problem is not with the order of operations
+
+        Next, I'll introduce the Data-Oriented Debugging lens. This isn't the only possible way to view debugging, but as we'll see, this one has some useful properties.
+      """, "In Data-Oriented Debuggging, when you suspect that the order of operations is wrong, you aren't able to tell whether this suspicion is true from looking at the code. We say you have a \"Data Need\" -- something that is answered by examining features of how the code really executes.", "You fulfill this data need by issuing a query using your debugging tool. Here, that's adding a print line", "You interpret the output that your debugging tool gives in response to your query, which is the terminal output here", "And by interpreting this output, you update your mental model of the program",
         "If you're making a debugging tool, the thing I want you to take away from this talk is that you should think about what data needs your tool supports, and how queries are posed to it"
       ]
     }
@@ -1856,7 +1843,7 @@ Deck {
 
           After I add a print statement to my code, when that line of code executes, it prints the expressions that queried for.
 
-          This happens every time the print statement executes. So the expression being logged is a particular Place in the code, and the query that I'm expressing is "show me this place across all time".
+          This happens every time the print statement executes, and the fact that it does is what makes print debugging so useful. I log a particular Place in the code, and the query that I'm expressing is "show me this place across all time".
         """
       ]
       content: PlateauSlide {
@@ -1895,7 +1882,7 @@ Deck {
         """
           A breakpoint basically gives me a query across the other axis: when I'm paused on a breakpoint, I can see across all currently relevant places at this particular moment in time.
 
-          When I advance the debugger by stepping, I'm getting a different slice of all places at the new point in time.
+          When I advance the debugger by stepping, I'm getting a different slice of all places at the new point in time. So the value in breakpoints is that I have quick, interactive access across places.
         """
       ]
       content: PlateauSlide {
@@ -1930,7 +1917,7 @@ Deck {
     Slide {
       label: "Place & Time — Debugging tools"
       notes: [
-        "So this helps resolve part of the mystery I posed at the beginning: these two tools let me query execution in different ways. Print debugging lets me easily see a particular place across time.",
+        "So this helps resolve the mystery I posed at the beginning: these two tools let me query execution in different ways. Print debugging lets me easily see a particular place across time.",
         "While breakpoint debugging lets me see across Place at a particular point in time.",
         "We can extend this analysis to other debugging tools, which is what makes this lens so useful. This is the Whyline, by Amy Ko. It analyzes a program's execution and gives us this interface where we can look at things that happen in the program and follow these \"why\" links to navigate backwards in time to the causes of events.",
         "This provides a different type of debugging, one which links points in place-time by their causal relationships, which I've illustrated using these arrows between points.",
@@ -2466,9 +2453,15 @@ Deck {
               content: [
                 Paragraph {
                   content: [
-                        "\"What are all of the values this can have?\""
-                      ]
+                    "\"What are all of the values this"
+                  ]
                 }
+                Paragraph {
+                  content: [
+                    "  can have?\""
+                  ]
+                }
+              
               
               
               ]
@@ -2483,7 +2476,9 @@ Deck {
       notes: """
         First, the basic types of queries that we saw participants issuing in that lab study.
 
-        We saw all of the basic queries that these place-time axes imply, including queries across time
+        We saw all of the basic queries that these place-time axes imply, which we think validates the applicability of the Data-Oriented Debugging lens
+
+        So we saw queries across time
       """
     }
     Slide {
@@ -2528,8 +2523,8 @@ Deck {
               height: 760
             }
             TextBox {
-              x: 1131
-              y: 459
+              x: 1181
+              y: 565
               sizing: "auto-width"
               font: "body"
               fontSize: 48
@@ -2538,25 +2533,12 @@ Deck {
               letterSpacing: 0
               align: "left"
               content: [
-                List {
-                  items: [
-                    ListItem {
-                      content: [
-                        "Paused on a breakpoint,\nlooking at variables panel"
-                      ]
-                    }
-                  
-                  ]
-                }
-                List {
-                  items: [
-                    ListItem {
-                      content: [
+                Paragraph {
+                  content: [
                         "\"What else is here?\""
                       ]
-                    }
-                  ]
                 }
+              
               ]
             }
           
@@ -2608,8 +2590,8 @@ Deck {
               height: 760
             }
             TextBox {
-              x: 1131
-              y: 459
+              x: 1164
+              y: 564
               sizing: "auto-width"
               font: "body"
               fontSize: 48
@@ -2618,19 +2600,10 @@ Deck {
               letterSpacing: 0
               align: "left"
               content: [
-                List {
-                  items: [
-                    ListItem {
-                      content: [
-                        "\"What was the value of this\n  one-time event?\""
-                      ]
-                    }
-                    ListItem {
-                      content: [
+                Paragraph {
+                  content: [
                         "\"Did this ever happen?\""
                       ]
-                    }
-                  ]
                 }
               
               ]
@@ -2734,8 +2707,11 @@ Deck {
       notes: [
         "Participants didn't just issue singular queries. We saw them issue multiple queries over the course of a debugging session, oftentimes modifying their existing queries. We call these transformations or movements in place-time.",
         "The most common one by far was widening across place. This looks something like adding new variables to a print statement. Participants did this because they needed more context or realized that some other place might help them with their current line of investigation.",
-        "The other common transformation was narrowing in time, restricting their view of repetitions. I think it's interesting that participants did this, because it's technically strictly less information, and I think it speaks to there being a cost to having too much stuff to look at.",
-        "So another thing I'd like you to take away about debugger design: programmers need multiple queries over a debugging session. What do transformations look like in your tool?"
+        """
+          Given that we know that programmers issue different types of queries and transform between them during a debugging session, if you're designing a debugging tool, you should think about how your tool supports transformations. What does the interaction look like?
+        """,
+        "There was another common transformation: narrowing in time, where programmers restrict their view of repetitions. For print, this looks like wrapping your print line in a condition. I think it's interesting that participants did this, because it's technically strictly less information, and I think it speaks to there being a cost to having too much stuff to look at.",
+        
       
       ]
       content: PlateauSlide {
@@ -2813,11 +2789,38 @@ Deck {
                   content: [
                     ""
                   ]
+                  id: "object-8"
+                
                 }
               ]
               id: "object-7"
               visible: false
             }
+            TextBox {
+              x: 272
+              y: 648
+              sizing: "auto-width"
+              font: "body"
+              fontSize: 100
+              fontWeight: "400"
+              lineHeight: 1.25
+              letterSpacing: 0
+              align: "left"
+              content: [
+                Paragraph {
+                  content: [
+                    Span {
+                      runId: "run-1"
+                      content: "How do transformations work?"
+                    }
+                  ]
+                }
+              ]
+              id: "object-9"
+              visible: false
+              color: red
+            }
+          
           
           
           ]
@@ -2854,6 +2857,35 @@ Deck {
           ]
         }
         Build {
+          id: "build-2"
+          label: "Widen across place copy"
+          changes: [
+            Change { target: "transformations-chart" expandedPlaces: true }
+            Change { target: "transformations-step" content: "Widen across place" }
+            Change { target: "transformations-code" content: "print(node.op, left, right)" }
+            Change {
+              target: "object-1"
+              visible: true
+              content: [
+                Paragraph {
+                  content: [
+                    Span {
+                      runId: "run-1"
+                      content: "Widen across place (14 participants, 27 instances)"
+                    }
+                  ]
+                }
+              ]
+            
+            }
+            Change {
+              target: "object-9"
+              visible: true
+            }
+          
+          ]
+        }
+        Build {
           id: "transformations-narrow"
           label: "Narrow to the ^ moment"
           changes: [
@@ -2873,36 +2905,15 @@ Deck {
                 }
               ]
             }
+            Change {
+              target: "object-9"
+              visible: false
+            }
+          
           
           ]
         }
-        Build {
-          id: "build-1"
-          changes: [
-            Change {
-              target: "object-7"
-              visible: true
-              content: [
-                Paragraph {
-                  content: [
-                    Span {
-                      runId: "run-1"
-                      content: "How do transformations work?"
-                    }
-                  ]
-                }
-              ]
-              color: red
-              fontSize: 100
-              x: 272
-              y: 648
-            
-            
-            
-            
-            }
-          ]
-        }
+        
       
       ]
     }
@@ -3026,7 +3037,13 @@ Deck {
       
       }
       notes: [
-        "And this corroborates something we saw in our formative interviews: industry software engineers engaged in what we call Pre-Filtering, where they intentionally did not query for information that they thought could be useful, because they were afraid of producing more output than they could handle.\n\nFor example, a print user said \"there will be a lot of statements, right? it looks like too much information for me to look at and process and get an output\".\n\nThis, to me, smells like a limitation of the tools. For fear of flooding the terminal with more output than they can read and interpret, programmers are intentionally querying for less. Isn't that wrong? Because the tool can't help them, they intentionally inhibit their own comprehension process.",
+        """
+          Narrowing in time corroborates something we saw in our formative interviews: industry software engineers engaged in what we call Pre-Filtering, where they intentionally did not query for information that they thought could be useful, because they were afraid of producing more output than they could handle.
+
+          For example, a print user said "there will be a lot of statements, right? it looks like too much information for me to look at and process and get an output".
+
+          This, to me, smells like a limitation of the tools. For fear of flooding the terminal with more output than they can read and interpret, programmers are intentionally querying for less. Isn't that wrong? Because the tool can't help them, they intentionally inhibit their own comprehension process.
+        """,
         ""
       ]
       builds: [
@@ -3051,7 +3068,7 @@ Deck {
         children: [
           TextBox {
             x: 110
-            y: 407
+            y: 469
             sizing: "auto-width"
             font: "body"
             fontSize: 100
@@ -3067,24 +3084,7 @@ Deck {
               }
             ]
           }
-          TextBox {
-            x: 110
-            y: 572
-            sizing: "auto-width"
-            font: "body"
-            fontSize: 48
-            fontWeight: "400"
-            lineHeight: 1.25
-            letterSpacing: 0
-            align: "left"
-            content: [
-              Paragraph {
-                content: [
-                  "Tools for better Data-Oriented Debugging"
-                ]
-              }
-            ]
-          }
+          
         ]
       }
       chapter: "Future Directions"
