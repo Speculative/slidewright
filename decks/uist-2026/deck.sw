@@ -172,88 +172,7 @@ Deck {
       }
       chromeless: true
     }
-    Slide {
-      content: Freeform {
-        children: [
-          TextBox {
-            x: 117
-            y: 197
-            sizing: "auto-width"
-            font: "body"
-            fontSize: 100
-            fontWeight: "400"
-            lineHeight: 1.25
-            letterSpacing: 0
-            align: "left"
-            content: [
-              Paragraph {
-                content: [
-                  "This is an "
-                  Span {
-                    content: [
-                      "unconventional"
-                    ]
-                    color: blue
-                  }
-                  " talk!"
-                
-                
-                
-                ]
-              }
-            ]
-          }
-          TextBox {
-            x: 117
-            y: 400
-            sizing: "auto-width"
-            font: "body"
-            fontSize: 64
-            fontWeight: "400"
-            lineHeight: 1.25
-            letterSpacing: 0
-            align: "left"
-            content: [
-              List {
-                items: [
-                  ListItem {
-                    content: [
-                      "Intro to Data-Oriented Debugging"
-                    ]
-                  }
-                  ListItem {
-                    content: [
-                      "Observing DOD in studies"
-                    ]
-                  }
-                  ListItem {
-                    content: [
-                      "Future directions for debugging tools"
-                    ]
-                  }
-                ]
-                style: "decimal"
-              }
-              Paragraph {
-                content: []
-              }
-              Paragraph {
-                content: [
-                  "There will be no AI! But ask during Q&A ",
-                  "😊"
-                
-                ]
-              }
-            
-            ]
-          }
-        
-        
-          
-        ]
-      }
-      notes: "I'd like to preface tihs talk by saying this is not your usual UIST talk with a system and an evaluation. Instead, I'll introduce a way of thinking about what debugging tools are, give an interpretation of debugging behaviors that we've observed in some studies, and paint a picture of a possible future for debugging tools."
-    }
+    
     Slide {
       content: Freeform {
         children: [
@@ -429,7 +348,8 @@ Deck {
       """, """
         What about breakpoint debugging? Some of you almost certainly feel that a breakpoint debugger confers great advantages by being interactive.
       """, """
-        What I'd like to show you today is a framework for thinking about what each of those debugging tools is doing for you and why you might prefer different tools in different situations.
+        Have you ever wondered why you prefer the debugger that you do?
+        I'd like to show you a framework for thinking about what a particular debugger does for you and why you might prefer different tools in different situations.
       """]
     }
     
@@ -480,6 +400,88 @@ Deck {
         }
       }
       notes: "We call this framework Data-Oriented Debugging."
+    }
+    Slide {
+      content: Freeform {
+        children: [
+          TextBox {
+            x: 117
+            y: 197
+            sizing: "auto-width"
+            font: "body"
+            fontSize: 100
+            fontWeight: "400"
+            lineHeight: 1.25
+            letterSpacing: 0
+            align: "left"
+            content: [
+              Paragraph {
+                content: [
+                  "This is an "
+                  Span {
+                    content: [
+                      "unconventional"
+                    ]
+                    color: blue
+                  }
+                  " talk!"
+                
+                
+                
+                ]
+              }
+            ]
+          }
+          TextBox {
+            x: 117
+            y: 400
+            sizing: "auto-width"
+            font: "body"
+            fontSize: 64
+            fontWeight: "400"
+            lineHeight: 1.25
+            letterSpacing: 0
+            align: "left"
+            content: [
+              List {
+                items: [
+                  ListItem {
+                    content: [
+                      "Intro to Data-Oriented Debugging"
+                    ]
+                  }
+                  ListItem {
+                    content: [
+                      "Observing DOD in studies"
+                    ]
+                  }
+                  ListItem {
+                    content: [
+                      "Future directions for debugging tools"
+                    ]
+                  }
+                ]
+                style: "decimal"
+              }
+              Paragraph {
+                content: []
+              }
+              Paragraph {
+                content: [
+                  "There will be no AI! But ask during Q&A ",
+                  "😊"
+                
+                ]
+              }
+            
+            ]
+          }
+        
+        
+          
+        ]
+      }
+      notes: "I'd like to preface this talk by saying this is not your usual UIST talk with a system and an evaluation. Instead, I'll introduce this Data-Oriented Debugging framework, give an interpretation of debugging behaviors that we've observed in some studies, and paint a picture of a possible future for debugging tools."
     }
     Slide {
       label: "Example — evaluate"
@@ -620,8 +622,9 @@ Deck {
                           content: """
                           calculate
                         """
-                          color: teal
                           id: "object-19"
+                          color: teal
+                        
                         
                         }
                       ]
@@ -643,8 +646,9 @@ Deck {
                           content: """
                           "2 + 3 * 4 ^ 2"
                         """
-                          color: blue
                           id: "object-21"
+                          color: blue
+                        
                         
                         }
                       ]
@@ -745,9 +749,10 @@ Deck {
                         Span {
                           runId: "run-1"
                           content: "\"Nope!\""
+                          id: "object-29"
                           color: red
                           italic: true
-                          id: "object-29"
+                        
                         
                         }
                       ]
@@ -876,19 +881,34 @@ Deck {
                     Span {
                       runId: "run-2"
                       content: "③ "
+                      id: "object-43"
+                    
                     }
                     Span {
                       runId: "run-1"
                       content: "Interpret output"
                       weight: "400"
+                      id: "object-44"
+                    
                     }
                   ]
+                  id: "object-42"
+                
                 }
               ]
               id: "object-40"
               visible: false
               color: ink
             }
+            Box {
+              x: 1128
+              y: 347
+              width: 110
+              height: 214
+              id: "object-41"
+              visible: false
+            }
+          
           
           
           
@@ -915,6 +935,14 @@ Deck {
               visible: true
             }
           ]
+          textStyles: [
+            TextStyle {
+              target: "object-4"
+              run: "run-1"
+              color: grey
+            }
+          ]
+        
         }
         Build {
           id: "build-2"
@@ -930,6 +958,9 @@ Deck {
                         Span {
                           runId: "run-1"
                           content: "\"Order of operations is incorrect?\""
+                          color: red
+                          italic: true
+                        
                         }
                       ]
                       color: red
@@ -946,6 +977,34 @@ Deck {
             
             }
           ]
+          textStyles: [
+            TextStyle {
+              target: "object-10"
+              run: "run-1"
+              color: grey
+            }
+            TextStyle {
+              target: "object-10"
+              run: "run-2"
+              color: grey
+            }
+            TextStyle {
+              target: "object-10"
+              run: "run-3"
+              color: grey
+            }
+            TextStyle {
+              target: "object-10"
+              run: "run-4"
+              color: grey
+            }
+            TextStyle {
+              target: "object-10"
+              run: "run-5"
+              color: grey
+            }
+          ]
+        
         }
         Build {
           id: "build-3"
@@ -967,8 +1026,15 @@ Deck {
                     }
                     Span {
                       runId: "run-3"
-                      content: "\n    return result"
+                      content: "\n"
                     }
+                    Span {
+                      runId: "run-4"
+                      content: [
+                        "    return result"
+                      ]
+                    }
+                  
                   
                   ]
                   id: "object-6"
@@ -986,6 +1052,18 @@ Deck {
               run: "run-2"
               weight: "700"
             }
+            TextStyle {
+              target: "object-14"
+              run: "run-1"
+              color: grey
+            }
+            TextStyle {
+              target: "object-4"
+              run: "run-4"
+              color: grey
+            }
+          
+          
           ]
         
         }
@@ -1097,6 +1175,22 @@ Deck {
             
             
             }
+            Change {
+              target: "object-4"
+              highlightedLines: []
+            }
+            Change {
+              target: "object-41"
+              visible: true
+              fill: "transparent"
+              borderColor: blue
+              borderWidth: 8
+            
+            
+            
+            }
+          
+          
           
           ]
           textStyles: [
@@ -1147,6 +1241,12 @@ Deck {
               run: "run-9"
               color: muted
             }
+            TextStyle {
+              target: "object-4"
+              run: "run-2"
+              color: grey
+            }
+          
           
           
           ]
@@ -1161,7 +1261,20 @@ Deck {
               y: 453
             
             }
+            Change {
+              target: "object-41"
+              visible: false
+            }
+          
           ]
+          textStyles: [
+            TextStyle {
+              target: "object-14"
+              run: "run-1"
+              color: red
+            }
+          ]
+        
         }
         Build {
           id: "build-6"
@@ -1232,6 +1345,18 @@ Deck {
               run: "run-2"
               weight: "700"
             }
+            TextStyle {
+              target: "object-26"
+              run: "run-1"
+              color: grey
+            }
+            TextStyle {
+              target: "object-10"
+              run: "run-6"
+              color: grey
+            }
+          
+          
           
           ]
         
@@ -1280,6 +1405,13 @@ Deck {
             
             
             }
+            Change {
+              target: "object-4"
+              highlightedLines: [
+                10
+              ]
+            }
+          
           
           
           ]
@@ -1299,6 +1431,18 @@ Deck {
               run: "run-2"
               weight: "700"
             }
+            TextStyle {
+              target: "object-14"
+              run: "run-1"
+              color: grey
+            }
+            TextStyle {
+              target: "object-4"
+              run: "run-2"
+              color: omit
+            }
+          
+          
           
           
           ]
@@ -1348,6 +1492,11 @@ Deck {
             
             
             }
+            Change {
+              target: "object-4"
+              highlightedLines: []
+            }
+          
           
           
           ]
@@ -1367,6 +1516,18 @@ Deck {
               run: "run-2"
               weight: "700"
             }
+            TextStyle {
+              target: "object-4"
+              run: "run-2"
+              color: grey
+            }
+            TextStyle {
+              target: "object-10"
+              run: "run-6"
+              color: blue
+            }
+          
+          
           
           
           ]
@@ -1413,7 +1574,7 @@ Deck {
             Change {
               target: "object-37"
               strokeWidth: 4
-              color: ink
+              color: grey
             
             }
           
@@ -1424,6 +1585,8 @@ Deck {
               target: "object-36"
               run: "run-1"
               weight: omit
+              color: grey
+            
             }
             TextStyle {
               target: "object-40"
@@ -1444,12 +1607,184 @@ Deck {
               target: "object-36"
               run: "run-2"
               weight: omit
+              color: grey
+            
             }
+            TextStyle {
+              target: "object-26"
+              run: "run-1"
+              color: red
+            }
+            TextStyle {
+              target: "object-10"
+              run: "run-6"
+              color: grey
+            }
+          
+          
           
           
           ]
         
         }
+        Build {
+          id: "build-9"
+          label: "Build 9 copy"
+          changes: [
+            Change {
+              target: "object-40"
+              visible: true
+              x: 1295
+              y: 521
+              content: [
+                Paragraph {
+                  content: [
+                    Span {
+                      runId: "run-3"
+                      content: "④"
+                    }
+                    Span {
+                      runId: "run-2"
+                      content: " "
+                    }
+                    Span {
+                      runId: "run-1"
+                      content: "Update mental model"
+                      weight: "400"
+                    }
+                  
+                  ]
+                }
+              ]
+              color: blue
+            
+            
+            
+            }
+            Change {
+              target: "object-36"
+              color: ink
+            }
+            Change {
+              target: "object-37"
+              strokeWidth: 4
+              color: ink
+            
+            }
+            Change {
+              target: "object-30"
+              color: blue
+              strokeWidth: 8
+            
+            }
+            Change {
+              target: "object-4"
+              highlightedLines: [
+                10
+              ]
+            }
+          
+          
+          ]
+          textStyles: [
+            TextStyle {
+              target: "object-36"
+              run: "run-1"
+              weight: omit
+            }
+            TextStyle {
+              target: "object-40"
+              run: "run-3"
+              weight: omit
+              color: grey
+            
+            }
+            TextStyle {
+              target: "object-40"
+              run: "run-2"
+              weight: omit
+              color: grey
+            
+            }
+            TextStyle {
+              target: "object-40"
+              run: "run-1"
+              weight: omit
+              color: grey
+            
+            }
+            TextStyle {
+              target: "object-36"
+              run: "run-2"
+              weight: omit
+            }
+            TextStyle {
+              target: "object-26"
+              run: "run-1"
+              color: grey
+            }
+            TextStyle {
+              target: "object-10"
+              run: "run-6"
+              color: grey
+            }
+            TextStyle {
+              target: "object-14"
+              run: "run-1"
+              color: red
+            }
+            TextStyle {
+              target: "object-31"
+              run: "run-2"
+              color: blue
+              weight: "700"
+            }
+            TextStyle {
+              target: "object-31"
+              run: "run-3"
+              color: blue
+              weight: "700"
+            }
+            TextStyle {
+              target: "object-31"
+              run: "run-1"
+              color: blue
+              weight: "700"
+            }
+            TextStyle {
+              target: "object-33"
+              run: "run-2"
+              color: blue
+              weight: "700"
+            }
+            TextStyle {
+              target: "object-33"
+              run: "run-3"
+              color: blue
+              weight: "700"
+            }
+            TextStyle {
+              target: "object-33"
+              run: "run-1"
+              color: blue
+              weight: "700"
+            }
+            TextStyle {
+              target: "object-4"
+              run: "run-2"
+              color: omit
+            }
+          
+          
+          
+          
+          
+          
+          
+          
+          ]
+        }
+      
       
       
       
@@ -1465,7 +1800,9 @@ Deck {
       chapter: "Lens"
     
     
-      notes: ["I'll introduce Data-Oriented Debugging by way of this example. This is the expression evaluator from a basic arithmetic calculator program.", "This calculator has a problem: when you put in 2 + 3 * 4^2, you get 26. For reference, if you're following order of operations, you should get 50.", "So you might think to yourself, \"I wonder if the order of operations is incorrect\".", "You can get at that by adding a print statement to see each operator as it's executed.", "And when you do this, you can see that the operations do actually print out in the order that you expect, which is exponentiation, then multiplication, then addition", "Which allows you to conclude that the problem is not with the order of operations", "In Data-Oriented Debuggging, when you suspect that the order of operations is wrong, you aren't able to tell whether this suspicion is true from looking at the code. We say you have a \"Data Need\" -- something that is answered by examining something about how the code really executes.", "You fulfill this data need by issuing a query using your debugging tool. Here, that's adding a print line", "You interpret the output that your debugging tool gives in response to your query, which is the terminal output here", "And by interpreting this output, you update your mental model of the program"]
+      notes: ["I'll introduce Data-Oriented Debugging by way of this example. This is the expression evaluator from a basic arithmetic calculator program.", "This calculator has a problem: when you put in 2 + 3 * 4^2, you get 26. For reference, if you're following order of operations, you should get 50.", "So you might think to yourself, \"I wonder if the order of operations is incorrect\".", "You can get at that by adding a print statement to see each operator as it's executed.", "And when you do this, you can see that the operations do actually print out in the order that you expect, which is exponentiation, then multiplication, then addition", "Which allows you to conclude that the problem is not with the order of operations", "In Data-Oriented Debuggging, when you suspect that the order of operations is wrong, you aren't able to tell whether this suspicion is true from looking at the code. We say you have a \"Data Need\" -- something that is answered by examining something about how the code really executes.", "You fulfill this data need by issuing a query using your debugging tool. Here, that's adding a print line", "You interpret the output that your debugging tool gives in response to your query, which is the terminal output here", "And by interpreting this output, you update your mental model of the program",
+        "If you're making a debugging tool, the thing I want you to take away from this talk is that you should think about what data needs your tool supports, and how queries are posed to it"
+      ]
     }
     
     
@@ -1596,7 +1933,10 @@ Deck {
         "So this helps resolve part of the mystery I posed at the beginning: these two tools let me query execution in different ways. Print debugging lets me easily see a particular place across time.",
         "While breakpoint debugging lets me see across Place at a particular point in time.",
         "We can extend this analysis to other debugging tools, which is what makes this lens so useful. This is the Whyline, by Amy Ko. It analyzes a program's execution and gives us this interface where we can look at things that happen in the program and follow these \"why\" links to navigate backwards in time to the causes of events.",
-        "This provides a different type of debugging, one which links points in place-time by their causal relationships, which I've illustrated using these arrows between points."
+        "This provides a different type of debugging, one which links points in place-time by their causal relationships, which I've illustrated using these arrows between points.",
+        "But also notice all of the queries that it doesn't support. Research debugging interfaces have usually not been as general as print and breakpoints.",
+        "So we imagine some future tool could try to combine all of these."
+      
       
       
       
@@ -1629,16 +1969,16 @@ Deck {
             PlaceTimeDiagram {
               kind: "print"
               x: 100
-              y: 260
-              width: 546.67
-              height: 573.5
+              y: 180
+              width: 760
+              height: 350
               id: "object-6"
             
             }
             TextBox {
               x: 100
-              y: 843
-              width: 547
+              y: 530
+              width: 760
               height: 67
               font: "body"
               fontSize: 42
@@ -1656,19 +1996,19 @@ Deck {
             }
             PlaceTimeDiagram {
               kind: "breakpoint"
-              x: 686.67
-              y: 260
-              width: 546.67
-              height: 573.5
+              x: 1020
+              y: 180
+              width: 760
+              height: 350
               id: "object-9"
               visible: false
             
             
             }
             TextBox {
-              x: 687
-              y: 843
-              width: 547
+              x: 1020
+              y: 530
+              width: 760
               height: 67
               font: "body"
               fontSize: 42
@@ -1688,19 +2028,19 @@ Deck {
             }
             PlaceTimeDiagram {
               kind: "whyline"
-              x: 1273.33
-              y: 260
-              width: 546.67
-              height: 573.5
+              x: 100
+              y: 600
+              width: 760
+              height: 350
               id: "object-12"
               visible: false
             
             
             }
             TextBox {
-              x: 1273
-              y: 843
-              width: 547
+              x: 100
+              y: 950
+              width: 760
               height: 69
               font: "body"
               fontSize: 42
@@ -1720,17 +2060,17 @@ Deck {
             }
             PlaceTimeDiagram {
               kind: "breakpoint"
-              x: 686.67
-              y: 260
-              width: 546.67
-              height: 573.5
+              x: 1020
+              y: 180
+              width: 760
+              height: 350
               id: "object-15"
               visible: false
             }
             TextBox {
-              x: 687
-              y: 843
-              width: 547
+              x: 1020
+              y: 530
+              width: 760
               height: 67
               font: "body"
               fontSize: 42
@@ -1750,17 +2090,17 @@ Deck {
             }
             PlaceTimeDiagram {
               kind: "whyline"
-              x: 1273.33
-              y: 260
-              width: 546.67
-              height: 573.5
+              x: 100
+              y: 600
+              width: 760
+              height: 350
               id: "object-18"
               visible: false
             }
             TextBox {
-              x: 1273
-              y: 843
-              width: 547
+              x: 100
+              y: 950
+              width: 760
               height: 69
               font: "body"
               fontSize: 42
@@ -1776,6 +2116,32 @@ Deck {
               ]
               sizing: "fixed"
               id: "object-19"
+              visible: false
+            }
+            PlaceTimeDiagram {
+              kind: "future"
+              x: 1020
+              y: 600
+              width: 760
+              height: 350
+              id: "future-chart"
+              visible: false
+            }
+            TextBox {
+              x: 1020
+              y: 950
+              width: 760
+              height: 67
+              font: "body"
+              fontSize: 42
+              fontWeight: "700"
+              align: "center"
+              color: ink
+              content: [Paragraph { content: "Future Tools"
+                  id: "object-23"
+                 }]
+              sizing: "fixed"
+              id: "future-label"
               visible: false
             }
             Image {
@@ -1810,6 +2176,8 @@ Deck {
         Build {
           id: "build-1"
           changes: [
+            Change { target: "object-6" muted: true }
+            Change { target: "object-7" opacity: 0.35 }
             Change {
               target: "object-15"
               visible: true
@@ -1843,6 +2211,8 @@ Deck {
         Build {
           id: "build-3"
           changes: [
+            Change { target: "object-15" muted: true }
+            Change { target: "object-16" opacity: 0.35 }
             Change {
               target: "object-18"
               visible: true
@@ -1863,6 +2233,39 @@ Deck {
           
           ]
         }
+        Build {
+          id: "build-4"
+          label: "Whyline query limits"
+          changes: [
+            Change {
+              target: "object-18"
+              queryOutlines: true
+              visible: true
+            }
+            Change {
+              target: "object-19"
+              visible: true
+            }
+            Change {
+              target: "object-21"
+              visible: false
+            }
+            Change {
+              target: "object-22"
+              visible: false
+            }
+          ]
+        }
+        Build {
+          id: "future-tools"
+          changes: [
+            Change { target: "object-18" muted: true }
+            Change { target: "object-19" opacity: 0.35 }
+            Change { target: "future-chart" visible: true }
+            Change { target: "future-label" visible: true }
+          ]
+        }
+
       
       
       ]
@@ -2051,9 +2454,9 @@ Deck {
               height: 760
             }
             TextBox {
-              x: 1131
-              y: 459
-              sizing: "auto-width"
+              x: 1115
+              y: 519
+              sizing: "auto-height"
               font: "body"
               fontSize: 48
               fontWeight: "400"
@@ -2061,31 +2464,17 @@ Deck {
               letterSpacing: 0
               align: "left"
               content: [
-                List {
-                  items: [
-                    ListItem {
-                      content: [
-                        "Print lines"
+                Paragraph {
+                  content: [
+                        "\"What are all of the values this can have?\""
                       ]
-                    }
-                    ListItem {
-                      content: [
-                        "Set breakpoint + Continue"
-                      ]
-                    }
-                  ]
-                }
-                List {
-                  items: [
-                    ListItem {
-                      content: [
-                        "\"What are all of the values\n   this can have?\""
-                      ]
-                    }
-                  ]
                 }
               
+              
               ]
+              width: 697
+              height: 136
+            
             }
           
           ]
@@ -2094,7 +2483,7 @@ Deck {
       notes: """
         First, the basic types of queries that we saw participants issuing in that lab study.
 
-        The most common one by far was looking across time. This fulfills data needs such as "What are all of the values this can have?"
+        We saw all of the basic queries that these place-time axes imply, including queries across time
       """
     }
     Slide {
@@ -2174,7 +2563,7 @@ Deck {
           ]
         }
       }
-      notes: "We also saw queries across place, such as stopping on a breakpoint and looking at the variables panel. Participants oftentimes used this as a discovery mechanism to see what else there was to look at"
+      notes: "Queries across place"
     }
     
     Slide {
@@ -2250,7 +2639,7 @@ Deck {
           ]
         }
       }
-      notes: "We saw these point queries where they were looking for something that only happened one time."
+      notes: "and these point queries for things that only happened one time."
     }
     Slide {
       label: "Types of Queries — Across Place and Time"
@@ -2334,9 +2723,9 @@ Deck {
         }
       }
       notes: """
-        And the most complex type of query was when participants assembled views of multiple places and and times. These were complex analyses that went beyond retrieving some singular fact, instead looking at patterns.
+        The most complex type of query was these complex views of multiple places and times. These helped participants see patterns.
 
-        An example from our study was in a web processing pipeline when one participant realized a particular line executes a variable number of times per request, which was an important step towards them discovering that a certain processing layer had a problem.
+        An example was in a web processing pipeline when one participant realized a particular line executes a variable number of times per request, which was an important step towards them discovering that a certain processing layer had a problem.
       """
     }
     
@@ -2345,7 +2734,9 @@ Deck {
       notes: [
         "Participants didn't just issue singular queries. We saw them issue multiple queries over the course of a debugging session, oftentimes modifying their existing queries. We call these transformations or movements in place-time.",
         "The most common one by far was widening across place. This looks something like adding new variables to a print statement. Participants did this because they needed more context or realized that some other place might help them with their current line of investigation.",
-        "The other common transformation was narrowing in time, restricting their view of repetitions. I think it's interesting that participants did this, because it's technically strictly less information, and I think it speaks to there being a cost to having too much stuff to look at."
+        "The other common transformation was narrowing in time, restricting their view of repetitions. I think it's interesting that participants did this, because it's technically strictly less information, and I think it speaks to there being a cost to having too much stuff to look at.",
+        "So another thing I'd like you to take away about debugger design: programmers need multiple queries over a debugging session. What do transformations look like in your tool?"
+      
       ]
       content: PlateauSlide {
         content: Freeform {
@@ -2356,6 +2747,8 @@ Deck {
               font: "body" fontSize: 76 fontWeight: "700"
               lineHeight: 1.25 color: ink
               content: "Transformations"
+              id: "object-4"
+            
             }
             PlaceTimeDiagram {
               id: "transformations-chart"
@@ -2394,16 +2787,45 @@ Deck {
                     Span {
                       runId: "run-1"
                       content: "Coordinating Across Place and Time (7 participants)"
+                      id: "object-6"
+                    
                     }
                   ]
+                  id: "object-5"
+                
                 }
               ]
               id: "object-1"
               visible: false
             }
+            TextBox {
+              x: 924
+              y: 941
+              sizing: "auto-width"
+              font: "body"
+              fontSize: 32
+              fontWeight: "400"
+              lineHeight: 1.25
+              letterSpacing: 0
+              align: "left"
+              content: [
+                Paragraph {
+                  content: [
+                    ""
+                  ]
+                }
+              ]
+              id: "object-7"
+              visible: false
+            }
+          
           
           ]
+          id: "object-3"
+        
         }
+        id: "object-2"
+      
       }
       builds: [
         Build {
@@ -2454,6 +2876,34 @@ Deck {
           
           ]
         }
+        Build {
+          id: "build-1"
+          changes: [
+            Change {
+              target: "object-7"
+              visible: true
+              content: [
+                Paragraph {
+                  content: [
+                    Span {
+                      runId: "run-1"
+                      content: "How do transformations work?"
+                    }
+                  ]
+                }
+              ]
+              color: red
+              fontSize: 100
+              x: 272
+              y: 648
+            
+            
+            
+            
+            }
+          ]
+        }
+      
       ]
     }
     Slide {
@@ -2474,13 +2924,17 @@ Deck {
                 content: [
                   "Pre-Filtering"
                 ]
+                id: "object-3"
+              
               }
             ]
+            id: "object-2"
+          
           }
           
           TextBox {
-            x: 158
-            y: 594
+            x: 93
+            y: 493
             sizing: "auto-height"
             font: "body"
             fontSize: 48
@@ -2496,54 +2950,32 @@ Deck {
                       "\"there will be a lot of statements, right? ...it looks like too much information "
                     ]
                     italic: true
+                    id: "object-6"
+                  
                   }
                   Span {
                     content: [
-                      "that I can just look and process and get an output\""
+                      "for me to look at and process and get an output\""
                     ]
                     italic: true
+                    id: "object-7"
+                  
                   }
                 ]
+                id: "object-5"
+              
               }
             ]
-            width: 1182
-            height: 96
-          }
-          TextBox {
-            x: 161
-            y: 415
-            sizing: "auto-height"
-            font: "body"
-            fontSize: 48
-            fontWeight: "400"
-            lineHeight: 1.25
-            letterSpacing: 0
-            align: "left"
-            content: [
-              Paragraph {
-                content: [
-                  Span {
-                    content: [
-                      "\"if it is something that’s gonna get called a ton...putting a breakpoint inside that "
-                    ]
-                    italic: true
-                  }
-                  Span {
-                    content: [
-                      "is gonna kind of drive me crazy\""
-                    ]
-                    italic: true
-                  }
-                ]
-              }
-            ]
-            width: 1139
-            height: 96
+            width: 1248
+            height: 196
+            id: "object-4"
+          
           }
           
+          
           TextBox {
-            x: 91
-            y: 289
+            x: 93
+            y: 379
             sizing: "auto-width"
             font: "body"
             fontSize: 48
@@ -2554,35 +2986,63 @@ Deck {
             content: [
               Paragraph {
                 content: [
-                  "Querying what you "
-                  Span {
-                    content: [
-                      "think you can manage"
-                    ]
-                    italic: true
-                  }
-                  ", not what you "
-                  Span {
-                    content: [
-                      "want"
-                    ]
-                    italic: true
-                  }
+                  "Programmers cope with tool limitations by asking for less"
+                
                 
                 ]
+                id: "object-9"
+              
               }
             ]
+            id: "object-8"
+            visible: false
+          
+          
           }
+          TextBox {
+            x: 93
+            y: 379
+            sizing: "auto-width"
+            font: "body"
+            fontSize: 48
+            fontWeight: "400"
+            lineHeight: 1.25
+            letterSpacing: 0
+            align: "left"
+            content: [
+              Paragraph {
+                content: [
+                  "Programmers cope with tool limitations by asking for less"
+                ]
+                id: "object-11"
+              }
+            ]
+            id: "object-10"
+            visible: false
+          }
+        
         ]
+        id: "object-1"
+      
       }
-      notes: """
-        And this corroborates something we saw in our formative interviews: industry software engineers spoke of this negotiation process they did with themselves where they wanted to capture enough information to answer their questions, but not so much that they'd be overwhelmed by noise. This applied across preferred debugging tools.
-
-        For example, a print user said that logging too much could be too much information and would hinder their ability to process it.
-
-        This, to me, smells like a tooling issue. Programmers are modifying their behavior and shifting from "what do I need?" to "what am I allowed to ask for?" Which suggests that future debugging tools need to give them ways to handle the data that they collect and transform how their query outputs are presented.
-      """
+      notes: [
+        "And this corroborates something we saw in our formative interviews: industry software engineers engaged in what we call Pre-Filtering, where they intentionally did not query for information that they thought could be useful, because they were afraid of producing more output than they could handle.\n\nFor example, a print user said \"there will be a lot of statements, right? it looks like too much information for me to look at and process and get an output\".\n\nThis, to me, smells like a limitation of the tools. For fear of flooding the terminal with more output than they can read and interpret, programmers are intentionally querying for less. Isn't that wrong? Because the tool can't help them, they intentionally inhibit their own comprehension process.",
+        ""
+      ]
+      builds: [
+        Build {
+          id: "build-1"
+          changes: [
+            Change {
+              target: "object-10"
+              visible: true
+            }
+          ]
+        }
+      ]
+    
     }
+    
     
     
     
@@ -2629,6 +3089,497 @@ Deck {
       }
       chapter: "Future Directions"
       notes: "On to things that we learned from applying the Data-Oriented Debugging to understand debugging behavior."
+    }
+    
+    
+    
+    Slide {
+      content: Freeform {
+        PlaceTimeDiagram {
+          kind: "future"
+          x: 568
+          y: 152
+          width: 784
+          height: 730
+          id: "future-chart"
+          visible: true
+        }
+      }
+      notes: "Remember that future debugging tool that combines strengths of multiple debuggers?"
+    }
+    Slide {
+      label: "autopsy — From logs to a table"
+      notes: [
+        "We've made initial steps towards such a debugger that we call \"autopsy\". If I add a log call to my code, it shows up in this table that shows every time it was invoked. Each line captures a full breakpoint-style snapshot of all variables.",
+        "Which means I can reach in and select other values such as left, right, and result",
+        "And add them as columns to my table to enable easier comparison, combining strengths of print and breakpoints"
+      ]
+      content: PlateauSlide {
+        branding: true
+        content: Freeform {
+          children: [
+            TextBox {
+              x: 102
+              y: 61
+              sizing: "auto-width"
+              font: "body"
+              fontSize: 76
+              fontWeight: "700"
+              color: ink
+              content: [Paragraph { content: "autopsy" }]
+            }
+            CodeDisplay {
+              id: "autopsy-table-code"
+              x: 102
+              y: 270
+              width: 780
+              height: 540
+              fontSize: 28
+              highlightedLines: [10]
+              content: [Paragraph { content: Span {
+                content: """
+                  def evaluate(node):
+                      if isinstance(node, Num):
+                          return node.value
+                      left = evaluate(node.left)
+                      right = evaluate(node.right)
+                      match node.op:
+                          case "+": result = left + right
+                          case "*": result = left * right
+                          case "^": result = left * right
+                      log(node.op)
+                      return result
+                """
+              } }]
+            }
+            AutopsyInterface {
+              id: "autopsy-interface"
+              x: 930
+              y: 270
+              width: 880
+              height: 680
+              stacked: true
+              scale: 1
+            }
+          ]
+        }
+      }
+      builds: [
+        Build {
+          id: "autopsy-highlight-variables"
+          label: "Find captured values"
+          changes: [Change { target: "autopsy-interface" highlightVariables: true }]
+        }
+        Build {
+          id: "autopsy-project-columns"
+          label: "Add columns"
+          changes: [Change { target: "autopsy-interface" expandedColumns: true }]
+        }
+      ]
+    }
+    Slide {
+      content: Freeform {
+        children: [
+          TextBox {
+          x: 102
+          y: 61
+          sizing: "auto-width"
+          font: "body"
+          fontSize: 76
+          fontWeight: "700"
+          color: ink
+          content: [
+            Paragraph {
+              content: "autopsy"
+              id: "object-4"
+            }
+          ]
+          id: "object-3"
+        }
+          CodeDisplay {
+          id: "autopsy-code"
+          x: 560
+          y: 258
+          width: 800
+          height: 567
+          fontSize: 30
+          visible: true
+          highlightedLines: [
+            10
+          
+            
+          ]
+          content: [
+            Paragraph {
+              content: Span {
+                runId: "run-1"
+                content: "def evaluate(node):\n    if isinstance(node, Num):\n        return node.value\n    left = evaluate(node.left)\n    right = evaluate(node.right)\n    match node.op:\n        case \"+\": result = left + right\n        case \"*\": result = left * right\n        case \"^\": result = left * right\n    log(node.op)\n    return result"
+                  id: "object-2"
+                
+              }
+              id: "object-5"
+            }
+          ]
+        }
+          AutopsyInterface {
+            id: "object-6"
+            x: 1110
+            y: 258
+            width: 700
+            height: 567
+            tableOnly: true
+            visible: false
+          }
+        
+        ]
+        id: "object-1"
+      
+      }
+      notes: [
+        "We could go even further than this.",
+        "It would be nice if I could remove the need to log, and instead capture everything that happens inside the program",
+        "Then, when I'm in my query interface",
+        "I can directly manipulate my debugger view by dragging places",
+        "And interactively assemble debugging views, pulling values from my full execution trace"
+      
+      
+      ]
+      builds: [
+        Build {
+          id: "build-3"
+          changes: [
+            Change {
+              target: "autopsy-code"
+              highlightedLines: [
+                10
+              ]
+              content: [
+                Paragraph {
+                  content: Span {
+                    runId: "run-1"
+                    content: "def evaluate(node):\n    if isinstance(node, Num):\n        return node.value\n    left = evaluate(node.left)\n    right = evaluate(node.right)\n    match node.op:\n        case \"+\": result = left + right\n        case \"*\": result = left * right\n        case \"^\": result = left * right\n \n    return result"
+                    id: "object-2"
+                  }
+                  id: "object-5"
+                }
+              ]
+            
+            }
+          ]
+        }
+        Build {
+          id: "build-1"
+          changes: [
+            Change {
+              target: "autopsy-code"
+              x: 180
+              highlightedLines: []
+              content: [
+                Paragraph {
+                  content: Span {
+                    runId: "run-1"
+                    content: "def evaluate(node):\n    if isinstance(node, Num):\n        return node.value\n    left = evaluate(node.left)\n    right = evaluate(node.right)\n    match node.op:\n        case \"+\": result = left + right\n        case \"*\": result = left * right\n        case \"^\": result = left * right\n\n    return result"
+                    id: "object-2"
+                  }
+                  id: "object-5"
+                }
+              ]
+            
+            }
+            Change { target: "object-6" visible: true }
+          ]
+        }
+        Build {
+          id: "build-2"
+          changes: [
+            Change {
+              target: "object-6"
+              draggingResult: true
+            }
+          
+          ]
+        }
+      
+        Build {
+          id: "autopsy-result-values"
+          label: "Project result into the table"
+          changes: [
+            Change { target: "object-6" draggingResult: false resultColumn: true }
+          ]
+        }
+      ]
+    
+    }
+    
+    Slide {
+      content: Freeform {
+        children: [
+          TextBox {
+            x: 154
+            y: 178
+            width: 1330
+            height: 266
+            font: "body"
+            fontSize: 100
+            fontWeight: "700"
+            lineHeight: 1.25
+            color: ink
+            align: "left"
+            content: [
+              Paragraph {
+                content: [
+                  Span {
+                    content: [
+                      "Data-Oriented"
+                    ]
+                    color: ink
+                  }
+                  Span {
+                    content: [
+                      " Debugging"
+                    ]
+                    color: ink
+                  }
+                ]
+              }
+              Paragraph {
+                content: [
+                  "Across "
+                  Span {
+                    content: [
+                      "Place"
+                    ]
+                    color: cyan
+                  }
+                  " and "
+                  Span {
+                    content: [
+                      "Time"
+                    ]
+                    color: pink
+                  }
+                ]
+              }
+            ]
+          }
+          TextBox {
+            x: 1488
+            y: 657
+            width: 1260
+            height: 72
+            font: "body"
+            fontSize: 45
+            fontWeight: "400"
+            lineHeight: 1.25
+            color: ink
+            align: "left"
+            content: [
+              Paragraph {
+                content: [
+                  Span {
+                    content: [
+                      "Jeffrey Tao"
+                    ]
+                    color: ink
+                  
+                  }
+                
+                ]
+              }
+            ]
+            sizing: "auto-width"
+          }
+          
+          Image {
+            x: 1469
+            y: 376
+            width: 270
+            height: 270
+            src: plateauHeadshot
+            alt: "Jeffrey Tao"
+            fit: "cover"
+            radius: 135
+          }
+          Image {
+            x: 766
+            y: 476
+            width: 433
+            height: 433
+            src: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAfQAAAH0CAYAAADL1t+KAAAe6ElEQVR4Ae3AA6AkWZbG8f937o3IzKdyS2Oubdu2bdu2bdu2bWmMnpZKr54yMyLu+Xa3anqmhztr1a/aNlddddVVV1111f9mBFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92VP6XksRV/zq2+e8mif+rbPOiksSLyjYvKkm8qGzz300SLyrb/GeQxH8G2/x3k8RV/zq2+V+K4Kqrrrrqqquu+t+O4Kqrrrrqqquu+t+O4Kqrrrrqqquu+t+O4Kqrrrrqqquu+t+O4Kqrrrrqqquu+t+O4Kqrrrrqqquu+t+O4Kqrrrrqqquu+t+O4Kqrrrrqqquu+t+O4Kqrrrrqqquu+t+O4Kqrrrrqqquu+t+Oyv8Dtvm/ShL/GSTxn8E2LypJvKhs86KSxIvKNi8qSbyobPOiksSLyjb/GSTxv4kkrvrXsc3/VZL4f4Dgqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347KVc9BEv/dbPPfzTb/3WzzopLEi8o2/xls86KSxFX/OpJ4UdnmRSWJq/51JPHfzTZXPQeCq6666qqrrrrqfzuCq6666qqrrrrqfzuCq6666qqrrrrqfzuCq6666qqrrrrqfzuCq6666qqrrrrqfzuCq6666qqrrrrqfzuCq6666qqrrrrqfzuCq6666qqrrrrqfzuCq6666qqrrrrqfzuCq6666qqrrrrqfzsqV131fEjiP4Nt/jeRxH8G21wFtnlRSeK/m23+M0jiRWWbq656Pgiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7ahcddV/IUm8qGzzn0ES/90k8aKyzYtKEv+bSOJFZZv/DLb572abq676dyK46qqrrrrqqqv+tyO46qqrrrrqqqv+tyO46qqrrrrqqqv+tyO46qqrrrrqqqv+tyO46qqrrrrqqqv+tyO46qqrrrrqqqv+tyO46qqrrrrqqqv+tyO46qqrrrrqqqv+tyO46qqrrrrqqqv+tyO46qqrrrrqqqv+t6Ny1XOwzVVgm/9NbPOiksR/N9v8d7PNfwZJ/GeQxIvKNv8ZJPGiss3/Vba56n8cgquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87Kv8PSOKqfx1JvKhs86KSxIvKNi8qSbyobPOiksSLyjYvKkm8qGzz300SLyrbvKgk8aKyzYtKEi8q2/x3k8SLyjb/GSRx1f9qBFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92VP6Xss1V/zNI4kVlmxeVJF5UtvnfxDYvKkm8qGzzn8E2/90k8aKyzYtKEi8q27yoJPHfzTZX/b9BcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9H5f8BSbyobPOiksT/Jrb5v0oS/xls859BEv8ZJPGiss2LShIvKtu8qGzzopLEi0oSLyrbvKgk8aKyzX8GSfxnsM2LShL/GWzzopLEi8o2/w8QXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sh2+Z/IUn8X2Wb/00k8Z/BNi8qSfx3s83/JpL4z2CbF5Uk/jPY5kUlif9utvnvJon/TWxz1XMguOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rej8r+UbV5UkvjvZpv/DJJ4Udnmv5tt/rvZ5r+bJF5UtnlRSeJFZZsXlST+M9jmRSWJ/262eVFJ4j+DJP6vss1/Bkm8qGzzvxTBVVddddVVV131vx3BVVddddVVV131vx3BVVddddVVV131vx3BVVddddVVV131vx3BVVddddVVV131vx3BVVddddVVV131vx3BVVddddVVV131vx3BVVddddVVV131vx3BVVddddVVV131vx3BVVddddVVV131vx2ybf4XksT/Jrb57yaJ/wy2eVFJ4kVlm/8MkvjPYJv/DJJ4UdnmfxNJ/GewzX8GSVz1f5tt/pciuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rdDts3/QpL438Q2LypJXPWvY5v/TSTx3802LypJvKhs859BEv8ZbPOfQRL/GWzzopLEi8o2/xkk8aKyzYtKEv8ZbPO/FMFVV1111VVXXfW/HcFVV1111VVXXfW/HcFVV1111VVXXfW/HcFVV1111VVXXfW/HcFVV1111VVXXfW/HcFVV1111VVXXfW/HcFVV1111VVXXfW/HcFVV1111VVXXfW/HcFVV1111VVXXfW/HcFVV1111VVXXfW/HZX/pWzzopLE/ya2+c8gif8MtnlRSeK/myT+M9jmRWWbF5UkrvrPI4kXlW3+u0niRWWb/wySeFHZ5kUliReVba56DgRXXXXVVVddddX/dgRXXXXVVVddddX/dgRXXXXVVVddddX/dgRXXXXVVVddddX/dgRXXXXVVVddddX/dgRXXXXVVVddddX/dgRXXXXVVVddddX/dgRXXXXVVVddddX/dgRXXXXVVVddddX/dgRXXXXVVVddddX/dlT+l5LEfwbbvKgk8d9NEi8q27yoJPGiksT/VbZ5UUniv5tt/q+yzX8GSbyoJPHfzTYvKkn8Z7DNi0oS/xkk8Z/BNv9LEVx11VVXXXXVVf/bEVx11VVXXXXVVf/bEVx11VVXXXXVVf/bEVx11VVXXXXVVf/bEVx11VVXXXXVVf/bEVx11VVXXXXVVf/bEVx11VVXXXXVVf/bEVx11VVXXXXVVf/bEVx11VVXXXXVVf/bEVx11VVXXXXVVf/bIdvm/zhJvKhs83+VJP672eZFJYn/brb5v0oS/xls859BEi8q2/xfJYmr/vPY5n8pgquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87Kv9LSeJFZZv/DJJ4UdnmRSWJ/262+e9mmxeVJF5UtrnqX8c2/5tI4v8q27yoJPGiss1/N0m8qGzzopLE/wMEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3ZU/h+QxIvKNv8ZJPGiss1/Bkn8Z5DEi8o2LypJ/HeTxIvKNv8ZJPHfTRIvKtu8qCTxorLN/yaSeFHZ5j+DbV5UknhR2ea/myReVLb5f4Dgqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347K/wO2eVFJ4r+bJK76v00S/xls83+VJF5UtnlRSeJFZZv/bpL47yaJF5VtXlS2+c8giReVbf6XIrjqqquuuuqqq/63I7jqqquuuuqqq/63I7jqqquuuuqqq/63I7jqqquuuuqqq/63I7jqqquuuuqqq/63I7jqqquuuuqqq/63I7jqqquuuuqqq/63I7jqqquuuuqqq/63I7jqqquuuuqqq/63I7jqqquuuuqqq/63o3LVfwnbvKgk8aKyzX8GSbyobPOiksSLyjZXgW1eVJJ4UdnmfxPbvKgk8Z9BEi8q2/x3s81/N0m8qGzzopLEi8o2/w8QXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9tR+V/KNv/dbPOiksSLyjYvKkm8qGzzorLN/yaSeFHZ5iqQxH8G27yobPOiksR/Btu8qCTxn0ESLyrbvKgk8aKyzYtKEi8q2/xnsM1Vz4Hgqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347KVf9mknhR2eY/g23+M0ji/ypJ/HezzX8G27yoJPGiss2LShIvKtv8Z7DNfzdJ/HezzYtKEv8ZJPGiss2L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1VVXXXXV/3YEV1111VVXXXXV/3ZU/h+wzf9VkvjPIIn/DJL47yaJF5VtXlSS+L9KEi8q27yoJPHfTRL/V9nmfxPbXPVvRnDVVVddddVVV/1vR3DVVVddddVVV/1vR3DVVVddddVVV/1vR3DVVVddddVVV/1vR3DVVVddddVVV/1vR3DVVVddddVVV/1vR3DVVVddddVVV/1vR3DVVVddddVVV/1vR3DVVVddddVVV/1vR3DVVVddddVVV/1vR+Wq5yCJ/262uQps859BEi8qSbyobPOiksSLyjb/3WzzopLEfwbbvKgk8aKyzYtKEv/dJPG/iW2u+i9BcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9H5aqr/g+QxP9VkvjPYJv/DLZ5UUniRSWJF5Vt/jPY5kUliReVbf4zSOI/g21eVJL472ab/wcIrrrqqquuuuqq/+0Irrrqqquuuuqq/+0Irrrqqquuuuqq/+0Irrrqqquuuuqq/+0Irrrqqquuuuqq/+0Irrrqqquuuuqq/+0Irrrqqquuuuqq/+0Irrrqqquuuuqq/+0Irrrqqquuuuqq/+0Irrrqqquuuuqq/+2oXHXV82GbF5UkXlS2+c9gmxeVJF5UtvnvZpsXlSReVJK46l9HEi8q27yoJPGiss2LyjYvKkm8qCTxorLNfwZJvKgk8aKyzf9SBFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92VK56Dra5CiTxn0ESLyrbvKgk8Z9BEi8q27yobPOfwTYvKkn8Z7DNVf86tvnPIIn/bpK46r8EwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dlf8HJHHVv45t/jNI4kUlif9NJPGiss1/Bkm8qGzzopLEfzdJ/GewzX83SVwFtvnPIIn/Bwiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7ZBtc9VVV1111VVX/W9GcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W/HPwIKicM4aSHsCAAAAABJRU5ErkJggg=="
+          }
+          TextBox {
+            x: 1432
+            y: 733
+            sizing: "auto-width"
+            font: "body"
+            fontSize: 32
+            fontWeight: "400"
+            lineHeight: 1.25
+            letterSpacing: 0
+            align: "left"
+            content: [
+              Paragraph {
+                content: [
+                  "https://speculative.tech"
+                ]
+              }
+            ]
+          }
+          TextBox {
+            x: 271
+            y: 644
+            sizing: "auto-width"
+            font: "body"
+            fontSize: 64
+            fontWeight: "400"
+            lineHeight: 1.25
+            letterSpacing: 0
+            align: "left"
+            content: [
+              Paragraph {
+                content: [
+                  Span {
+                    content: [
+                      "Questions?"
+                    ]
+                    weight: "700"
+                  }
+                ]
+              }
+            ]
+            color: blue
+          
+          }
+        
+        
+        
+          
+        
+          
+        
+          
+        ]
+      }
+      label: ""
+      chapter: ""
+      chromeless: true
+    
+      notes: "This was Data-Oriented Debugging Across Place and Time. We've got a lot more interesting details and analysis that couldn't fit in this talk, so please check out our paper!"
+    }
+    
+    Slide {
+      content: Freeform {
+        children: [
+          TextBox {
+            x: 117
+            y: 416
+            sizing: "auto-width"
+            font: "body"
+            fontSize: 100
+            fontWeight: "700"
+            lineHeight: 1.25
+            letterSpacing: 0
+            align: "left"
+            content: [
+              Paragraph {
+                content: [
+                  "Appendix"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+      chapter: "Appendix"
+    }
+    Slide {
+      content: Freeform {
+        children: [
+          
+          TextBox {
+            x: 113
+            y: 76
+            sizing: "auto-width"
+            font: "body"
+            fontSize: 76
+            fontWeight: "700"
+            lineHeight: 1.25
+            color: ink
+            content: [
+              Paragraph {
+                content: [
+                  "🚨 Break glass in case of AI question"
+                ]
+              }
+            ]
+          }
+          TextBox {
+            x: 114
+            y: 255
+            sizing: "auto-height"
+            font: "body"
+            fontSize: 64
+            fontWeight: "400"
+            lineHeight: 1.25
+            letterSpacing: 0
+            align: "left"
+            content: [
+              Paragraph {
+                content: [
+                  Span {
+                    content: [
+                      "Hasn't AI made debugging interfaces obsolete?"
+                    ]
+                    italic: true
+                  }
+                ]
+              }
+              List {
+                items: [
+                  ListItem {
+                    content: [
+                      "DOD concerns "
+                      Span {
+                        content: [
+                          "responses to data needs"
+                        ]
+                        italic: true
+                      }
+                    ]
+                  }
+                  ListItem {
+                          content: [
+                            "AI coding agents"
+                            Span {
+                              content: [
+                                " "
+                              ]
+                              italic: true
+                            }
+                            "do better with objective feedback"
+                          ]
+                        }
+                  ListItem {
+                    content: [
+                      "Debugging is still an interesting setting for observing human comprehension of complex systems"
+                    ]
+                  }
+                
+                
+                ]
+              }
+            
+            ]
+            width: 1563
+            height: 416
+          
+          }
+        
+        
+          
+        
+        ]
+      }
     }
     Slide {
       label: "autopsy — Across Place & Time"
@@ -2827,429 +3778,7 @@ Deck {
       
       ]
     }
-    
-    
-    Slide {
-      label: "autopsy — From logs to a table"
-      notes: [
-        "As for what that looks like in autopsy, log lines produce these tables of values, with a column for each argument to the log and a row for each invocation of the log. Selecting one of the rows gives you a breakpoint-style inspector that shows you the full variable snapshot",
-        "Since we have this complete snapshot at every log line, I can select other values such as left, right, and result",
-        "And add them as columns to my table to enable easier comparison"
-      ]
-      content: PlateauSlide {
-        branding: true
-        content: Freeform {
-          children: [
-            TextBox {
-              x: 102
-              y: 61
-              sizing: "auto-width"
-              font: "body"
-              fontSize: 76
-              fontWeight: "700"
-              color: ink
-              content: [Paragraph { content: "autopsy" }]
-            }
-            AutopsyInterface {
-              id: "autopsy-interface"
-              x: 110
-              y: 240
-              width: 1700
-              height: 700
-            }
-          ]
-        }
-      }
-      builds: [
-        Build {
-          id: "autopsy-highlight-variables"
-          label: "Find captured values"
-          changes: [Change { target: "autopsy-interface" highlightVariables: true }]
-        }
-        Build {
-          id: "autopsy-project-columns"
-          label: "Add columns"
-          changes: [Change { target: "autopsy-interface" expandedColumns: true }]
-        }
-      ]
-    }
-    Slide {
-      content: Freeform {
-        children: [
-          TextBox {
-          x: 102
-          y: 61
-          sizing: "auto-width"
-          font: "body"
-          fontSize: 76
-          fontWeight: "700"
-          color: ink
-          content: [
-            Paragraph {
-              content: "autopsy"
-              id: "object-4"
-            }
-          ]
-          id: "object-3"
-        }
-          CodeDisplay {
-          id: "autopsy-code"
-          x: 560
-          y: 258
-          width: 800
-          height: 567
-          fontSize: 30
-          visible: true
-          highlightedLines: [
-            10
-          
-            
-          ]
-          content: [
-            Paragraph {
-              content: Span {
-                runId: "run-1"
-                content: "def evaluate(node):\n    if isinstance(node, Num):\n        return node.value\n    left = evaluate(node.left)\n    right = evaluate(node.right)\n    match node.op:\n        case \"+\": result = left + right\n        case \"*\": result = left * right\n        case \"^\": result = left * right\n    log(node.op)\n    return result"
-                  id: "object-2"
-                
-              }
-              id: "object-5"
-            }
-          ]
-        }
-          AutopsyInterface {
-            id: "object-6"
-            x: 1110
-            y: 258
-            width: 700
-            height: 567
-            tableOnly: true
-            visible: false
-          }
-        
-        ]
-        id: "object-1"
-      
-      }
-      notes: [
-        "",
-        "",
-        ""
-      
-      ]
-      builds: [
-        Build {
-          id: "build-1"
-          changes: [
-            Change {
-              target: "autopsy-code"
-              x: 180
-              highlightedLines: []
-              content: [
-                Paragraph {
-                  content: Span {
-                    runId: "run-1"
-                    content: "def evaluate(node):\n    if isinstance(node, Num):\n        return node.value\n    left = evaluate(node.left)\n    right = evaluate(node.right)\n    match node.op:\n        case \"+\": result = left + right\n        case \"*\": result = left * right\n        case \"^\": result = left * right\n\n    return result"
-                    id: "object-2"
-                  }
-                  id: "object-5"
-                }
-              ]
-            
-            }
-            Change { target: "object-6" visible: true }
-          ]
-        }
-        Build {
-          id: "build-2"
-          changes: [
-            Change {
-              target: "object-6"
-              draggingResult: true
-            }
-          
-          ]
-        }
-      
-        Build {
-          id: "autopsy-result-values"
-          label: "Project result into the table"
-          changes: [
-            Change { target: "object-6" draggingResult: false resultColumn: true }
-          ]
-        }
-      ]
-    
-    }
-    
-    Slide {
-      content: Freeform {
-        children: [
-          TextBox {
-            x: 154
-            y: 178
-            width: 1330
-            height: 266
-            font: "body"
-            fontSize: 100
-            fontWeight: "700"
-            lineHeight: 1.25
-            color: ink
-            align: "left"
-            content: [
-              Paragraph {
-                content: [
-                  Span {
-                    content: [
-                      "Data-Oriented"
-                    ]
-                    color: ink
-                  }
-                  Span {
-                    content: [
-                      " Debugging"
-                    ]
-                    color: ink
-                  }
-                ]
-              }
-              Paragraph {
-                content: [
-                  "Across "
-                  Span {
-                    content: [
-                      "Place"
-                    ]
-                    color: cyan
-                  }
-                  " and "
-                  Span {
-                    content: [
-                      "Time"
-                    ]
-                    color: pink
-                  }
-                ]
-              }
-            ]
-          }
-          TextBox {
-            x: 1488
-            y: 657
-            width: 1260
-            height: 72
-            font: "body"
-            fontSize: 45
-            fontWeight: "400"
-            lineHeight: 1.25
-            color: ink
-            align: "left"
-            content: [
-              Paragraph {
-                content: [
-                  Span {
-                    content: [
-                      "Jeffrey Tao"
-                    ]
-                    color: ink
-                  
-                  }
-                
-                ]
-              }
-            ]
-            sizing: "auto-width"
-          }
-          
-          Image {
-            x: 1469
-            y: 376
-            width: 270
-            height: 270
-            src: plateauHeadshot
-            alt: "Jeffrey Tao"
-            fit: "cover"
-            radius: 135
-          }
-          Image {
-            x: 766
-            y: 476
-            width: 433
-            height: 433
-            src: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAfQAAAH0CAYAAADL1t+KAAAe6ElEQVR4Ae3AA6AkWZbG8f937o3IzKdyS2Oubdu2bdu2bdu2bWmMnpZKr54yMyLu+Xa3anqmhztr1a/aNlddddVVV1111f9mBFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92VP6XksRV/zq2+e8mif+rbPOiksSLyjYvKkm8qGzz300SLyrb/GeQxH8G2/x3k8RV/zq2+V+K4Kqrrrrqqquu+t+O4Kqrrrrqqquu+t+O4Kqrrrrqqquu+t+O4Kqrrrrqqquu+t+O4Kqrrrrqqquu+t+O4Kqrrrrqqquu+t+O4Kqrrrrqqquu+t+O4Kqrrrrqqquu+t+O4Kqrrrrqqquu+t+O4Kqrrrrqqquu+t+Oyv8Dtvm/ShL/GSTxn8E2LypJvKhs86KSxIvKNi8qSbyobPOiksSLyjb/GSTxv4kkrvrXsc3/VZL4f4Dgqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347KVc9BEv/dbPPfzTb/3WzzopLEi8o2/xls86KSxFX/OpJ4UdnmRSWJq/51JPHfzTZXPQeCq6666qqrrrrqfzuCq6666qqrrrrqfzuCq6666qqrrrrqfzuCq6666qqrrrrqfzuCq6666qqrrrrqfzuCq6666qqrrrrqfzuCq6666qqrrrrqfzuCq6666qqrrrrqfzuCq6666qqrrrrqfzuCq6666qqrrrrqfzsqV131fEjiP4Nt/jeRxH8G21wFtnlRSeK/m23+M0jiRWWbq656Pgiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7ahcddV/IUm8qGzzn0ES/90k8aKyzYtKEv+bSOJFZZv/DLb572abq676dyK46qqrrrrqqqv+tyO46qqrrrrqqqv+tyO46qqrrrrqqqv+tyO46qqrrrrqqqv+tyO46qqrrrrqqqv+tyO46qqrrrrqqqv+tyO46qqrrrrqqqv+tyO46qqrrrrqqqv+tyO46qqrrrrqqqv+tyO46qqrrrrqqqv+t6Ny1XOwzVVgm/9NbPOiksR/N9v8d7PNfwZJ/GeQxIvKNv8ZJPGiss3/Vba56n8cgquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87Kv8PSOKqfx1JvKhs86KSxIvKNi8qSbyobPOiksSLyjYvKkm8qGzz300SLyrbvKgk8aKyzYtKEi8q2/x3k8SLyjb/GSRx1f9qBFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92VP6Xss1V/zNI4kVlmxeVJF5UtvnfxDYvKkm8qGzzn8E2/90k8aKyzYtKEi8q27yoJPHfzTZX/b9BcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9H5f8BSbyobPOiksT/Jrb5v0oS/xls859BEv8ZJPGiss2LShIvKtu8qGzzopLEi0oSLyrbvKgk8aKyzX8GSfxnsM2LShL/GWzzopLEi8o2/w8QXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sh2+Z/IUn8X2Wb/00k8Z/BNi8qSfx3s83/JpL4z2CbF5Uk/jPY5kUlif9utvnvJon/TWxz1XMguOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rej8r+UbV5UkvjvZpv/DJJ4Udnmv5tt/rvZ5r+bJF5UtnlRSeJFZZsXlST+M9jmRSWJ/262eVFJ4j+DJP6vss1/Bkm8qGzzvxTBVVddddVVV131vx3BVVddddVVV131vx3BVVddddVVV131vx3BVVddddVVV131vx3BVVddddVVV131vx3BVVddddVVV131vx3BVVddddVVV131vx3BVVddddVVV131vx3BVVddddVVV131vx3BVVddddVVV131vx2ybf4XksT/Jrb57yaJ/wy2eVFJ4kVlm/8MkvjPYJv/DJJ4UdnmfxNJ/GewzX8GSVz1f5tt/pciuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rcjuOqqq6666qqr/rdDts3/QpL438Q2LypJXPWvY5v/TSTx3802LypJvKhs859BEv8ZbPOfQRL/GWzzopLEi8o2/xkk8aKyzYtKEv8ZbPO/FMFVV1111VVXXfW/HcFVV1111VVXXfW/HcFVV1111VVXXfW/HcFVV1111VVXXfW/HcFVV1111VVXXfW/HcFVV1111VVXXfW/HcFVV1111VVXXfW/HcFVV1111VVXXfW/HcFVV1111VVXXfW/HcFVV1111VVXXfW/HZX/pWzzopLE/ya2+c8gif8MtnlRSeK/myT+M9jmRWWbF5UkrvrPI4kXlW3+u0niRWWb/wySeFHZ5kUliReVba56DgRXXXXVVVddddX/dgRXXXXVVVddddX/dgRXXXXVVVddddX/dgRXXXXVVVddddX/dgRXXXXVVVddddX/dgRXXXXVVVddddX/dgRXXXXVVVddddX/dgRXXXXVVVddddX/dgRXXXXVVVddddX/dgRXXXXVVVddddX/dlT+l5LEfwbbvKgk8d9NEi8q27yoJPGiksT/VbZ5UUniv5tt/q+yzX8GSbyoJPHfzTYvKkn8Z7DNi0oS/xkk8Z/BNv9LEVx11VVXXXXVVf/bEVx11VVXXXXVVf/bEVx11VVXXXXVVf/bEVx11VVXXXXVVf/bEVx11VVXXXXVVf/bEVx11VVXXXXVVf/bEVx11VVXXXXVVf/bEVx11VVXXXXVVf/bEVx11VVXXXXVVf/bEVx11VVXXXXVVf/bIdvm/zhJvKhs83+VJP672eZFJYn/brb5v0oS/xls859BEi8q2/xfJYmr/vPY5n8pgquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87gquuuuqqq6666n87Kv9LSeJFZZv/DJJ4UdnmRSWJ/262+e9mmxeVJF5UtrnqX8c2/5tI4v8q27yoJPGiss1/N0m8qGzzopLE/wMEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3YEV1111VVXXXXV/3ZU/h+QxIvKNv8ZJPGiss1/Bkn8Z5DEi8o2LypJ/HeTxIvKNv8ZJPHfTRIvKtu8qCTxorLN/yaSeFHZ5j+DbV5UknhR2ea/myReVLb5f4Dgqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347K/wO2eVFJ4r+bJK76v00S/xls83+VJF5UtnlRSeJFZZv/bpL47yaJF5VtXlS2+c8giReVbf6XIrjqqquuuuqqq/63I7jqqquuuuqqq/63I7jqqquuuuqqq/63I7jqqquuuuqqq/63I7jqqquuuuqqq/63I7jqqquuuuqqq/63I7jqqquuuuqqq/63I7jqqquuuuqqq/63I7jqqquuuuqqq/63I7jqqquuuuqqq/63o3LVfwnbvKgk8aKyzX8GSbyobPOiksSLyjZXgW1eVJJ4UdnmfxPbvKgk8Z9BEi8q2/x3s81/N0m8qGzzopLEi8o2/w8QXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9sRXHXVVVddddVV/9tR+V/KNv/dbPOiksSLyjYvKkm8qGzzorLN/yaSeFHZ5iqQxH8G27yobPOiksR/Btu8qCTxn0ESLyrbvKgk8aKyzYtKEi8q2/xnsM1Vz4Hgqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347gqquuuuqqq676347KVf9mknhR2eY/g23+M0ji/ypJ/HezzX8G27yoJPGiss2LShIvKtv8Z7DNfzdJ/HezzYtKEv8ZJPGiss2L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1VVXXXXV/3YEV1111VVXXXXV/3ZU/h+wzf9VkvjPIIn/DJL47yaJF5VtXlSS+L9KEi8q27yoJPHfTRL/V9nmfxPbXPVvRnDVVVddddVVV/1vR3DVVVddddVVV/1vR3DVVVddddVVV/1vR3DVVVddddVVV/1vR3DVVVddddVVV/1vR3DVVVddddVVV/1vR3DVVVddddVVV/1vR3DVVVddddVVV/1vR3DVVVddddVVV/1vR3DVVVddddVVV/1vR+Wq5yCJ/262uQps859BEi8qSbyobPOiksSLyjb/3WzzopLEfwbbvKgk8aKyzYtKEv/dJPG/iW2u+i9BcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9H5aqr/g+QxP9VkvjPYJv/DLZ5UUniRSWJF5Vt/jPY5kUliReVbf4zSOI/g21eVJL472ab/wcIrrrqqquuuuqq/+0Irrrqqquuuuqq/+0Irrrqqquuuuqq/+0Irrrqqquuuuqq/+0Irrrqqquuuuqq/+0Irrrqqquuuuqq/+0Irrrqqquuuuqq/+0Irrrqqquuuuqq/+0Irrrqqquuuuqq/+0Irrrqqquuuuqq/+2oXHXV82GbF5UkXlS2+c9gmxeVJF5UtvnvZpsXlSReVJK46l9HEi8q27yoJPGiss2LyjYvKkm8qCTxorLNfwZJvKgk8aKyzf9SBFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92BFddddVVV1111f92VK56Dra5CiTxn0ESLyrbvKgk8Z9BEi8q27yobPOfwTYvKkn8Z7DNVf86tvnPIIn/bpK46r8EwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dwVVXXXXVVVdd9b8dlf8HJHHVv45t/jNI4kUlif9NJPGiss1/Bkm8qGzzopLEfzdJ/GewzX83SVwFtvnPIIn/Bwiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7Qiuuuqqq6666qr/7ZBtc9VVV1111VVX/W9GcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W9HcNVVV1111VVX/W/HPwIKicM4aSHsCAAAAABJRU5ErkJggg=="
-          }
-          TextBox {
-            x: 1432
-            y: 733
-            sizing: "auto-width"
-            font: "body"
-            fontSize: 32
-            fontWeight: "400"
-            lineHeight: 1.25
-            letterSpacing: 0
-            align: "left"
-            content: [
-              Paragraph {
-                content: [
-                  "https://speculative.tech"
-                ]
-              }
-            ]
-          }
-          TextBox {
-            x: 271
-            y: 644
-            sizing: "auto-width"
-            font: "body"
-            fontSize: 64
-            fontWeight: "400"
-            lineHeight: 1.25
-            letterSpacing: 0
-            align: "left"
-            content: [
-              Paragraph {
-                content: [
-                  Span {
-                    content: [
-                      "Questions?"
-                    ]
-                    weight: "700"
-                  }
-                ]
-              }
-            ]
-            color: blue
-          
-          }
-        
-        
-        
-          
-        
-          
-        
-          
-        ]
-      }
-      label: ""
-      chapter: ""
-      chromeless: true
-    
-    }
-    Slide {
-      content: Freeform {
-        children: [
-          TextBox {
-            x: 117
-            y: 416
-            sizing: "auto-width"
-            font: "body"
-            fontSize: 100
-            fontWeight: "700"
-            lineHeight: 1.25
-            letterSpacing: 0
-            align: "left"
-            content: [
-              Paragraph {
-                content: [
-                  "Appendix"
-                ]
-              }
-            ]
-          }
-        ]
-      }
-      chapter: "Appendix"
-    }
-    Slide {
-      content: Freeform {
-        children: [
-          
-          TextBox {
-            x: 113
-            y: 76
-            sizing: "auto-width"
-            font: "body"
-            fontSize: 76
-            fontWeight: "700"
-            lineHeight: 1.25
-            color: ink
-            content: [
-              Paragraph {
-                content: [
-                  "🚨 Break glass in case of AI question"
-                ]
-              }
-            ]
-          }
-          TextBox {
-            x: 114
-            y: 255
-            sizing: "auto-height"
-            font: "body"
-            fontSize: 64
-            fontWeight: "400"
-            lineHeight: 1.25
-            letterSpacing: 0
-            align: "left"
-            content: [
-              Paragraph {
-                content: [
-                  Span {
-                    content: [
-                      "Hasn't AI made debugging interfaces obsolete?"
-                    ]
-                    italic: true
-                  }
-                ]
-              }
-              List {
-                items: [
-                  ListItem {
-                    content: [
-                      "DOD concerns "
-                      Span {
-                        content: [
-                          "responses to data needs"
-                        ]
-                        italic: true
-                      }
-                    ]
-                  }
-                  ListItem {
-                          content: [
-                            "AI coding agents"
-                            Span {
-                              content: [
-                                " "
-                              ]
-                              italic: true
-                            }
-                            "do better with objective feedback"
-                          ]
-                        }
-                  ListItem {
-                    content: [
-                      "Debugging is still an interesting setting for observing human comprehension of complex systems"
-                    ]
-                  }
-                
-                
-                ]
-              }
-            
-            ]
-            width: 1563
-            height: 416
-          
-          }
-        
-        
-          
-        
-        ]
-      }
-    }
+  
   
     
     

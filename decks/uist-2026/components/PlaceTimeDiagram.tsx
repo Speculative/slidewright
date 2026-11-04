@@ -6,6 +6,8 @@ export const slidewright: ComponentMeta = {
   produces: 'block', slots: {},
   params: {
     kind: { type: 'string', default: 'print' },
+    muted: { type: 'boolean', default: false },
+    queryOutlines: { type: 'boolean', default: false },
     capturedMoments: { type: 'number', default: 3 },
     showLocals: { type: 'boolean', default: false },
     timeOutline: { type: 'string', default: 'logged' },
@@ -15,7 +17,7 @@ export const slidewright: ComponentMeta = {
     x: { type: 'number', default: 0 }, y: { type: 'number', default: 0 },
     width: { type: 'number', default: 547 }, height: { type: 'number', default: 574 },
   },
-  editor: { inspector: ['x', 'y', 'width', 'height', 'kind', 'capturedMoments', 'showLocals', 'timeOutline', 'emphasis', 'expandedPlaces', 'focusedTime'] },
+  editor: { inspector: ['x', 'y', 'width', 'height', 'kind', 'muted', 'queryOutlines', 'capturedMoments', 'showLocals', 'timeOutline', 'emphasis', 'expandedPlaces', 'focusedTime'] },
 };
 export const canvas = makeRectAdapter({ width: 547, height: 574 });
 
@@ -32,9 +34,9 @@ export default function PlaceTimeDiagram({ params }: ComponentRenderProps) {
   const momentColor = (x: number) => emphasis === 'locals' || emphasis === 'left' || (emphasis === 'later' && x === dotXs[0]) ? grey : blue;
   const localColor = (x: number, label: string) => (emphasis === 'later' && x === dotXs[0]) || (emphasis === 'left' && label !== 'left') ? grey : blue;
   const arrowId = `whyline-cause-${useId().replace(/:/g, '')}`;
-  return <div data-demo-place-time-diagram={kind} style={{ position: 'absolute', left: Number(params.x), top: Number(params.y), width: Number(params.width), height: Number(params.height), color: '#000', fontFamily: 'var(--font-body, sans-serif)' }}>
+  return <div data-demo-place-time-diagram={kind} style={{ position: 'absolute', left: Number(params.x), top: Number(params.y), width: Number(params.width), height: Number(params.height), color: '#000', filter: params.muted ? 'grayscale(1)' : undefined, opacity: params.muted ? 0.35 : 1, fontFamily: 'var(--font-body, sans-serif)' }}>
       {kind === 'transformations' ? <TransformationChart expanded={Boolean(params.expandedPlaces)} focused={Boolean(params.focusedTime)} /> : <svg data-demo-comparison={kind} viewBox="0 0 450 400" role="img" aria-label={`${kind}: Place over Time`} style={{ width: '100%', height: '100%' }}>
-        {kind === 'whyline' && <defs><marker id={arrowId} markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill={blue} /></marker></defs>}
+        {(kind === 'whyline' || kind === 'future') && <defs><marker id={arrowId} markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M0 0 L8 4 L0 8 Z" fill={blue} /></marker></defs>}
         <path d="M60 30 V330 H410" fill="none" stroke="currentColor" strokeWidth="2" />
         <polygon points="60,24 55,36 65,36" fill="currentColor" /><polygon points="416,330 404,325 404,335" fill="currentColor" />
         <text transform="translate(20 180) rotate(-90)" textAnchor="middle" fontSize="28" fill="var(--uist-cyan, #00a8e8)">Place</text>
@@ -59,7 +61,30 @@ export default function PlaceTimeDiagram({ params }: ComponentRenderProps) {
         {kind === 'query-grid' && <g fill={blue}>
           {[115, 190, 345].flatMap(x => [80, 205, 260].map(y => <circle key={`${x}-${y}`} data-query-grid-dot cx={x} cy={y} r="7" />))}
         </g>}
+        {/* Center the full query arrangement on the axes' plot area (235, 180). */}
+        {kind === 'future' && <g transform="translate(27.5 0)">
+          <g fill="none" stroke={blue} strokeWidth="2" strokeDasharray="7 6">
+            {[110, 260].map(y => <rect key={y} data-future-time x={115 - 30} y={y - 15} width={300 - 115 + 2 * 30} height="30" />)}
+            {[160, 300, 115, 255].map(x => <rect key={x} data-future-place x={x - 12} y="50" width="24" height="260" />)}
+          </g>
+          <g stroke={blue} strokeWidth="2.5">
+            <line x1="160" y1="110" x2="300" y2="110" />
+            <line x1="115" y1="260" x2="255" y2="260" />
+            {[[160, 110, 115, 260], [300, 110, 255, 260]].map(([x1, y1, x2, y2], index) => {
+              const length = Math.hypot(x2! - x1!, y2! - y1!);
+              const dx = (x2! - x1!) / length * 14, dy = (y2! - y1!) / length * 14;
+              return <line key={index} data-future-query x1={x1! + dx} y1={y1! + dy} x2={x2! - dx} y2={y2! - dy} markerStart={`url(#${arrowId})`} markerEnd={`url(#${arrowId})`} />;
+            })}
+          </g>
+          {[[160, 110], [300, 110], [115, 260], [255, 260]].map(([x, y]) => <circle key={x} data-demo-comparison-dot cx={x} cy={y} r="7" fill={blue} />)}
+        </g>}
         {kind === 'whyline' && <g>
+          {Boolean(params.queryOutlines) && <g data-whyline-query-outlines fill="none" stroke={grey} strokeWidth="2" strokeDasharray="7 6">
+            {causes.map(([x, y]) => <g key={x}>
+              <rect data-whyline-time-outline x="80" y={y - 15} width="300" height="30" />
+              <rect data-whyline-place-outline x={x - 12} y="50" width="24" height="260" />
+            </g>)}
+          </g>}
           {causes.slice(1).map(([x, y], index) => {
             const [causeX, causeY] = causes[index]!;
             const distance = Math.hypot(x - causeX, y - causeY);
