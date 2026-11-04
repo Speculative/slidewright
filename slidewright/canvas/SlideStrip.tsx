@@ -38,6 +38,8 @@ import { prepareSlide } from './App.js';
 
 const DESIGN_W = 1920;
 const DRAG_THRESHOLD = 4;
+const SCROLL_EDGE = 48;
+const DRAG_SCROLL_SPEED = 120; // CSS pixels per second
 
 export interface SlideClickModifiers {
   shift: boolean;
@@ -111,19 +113,42 @@ export function SlideStrip({
     return () => observer.disconnect();
   }, [slides.length]);
 
+  // Reveal only within the strip so navigation never scrolls the canvas/host.
+  useLayoutEffect(() => {
+    const strip = stripRef.current;
+    const slot = strip?.querySelector<HTMLElement>(`[data-slide-index="${activeIdx}"]`);
+    const thumb = activeBuild === 0
+      ? slot?.querySelector<HTMLElement>('.sw-thumb')
+      : slot?.querySelector<HTMLElement>(`[data-build-index="${activeBuild}"]`);
+    if (!strip || !thumb) return;
+    const viewport = strip.getBoundingClientRect();
+    const rect = thumb.getBoundingClientRect();
+    const top = viewport.top + strip.clientTop;
+    const bottom = top + strip.clientHeight;
+    if (rect.top < top) strip.scrollTop += rect.top - top;
+    else if (rect.bottom > bottom) strip.scrollTop += rect.bottom - bottom;
+  }, [activeIdx, activeBuild]);
+
+  const dragRef = useRef(drag);
+  dragRef.current = drag;
+  const handlersRef = useRef({ onReorder, onSelect, selection });
+  handlersRef.current = { onReorder, onSelect, selection };
+  const isDragging = drag !== null;
+
   // Drag lifecycle: pointermove updates insertionIndex; pointerup
   // commits. Attached on the document so the drag survives the
   // pointer briefly leaving the strip.
   useEffect(() => {
-    if (!drag) return;
+    const initial = dragRef.current;
+    if (!initial) return;
     const stripEl = stripRef.current;
     if (!stripEl) return;
-    const onMove = (e: globalThis.PointerEvent) => {
-      // Threshold gate — keep insertionIndex null until past it
-      // so a plain click doesn't enter drag mode.
-      const dx = e.clientX - drag.startX;
-      const dy = e.clientY - drag.startY;
-      if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+    let pointerY = initial.startY;
+    let crossedThreshold = initial.insertionIndex !== null;
+    let insertionIndex = initial.insertionIndex;
+    let frame = 0;
+    let previousTime: number | null = null;
+    const updateInsertion = () => {
       // Compute the gap index from the pointer's Y relative to the
       // thumb midpoints. The strip is vertical and thumbs flow
       // top-to-bottom; the gap above thumb i has the same Y as
@@ -137,16 +162,41 @@ export function SlideStrip({
       for (let i = 0; i < thumbs.length; i++) {
         const rect = thumbs[i]!.getBoundingClientRect();
         const mid = rect.top + rect.height / 2;
-        if (e.clientY < mid) {
+        if (pointerY < mid) {
           idx = i;
           break;
         }
       }
-      setDrag((prev) => (prev ? { ...prev, insertionIndex: idx } : prev));
+      insertionIndex = idx;
+      setDrag(prev => prev && prev.insertionIndex !== idx ? { ...prev, insertionIndex: idx } : prev);
+    };
+    const tick = (time: number) => {
+      if (crossedThreshold) {
+        const rect = stripEl.getBoundingClientRect();
+        const edge = Math.min(SCROLL_EDGE, stripEl.clientHeight / 2);
+        const top = rect.top + stripEl.clientTop;
+        const direction = pointerY < top + edge ? -1
+          : pointerY > top + stripEl.clientHeight - edge ? 1 : 0;
+        const elapsed = previousTime === null ? 0 : Math.min(time - previousTime, 50);
+        stripEl.scrollTop += direction * DRAG_SCROLL_SPEED * elapsed / 1000;
+        // A stationary pointer must still track the newly exposed gaps.
+        updateInsertion();
+      }
+      previousTime = time;
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    const onMove = (e: globalThis.PointerEvent) => {
+      pointerY = e.clientY;
+      if (!crossedThreshold && Math.hypot(e.clientX - initial.startX, e.clientY - initial.startY) < DRAG_THRESHOLD) return;
+      crossedThreshold = true;
+      updateInsertion();
     };
     const onUp = () => {
-      const d = drag;
-      const idx = d.insertionIndex;
+      cancelAnimationFrame(frame);
+      const { onReorder, onSelect, selection } = handlersRef.current;
+      const d = initial;
+      const idx = insertionIndex;
       setDrag(null);
       if (idx !== null) {
         // Past-threshold drag: commit reorder, do not select.
@@ -163,15 +213,17 @@ export function SlideStrip({
         onSelect(d.originIdx, { shift: d.shift, meta: d.meta });
       }
     };
+    const onCancel = () => { cancelAnimationFrame(frame); setDrag(null); };
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
-    document.addEventListener('pointercancel', onUp);
+    document.addEventListener('pointercancel', onCancel);
     return () => {
+      cancelAnimationFrame(frame);
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
-      document.removeEventListener('pointercancel', onUp);
+      document.removeEventListener('pointercancel', onCancel);
     };
-  }, [drag, onReorder, onSelect, selection]);
+  }, [isDragging]);
 
   const selSet = new Set(selection);
 

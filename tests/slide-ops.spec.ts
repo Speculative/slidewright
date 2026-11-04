@@ -419,3 +419,49 @@ for (const scrolled of [false, true]) {
     await expect.poll(() => getSource(page)).toBe(source);
   });
 }
+
+test('arrow navigation keeps the current thumbnail visible', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/canvas.html?fixture=three-slides');
+  await page.locator('.sw-thumb').first().click();
+  const activeIsVisible = () => page.locator('.sw-strip').evaluate(strip => {
+    const thumb = strip.querySelector('.sw-thumb.active')!;
+    const viewport = strip.getBoundingClientRect();
+    const rect = thumb.getBoundingClientRect();
+    return rect.top >= viewport.top - 1 && rect.bottom <= viewport.bottom + 1;
+  });
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await expect.poll(() => activeIdx(page)).toBe(2);
+  await expect.poll(activeIsVisible).toBe(true);
+  expect(await page.locator('.sw-strip').evaluate(el => el.scrollTop)).toBeGreaterThan(0);
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowUp');
+  await expect.poll(() => activeIdx(page)).toBe(0);
+  await expect.poll(activeIsVisible).toBe(true);
+});
+
+test('drag edge scrolling continues with a stationary pointer and stops on cancel', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/canvas.html?fixture=three-slides');
+  const strip = page.locator('.sw-strip');
+  const box = (await strip.boundingBox())!;
+  const thumb = (await page.locator('.sw-thumb').first().boundingBox())!;
+  const scrollTop = () => strip.evaluate(el => el.scrollTop);
+  await page.mouse.move(thumb.x + thumb.width / 2, thumb.y + thumb.height / 2);
+  await page.mouse.down();
+  await letReactCatchUp(page);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height - 8);
+  await expect.poll(scrollTop).toBeGreaterThan(40);
+  const scrolled = await scrollTop();
+  await page.mouse.move(box.x + box.width / 2, box.y + 8);
+  await expect.poll(scrollTop).toBeLessThan(scrolled - 20);
+  await page.evaluate(() => document.dispatchEvent(new PointerEvent('pointercancel')));
+  await letReactCatchUp(page);
+  const stopped = await scrollTop();
+  await page.waitForTimeout(150);
+  expect(await scrollTop()).toBe(stopped);
+  await expect(page.locator('.sw-strip-insertion')).toHaveCount(0);
+  await page.mouse.up();
+  expect(await activeIdx(page)).toBe(0);
+});
