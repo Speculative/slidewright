@@ -464,7 +464,11 @@ Deck {
           
         ]
       }
-      notes: "I'd like to preface this talk by saying this is not your usual UIST talk with a system and an evaluation, and is instead more conceptual. I'll introduce this Data-Oriented Debugging conceptual lens, use it to give an interpretation of debugging behaviors that we've observed in some studies, and paint a picture of a possible future for debugging tools."
+      notes: """
+        I'd like to preface this talk by saying this is not your usual UIST talk with a system and an evaluation, and is instead more conceptual. I'll introduce this Data-Oriented Debugging conceptual lens, use it to give an interpretation of debugging behaviors that we've observed in some studies, and paint a picture of a possible future for debugging tools.
+
+        Also, this paper does not address programming and debugging with AI, but if you're interested at the end, I've got some thoughts about it that I'd be happy to share!
+      """
     }
     Slide {
       label: "Example — evaluate"
@@ -891,6 +895,87 @@ Deck {
               id: "object-41"
               visible: false
             }
+            Box {
+              x: 110
+              y: 238
+              width: 1706
+              height: 296
+              id: "object-45"
+              visible: false
+            }
+            TextBox {
+              x: 212
+              y: 346
+              sizing: "auto-width"
+              font: "body"
+              fontSize: 32
+              fontWeight: "400"
+              lineHeight: 1.25
+              letterSpacing: 0
+              align: "left"
+              content: [
+                Paragraph {
+                  content: [
+                    ""
+                  ]
+                }
+              ]
+              id: "object-46"
+              visible: false
+            }
+            TextBox {
+              x: 187
+              y: 303
+              sizing: "auto-width"
+              font: "body"
+              fontSize: 32
+              fontWeight: "400"
+              lineHeight: 1.25
+              letterSpacing: 0
+              align: "left"
+              content: [
+                Paragraph {
+                  content: [
+                    ""
+                  ]
+                }
+              ]
+              id: "object-47"
+              visible: false
+            }
+            Box {
+              x: 126
+              y: 268
+              width: 1645
+              height: 265
+              id: "object-48"
+              visible: false
+            }
+            TextBox {
+              x: 180
+              y: 375
+              sizing: "auto-width"
+              font: "body"
+              fontSize: 32
+              fontWeight: "400"
+              lineHeight: 1.25
+              letterSpacing: 0
+              align: "left"
+              content: [
+                Paragraph {
+                  content: [
+                    ""
+                  ]
+                }
+              ]
+              id: "object-49"
+              visible: false
+            }
+          
+          
+          
+          
+          
           
           
           
@@ -1666,6 +1751,111 @@ Deck {
                 10
               ]
             }
+            Change {
+              target: "object-45"
+              visible: false
+              x: 54
+              y: 228
+              width: 1844
+            
+            
+            }
+            Change {
+              target: "object-46"
+              visible: false
+              content: [
+                Paragraph {
+                  content: [
+                    Span {
+                      runId: "run-1"
+                      content: "Think about data needs and how queries are posed"
+                    }
+                  ]
+                }
+              ]
+              color: paper
+              fontSize: 64
+              x: 87
+              y: 371
+              sizing: "fixed"
+              width: 1965
+              height: 96
+              font: "mono"
+            
+            
+            
+            
+            
+            
+            }
+            Change {
+              target: "object-47"
+              visible: false
+              content: [
+                Paragraph {
+                  content: [
+                    Span {
+                      runId: "run-1"
+                      content: "Takeaway:"
+                    }
+                  ]
+                }
+              ]
+              color: paper
+              fontSize: 64
+              x: 87
+              y: 276
+              font: "mono"
+            
+            
+            
+            
+            
+            }
+            Change {
+              target: "object-48"
+              visible: true
+              fill: paper
+              x: 128
+              y: 321
+            
+            
+            }
+            Change {
+              target: "object-49"
+              visible: true
+              content: [
+                Paragraph {
+                  content: [
+                    Span {
+                      runId: "run-1"
+                      content: "Takeaway:"
+                    }
+                  ]
+                }
+                Paragraph {
+                  content: [
+                    Span {
+                      runId: "run-2"
+                      content: "Think about data needs and how queries are specified"
+                    }
+                  ]
+                }
+              ]
+              color: blue
+              fontSize: 64
+              x: 200
+              y: 366
+            
+            
+            
+            
+            }
+          
+          
+          
+          
+          
           
           
           ]
@@ -1757,6 +1947,12 @@ Deck {
               run: "run-2"
               color: omit
             }
+            TextStyle {
+              target: "object-49"
+              run: "run-1"
+              weight: "700"
+            }
+          
           
           
           
@@ -2743,10 +2939,19 @@ Deck {
             }
             TextBox {
               id: "transformations-code"
-              x: 1250 y: 540 width: 620 height: 220
+              x: 1115 y: 416 width: 620 height: 220
               sizing: "auto-height"
-              font: "mono" fontSize: 28 lineHeight: 1.5 color: ink
-              content: "print(node.op)"
+              font: "mono" fontSize: 40 lineHeight: 1.5 color: ink
+              content: [
+                Paragraph {
+                  content: [
+                    Span {
+                      runId: "run-1"
+                      content: "print(node.op)"
+                    }
+                  ]
+                }
+              ]
             }
             TextBox {
               x: 113
@@ -2820,6 +3025,48 @@ Deck {
               visible: false
               color: red
             }
+            Box {
+              x: 128
+              y: 321
+              width: 1645
+              height: 265
+              id: "object-10"
+              visible: false
+              fill: paper
+            }
+            TextBox {
+              x: 200
+              y: 366
+              sizing: "auto-width"
+              font: "body"
+              fontSize: 64
+              fontWeight: "400"
+              lineHeight: 1.25
+              letterSpacing: 0
+              align: "left"
+              content: [
+                Paragraph {
+                  content: [
+                    Span {
+                      runId: "run-1"
+                      content: "Takeaway:"
+                    }
+                  ]
+                }
+                Paragraph {
+                  content: [
+                    Span {
+                      runId: "run-2"
+                      content: "Think about data needs and how queries are specified"
+                    }
+                  ]
+                }
+              ]
+              id: "object-11"
+              visible: false
+              color: blue
+            }
+          
           
           
           
@@ -2837,7 +3084,44 @@ Deck {
           changes: [
             Change { target: "transformations-chart" expandedPlaces: true }
             Change { target: "transformations-step" content: "Widen across place" }
-            Change { target: "transformations-code" content: "print(node.op, left, right)" }
+            Change { target: "transformations-code" content: [
+                Paragraph {
+                  content: [
+                    Span {
+                      runId: "run-2"
+                      content: "print(node.op, "
+                    }
+                    Span {
+                      runId: "run-3"
+                      content: [
+                        "left, right"
+                      ]
+                    }
+                    Span {
+                      runId: "run-4"
+                      content: ")"
+                    }
+                  ]
+                }
+              ]
+              
+              
+              
+              
+              fontSize: 40
+              width: 786
+              height: 196
+              x: 1115
+              y: 416
+            
+            
+            
+              
+              
+            
+            
+            
+             }
             Change {
               target: "object-1"
               visible: true
@@ -2855,6 +3139,16 @@ Deck {
             }
           
           ]
+          textStyles: [
+            TextStyle {
+              target: "transformations-code"
+              run: "run-3"
+              color: blue
+              weight: "700"
+            
+            }
+          ]
+        
         }
         Build {
           id: "build-2"
@@ -2862,7 +3156,10 @@ Deck {
           changes: [
             Change { target: "transformations-chart" expandedPlaces: true }
             Change { target: "transformations-step" content: "Widen across place" }
-            Change { target: "transformations-code" content: "print(node.op, left, right)" }
+            Change { target: "transformations-code" content: "print(node.op, left, right)"
+              
+              
+             }
             Change {
               target: "object-1"
               visible: true
@@ -2880,10 +3177,52 @@ Deck {
             }
             Change {
               target: "object-9"
+              visible: false
+            }
+            Change {
+              target: "object-10"
               visible: true
+              x: 140
+              y: 137
+            
+            }
+            Change {
+              target: "object-11"
+              visible: true
+              content: [
+                Paragraph {
+                  content: [
+                    Span {
+                      runId: "run-1"
+                      content: "Takeaway:"
+                    }
+                  ]
+                }
+                Paragraph {
+                  content: [
+                    Span {
+                      runId: "run-2"
+                      content: "Do you support transformations? Via what interaction?"
+                    }
+                  ]
+                }
+              ]
+              x: 193
+              y: 182
+            
+            
             }
           
+          
           ]
+          textStyles: [
+            TextStyle {
+              target: "object-11"
+              run: "run-1"
+              weight: "700"
+            }
+          ]
+        
         }
         Build {
           id: "transformations-narrow"
@@ -2891,7 +3230,27 @@ Deck {
           changes: [
             Change { target: "transformations-chart" focusedTime: true }
             Change { target: "transformations-step" content: "Narrow in time" }
-            Change { target: "transformations-code" content: "if node.op == \"^\":\n    print(node.op, left, right)" }
+            Change { target: "transformations-code" content: [
+                Paragraph {
+                  content: [
+                    Span {
+                      runId: "run-5"
+                      content: [
+                        "if node.op == \"^\":"
+                      ]
+                    }
+                    Span {
+                      runId: "run-6"
+                      content: "\n    print(node.op, left, right)"
+                    }
+                  ]
+                }
+              ]
+              
+              x: 1115
+              y: 416
+            
+             }
             Change {
               target: "object-1"
               content: [
@@ -2909,13 +3268,42 @@ Deck {
               target: "object-9"
               visible: false
             }
+            Change {
+              target: "object-10"
+              visible: false
+            }
+            Change {
+              target: "object-11"
+              visible: false
+            }
+          
           
           
           ]
+          textStyles: [
+            TextStyle {
+              target: "transformations-code"
+              run: "run-5"
+              color: blue
+              weight: "700"
+            
+            }
+          ]
+        
         }
         
       
       ]
+      textStyles: [
+        TextStyle {
+          target: "transformations-code"
+          run: "run-1"
+          color: blue
+          weight: "700"
+        
+        }
+      ]
+    
     }
     Slide {
       content: Freeform {
@@ -2980,6 +3368,8 @@ Deck {
             width: 1248
             height: 196
             id: "object-4"
+            visible: false
+          
           
           }
           
@@ -3031,20 +3421,57 @@ Deck {
             id: "object-10"
             visible: false
           }
+          TextBox {
+            x: 93
+            y: 493
+            sizing: "auto-height"
+            font: "body"
+            fontSize: 48
+            fontWeight: "400"
+            lineHeight: 1.25
+            letterSpacing: 0
+            align: "left"
+            content: [
+              Paragraph {
+                content: [
+                  Span {
+                    content: [
+                      "\"there will be a lot of statements, right? ...it looks like too much information "
+                    ]
+                    italic: true
+                    id: "object-14"
+                  }
+                  Span {
+                    content: [
+                      "for me to look at and process and get an output\""
+                    ]
+                    italic: true
+                    id: "object-15"
+                  }
+                ]
+                id: "object-13"
+              }
+            ]
+            width: 1248
+            height: 196
+            id: "object-12"
+            visible: false
+          }
+        
         
         ]
         id: "object-1"
       
       }
       notes: [
+        "Narrowing in time corroborates something we saw in our formative interviews: industry software engineers engaged in what we call Pre-Filtering, ",
+        "where they intentionally did not query for information that they thought could be useful, because they were afraid of producing more output than they could handle. They intentionally restricted their queries.",
         """
-          Narrowing in time corroborates something we saw in our formative interviews: industry software engineers engaged in what we call Pre-Filtering, where they intentionally did not query for information that they thought could be useful, because they were afraid of producing more output than they could handle.
-
           For example, a print user said "there will be a lot of statements, right? it looks like too much information for me to look at and process and get an output".
 
           This, to me, smells like a limitation of the tools. For fear of flooding the terminal with more output than they can read and interpret, programmers are intentionally querying for less. Isn't that wrong? Because the tool can't help them, they intentionally inhibit their own comprehension process.
-        """,
-        ""
+        """
+      
       ]
       builds: [
         Build {
@@ -3056,6 +3483,16 @@ Deck {
             }
           ]
         }
+        Build {
+          id: "build-2"
+          changes: [
+            Change {
+              target: "object-12"
+              visible: true
+            }
+          ]
+        }
+      
       ]
     
     }
@@ -3105,29 +3542,23 @@ Deck {
           visible: true
         }
       }
-      notes: "Remember that future debugging tool that combines strengths of multiple debuggers?"
+      notes: "Remember that future debugging tool that combines the querying capabilities of multiple debuggers?"
     }
     Slide {
-      label: "autopsy — From logs to a table"
+      label: "autopsy — Assemble a debugging view"
       notes: [
-        "We've made initial steps towards such a debugger that we call \"autopsy\". If I add a log call to my code, it shows up in this table that shows every time it was invoked. Each line captures a full breakpoint-style snapshot of all variables.",
-        "Which means I can reach in and select other values such as left, right, and result",
-        "And add them as columns to my table to enable easier comparison, combining strengths of print and breakpoints"
+        "Imagine a tool that captures the full execution trace, including the value of every variable at every step of execution, then assembling the debugging view we need directly from the code.",
+        "I can pick a place from the code and use direct manipulation to assemble a debugging view of it. I drag node.op into a table",
+        "I get a row for that expression at each invocation of this code. So far, this is a query across time for the operator symbols",
+        "Since I've got a full execution trace, I can get details on demand for one of these invocations by clicking on it. This gives me a query across time at the time this particular operator was being evaluated.",
+        "I can see variables like left, right, and result that might be useful",
+        "So I select and drag them into the interactive debugging view",
+        "And now I have a more complex view across place and time that makes it easier to make comparisons"
       ]
       content: PlateauSlide {
         branding: true
         content: Freeform {
           children: [
-            TextBox {
-              x: 102
-              y: 61
-              sizing: "auto-width"
-              font: "body"
-              fontSize: 76
-              fontWeight: "700"
-              color: ink
-              content: [Paragraph { content: "autopsy" }]
-            }
             CodeDisplay {
               id: "autopsy-table-code"
               x: 102
@@ -3135,7 +3566,7 @@ Deck {
               width: 780
               height: 540
               fontSize: 28
-              highlightedLines: [10]
+              highlightedLines: []
               content: [Paragraph { content: Span {
                 content: """
                   def evaluate(node):
@@ -3147,7 +3578,6 @@ Deck {
                           case "+": result = left + right
                           case "*": result = left * right
                           case "^": result = left * right
-                      log(node.op)
                       return result
                 """
               } }]
@@ -3155,162 +3585,63 @@ Deck {
             AutopsyInterface {
               id: "autopsy-interface"
               x: 930
-              y: 270
+              y: 170
               width: 880
-              height: 680
+              height: 780
               stacked: true
-              scale: 1
+              sequence: 0
             }
           ]
         }
       }
       builds: [
         Build {
-          id: "autopsy-highlight-variables"
-          label: "Find captured values"
-          changes: [Change { target: "autopsy-interface" highlightVariables: true }]
+          id: "autopsy-step-1"
+          label: "Drag node.op from line 6"
+          changes: [
+            Change { target: "autopsy-interface" sequence: 1 }
+            Change { target: "autopsy-table-code" highlightedLines: [6] }
+          ]
         }
         Build {
-          id: "autopsy-project-columns"
-          label: "Add columns"
-          changes: [Change { target: "autopsy-interface" expandedColumns: true }]
+          id: "autopsy-step-2"
+          label: "Show node.op values"
+          changes: [
+            Change { target: "autopsy-interface" sequence: 2 }
+            Change { target: "autopsy-table-code" highlightedLines: [] }
+          ]
+        }
+        Build {
+          id: "autopsy-step-3"
+          label: "Inspect the first row"
+          changes: [
+            Change { target: "autopsy-interface" sequence: 3 }
+          ]
+        }
+        Build {
+          id: "autopsy-step-4"
+          label: "Select left, right, result"
+          changes: [
+            Change { target: "autopsy-interface" sequence: 4 }
+          ]
+        }
+        Build {
+          id: "autopsy-step-5"
+          label: "Drag selected variables into Streams"
+          changes: [
+            Change { target: "autopsy-interface" sequence: 5 }
+          ]
+        }
+        Build {
+          id: "autopsy-step-6"
+          label: "Compare all four columns"
+          changes: [
+            Change { target: "autopsy-interface" sequence: 6 }
+          ]
         }
       ]
     }
-    Slide {
-      content: Freeform {
-        children: [
-          TextBox {
-          x: 102
-          y: 61
-          sizing: "auto-width"
-          font: "body"
-          fontSize: 76
-          fontWeight: "700"
-          color: ink
-          content: [
-            Paragraph {
-              content: "autopsy"
-              id: "object-4"
-            }
-          ]
-          id: "object-3"
-        }
-          CodeDisplay {
-          id: "autopsy-code"
-          x: 560
-          y: 258
-          width: 800
-          height: 567
-          fontSize: 30
-          visible: true
-          highlightedLines: [
-            10
-          
-            
-          ]
-          content: [
-            Paragraph {
-              content: Span {
-                runId: "run-1"
-                content: "def evaluate(node):\n    if isinstance(node, Num):\n        return node.value\n    left = evaluate(node.left)\n    right = evaluate(node.right)\n    match node.op:\n        case \"+\": result = left + right\n        case \"*\": result = left * right\n        case \"^\": result = left * right\n    log(node.op)\n    return result"
-                  id: "object-2"
-                
-              }
-              id: "object-5"
-            }
-          ]
-        }
-          AutopsyInterface {
-            id: "object-6"
-            x: 1110
-            y: 258
-            width: 700
-            height: 567
-            tableOnly: true
-            visible: false
-          }
-        
-        ]
-        id: "object-1"
-      
-      }
-      notes: [
-        "We could go even further than this.",
-        "It would be nice if I could remove the need to log, and instead capture everything that happens inside the program",
-        "Then, when I'm in my query interface",
-        "I can directly manipulate my debugger view by dragging places",
-        "And interactively assemble debugging views, pulling values from my full execution trace"
-      
-      
-      ]
-      builds: [
-        Build {
-          id: "build-3"
-          changes: [
-            Change {
-              target: "autopsy-code"
-              highlightedLines: [
-                10
-              ]
-              content: [
-                Paragraph {
-                  content: Span {
-                    runId: "run-1"
-                    content: "def evaluate(node):\n    if isinstance(node, Num):\n        return node.value\n    left = evaluate(node.left)\n    right = evaluate(node.right)\n    match node.op:\n        case \"+\": result = left + right\n        case \"*\": result = left * right\n        case \"^\": result = left * right\n \n    return result"
-                    id: "object-2"
-                  }
-                  id: "object-5"
-                }
-              ]
-            
-            }
-          ]
-        }
-        Build {
-          id: "build-1"
-          changes: [
-            Change {
-              target: "autopsy-code"
-              x: 180
-              highlightedLines: []
-              content: [
-                Paragraph {
-                  content: Span {
-                    runId: "run-1"
-                    content: "def evaluate(node):\n    if isinstance(node, Num):\n        return node.value\n    left = evaluate(node.left)\n    right = evaluate(node.right)\n    match node.op:\n        case \"+\": result = left + right\n        case \"*\": result = left * right\n        case \"^\": result = left * right\n\n    return result"
-                    id: "object-2"
-                  }
-                  id: "object-5"
-                }
-              ]
-            
-            }
-            Change { target: "object-6" visible: true }
-          ]
-        }
-        Build {
-          id: "build-2"
-          changes: [
-            Change {
-              target: "object-6"
-              draggingResult: true
-            }
-          
-          ]
-        }
-      
-        Build {
-          id: "autopsy-result-values"
-          label: "Project result into the table"
-          changes: [
-            Change { target: "object-6" draggingResult: false resultColumn: true }
-          ]
-        }
-      ]
-    
-    }
-    
+
     Slide {
       content: Freeform {
         children: [
@@ -3538,7 +3869,7 @@ Deck {
                 items: [
                   ListItem {
                     content: [
-                      "DOD concerns "
+                      "Data-Oriented Debugging  concerns "
                       Span {
                         content: [
                           "responses to data needs"
