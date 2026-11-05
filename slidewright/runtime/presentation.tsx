@@ -11,6 +11,7 @@ export class PresentationBuild {
     this.counts.set(id, count);
     return () => { this.counts.delete(id); };
   }
+  stageCount = () => Math.max(1, ...this.counts.values());
   advance(direction: number): boolean {
     const last = Math.max(1, ...this.counts.values()) - 1;
     const next = Math.max(0, Math.min(last, this.step + direction));
@@ -25,7 +26,7 @@ export class PresentationBuild {
   }
 }
 
-export const PresentationContext = createContext<{ build: PresentationBuild; preview?: boolean } | null>(null);
+export const PresentationContext = createContext<{ build: PresentationBuild; preview?: boolean; exportStep?: number | 'final' } | null>(null);
 const idle = new PresentationBuild();
 
 /** Each registered visual advances together, clamped at its final authored stage.
@@ -44,5 +45,10 @@ export function useBuildStep(count: number) {
     if (!presenting || preview) return;
     return build.register(id, count);
   }, [build, id, count, presenting, preview]);
-  return { step: presentation ? Math.min(step, count - 1) : localStep, setStep, presenting };
+  const exportStep = presentation?.exportStep;
+  return {
+    step: exportStep === 'final' ? count - 1 : typeof exportStep === 'number'
+      ? Math.min(exportStep, count - 1) : presentation ? Math.min(step, count - 1) : localStep,
+    setStep, presenting, staticRendering: exportStep !== undefined,
+  };
 }

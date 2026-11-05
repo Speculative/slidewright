@@ -28,7 +28,7 @@ function StateTimeDebuggerDemo({ params }: ComponentRenderProps) {
   const calculator = params.mode === 'calculator-place-time';
   const placeTime = calculator || params.mode === 'place-time';
   const stages = calculator ? calculatorStages : placeTime ? STEPS.filter(stage => stage.phase !== 'autopsy') : STEPS;
-  const { step, setStep, presenting } = useBuildStep(stages.length);
+  const { step, setStep, presenting, staticRendering } = useBuildStep(stages.length);
   const [frame, setFrame] = useState(0), [playing, setPlaying] = useState(false);
   const [paused, setPaused] = useState(false);
   const snap = stages[step]!;
@@ -36,18 +36,18 @@ function StateTimeDebuggerDemo({ params }: ComponentRenderProps) {
   const delay = [11, 15, 18].includes(step) ? 200 : 50;
   useEffect(() => { setFrame(0); }, [step]);
   useEffect(() => {
-    if (paused && !presenting) return;
+    if (staticRendering || (paused && !presenting)) return;
     const length = executionFrames(step).length;
     if (!length) return;
     const timer = setInterval(() => setFrame(value => Math.min(value + 1, length - 1)), delay);
     return () => clearInterval(timer);
-  }, [step, delay, paused, presenting]);
+  }, [step, delay, paused, presenting, staticRendering]);
   useEffect(() => {
     if (!playing || presenting) return;
     const timer = setTimeout(() => { if (step === stages.length - 1) setPlaying(false); else setStep(step + 1); }, Math.max(frames.length - frame, 0) * delay + 1000);
     return () => clearTimeout(timer);
   }, [playing, step, delay, frames.length, frame, presenting, stages.length]);
-  const current = frames[Math.min(frame, frames.length - 1)];
+  const current = frames[staticRendering ? frames.length - 1 : Math.min(frame, frames.length - 1)];
   const highlight = current?.line ?? snap.bpDebuggerHighlightLine;
   const iteration = current?.iteration ?? snap.bpDebuggerIteration;
   const terminal = current?.terminal ?? snap.printTerminalLines;

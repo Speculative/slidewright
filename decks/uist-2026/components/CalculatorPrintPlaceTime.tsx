@@ -24,22 +24,22 @@ const firstOperationEnd = 7;
 /** The calculator counterpart of the original slow-print / remaining-prints builds. */
 export default function CalculatorPrintPlaceTime({ params }: ComponentRenderProps) {
   const transitionBody = useCalculatorSlideTransition('print');
-  const { step, setStep, presenting } = useBuildStep(stages.length);
+  const { step, setStep, presenting, staticRendering } = useBuildStep(stages.length);
   const [progress, setProgress] = useState({ step, frame: 0 });
   const [playing, setPlaying] = useState(false);
   const [paused, setPaused] = useState(false);
   // Derive the initial frame synchronously when navigating, so rewind never
   // briefly shows output from the previous build.
   const start = step === 4 ? firstOperationEnd + 1 : 0;
-  const frame = progress.step === step ? progress.frame : start;
   const end = step === 3 ? firstOperationEnd : frames.length - 1;
+  const frame = staticRendering ? end : progress.step === step ? progress.frame : start;
   const executing = step >= 3;
   const delay = step === 3 ? 360 : 240;
   useEffect(() => {
-    if (!executing || frame >= end || (paused && !presenting)) return;
+    if (staticRendering || !executing || frame >= end || (paused && !presenting)) return;
     const timer = setTimeout(() => setProgress({ step, frame: frame + 1 }), delay);
     return () => clearTimeout(timer);
-  }, [executing, frame, end, paused, presenting, step, delay]);
+  }, [executing, frame, end, paused, presenting, step, delay, staticRendering]);
   useEffect(() => {
     if (!playing || presenting || (executing && frame < end)) return;
     const timer = setTimeout(() => {

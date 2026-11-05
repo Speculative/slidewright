@@ -6,7 +6,7 @@
   "scripts": {
     "prepare": "git config core.hooksPath .githooks",
     "check:staged": "node scripts/check-staged-files.mjs",
-    "test:presenter-model": "node --import tsx --test scripts/presenter-model.test.ts",
+    "test:presenter-model": "node --import tsx --test scripts/presenter-model.test.ts scripts/speaker-notes-export.test.ts",
     "test:source-sync": "node --import tsx --test scripts/source-sync.test.ts",
     "test:commit-hook": "node --test scripts/check-staged-files.test.mjs",
     "dev": "vite",

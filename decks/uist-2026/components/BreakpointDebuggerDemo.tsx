@@ -32,11 +32,12 @@ function VariableValue({ value, animate }: { value: string; animate: boolean }) 
 export default function BreakpointDebuggerDemo({ params }: ComponentRenderProps) {
   const stepping = params.mode === 'stepping';
   const stages = stepping ? steppingStages : breakpointStages;
-  const { step, setStep, presenting } = useBuildStep(stages.length);
+  const { step, setStep, presenting, staticRendering } = useBuildStep(stages.length);
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(breakpointPosition);
   const targetPosition = breakpointPosition + (stepping ? [0, 2, -1][step]! : 0);
-  const animating = stepping && position !== targetPosition;
+  const renderedPosition = staticRendering ? targetPosition : position;
+  const animating = !staticRendering && stepping && position !== targetPosition;
   useEffect(() => {
     if (!animating) return;
     // Walk the trace one statement at a time so each step of the animation is visible.
@@ -55,8 +56,8 @@ export default function BreakpointDebuggerDemo({ params }: ComponentRenderProps)
   const width = Number(params.width), height = Number(params.height);
   const inspectorVisible = stepping || step === 2;
   // Trace snapshots are post-statement; the active line has not executed yet.
-  const activeLine = inspectorVisible ? hit.path[position] : undefined;
-  const variables = { ...hit.snapshots[position - 1]!, 'item.free_shipping': 'False' };
+  const activeLine = inspectorVisible ? hit.path[renderedPosition] : undefined;
+  const variables = { ...hit.snapshots[renderedPosition - 1]!, 'item.free_shipping': 'False' };
   const codeWidth = inspectorVisible ? (width - 24) * .65 : width;
   const fontSize = Math.min(48, (codeWidth - 64) / (Math.max(...code.lines.map(line => line.length)) + 6) / .62,
     (height - 120) / code.lines.length / 1.625);

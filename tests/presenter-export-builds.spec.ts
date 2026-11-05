@@ -72,7 +72,7 @@ for (const mode of ['final', 'builds']) {
   });
 }
 
-test('final-state PDF settles custom component builds; authored pages start at zero', async ({ page, context }) => {
+test('PDF exports every custom animation stage at its end state', async ({ page, context }) => {
   await context.addInitScript(() => { window.print = () => {}; });
   await page.goto('/canvas.html?fixture=plateau-charts');
   const popup = page.waitForEvent('popup');
@@ -86,5 +86,66 @@ test('final-state PDF settles custom component builds; authored pages start at z
   await page.getByRole('button', { name: 'Export PDF', exact: true }).click();
   const initial = await initialPopup;
   await expect(initial.locator('.sw-print-document')).toHaveAttribute('data-ready', 'true');
-  await expect(initial.locator('[data-sw-chart="collection"]').first()).toHaveAttribute('data-step', '0');
+  const collection = initial.locator('[data-sw-chart="collection"]');
+  await expect(collection).toHaveCount(3);
+  for (let step = 0; step < 3; step++) {
+    await expect(collection.nth(step)).toHaveAttribute('data-step', String(step));
+  }
+  // The middle stage fades the breakpoint away; capture the completed fade.
+  await expect(collection.nth(1).locator('[data-chart-breakpoint]')).toHaveCSS('opacity', '0');
+  await expect(initial.getByRole('group', { name: 'Chart playback' })).toHaveCount(0);
+  const pdf = await initial.pdf({ preferCSSPageSize: true, printBackground: true });
+  expect([...pdf.toString('latin1').matchAll(/\/Type\s*\/Page\b/g)].length)
+    .toBe(await initial.locator('.sw-print-page').count());
+});
+
+test('PDF captures timed calculator playback at each stage endpoint', async ({ page, context }) => {
+  await context.addInitScript(() => { window.print = () => {}; });
+  await page.goto('/canvas.html?fixture=calculator-slide-transition');
+  await page.getByLabel('PDF pages').selectOption('builds');
+  const popup = page.waitForEvent('popup');
+  await page.getByRole('button', { name: 'Export PDF', exact: true }).click();
+  const print = await popup;
+  await expect(print.locator('.sw-print-document')).toHaveAttribute('data-ready', 'true');
+  await expect(print.locator('.sw-print-page')).toHaveCount(7);
+  const stages = print.locator('[data-demo-calculator-print]');
+  await expect(stages).toHaveCount(5);
+  await expect(stages.nth(3)).toHaveAttribute('data-frame', '7');
+  await expect(stages.nth(4)).toHaveAttribute('data-frame', '23');
+  await expect(stages.nth(4)).toContainText('26');
+  // Print output must remain settled rather than progressing after readiness.
+  await expect(stages.nth(4).locator('[data-demo-paused-line]')).toHaveCount(1);
+});
+
+test('PDF captures stepping debugger targets without timed intermediate states', async ({ page, context }) => {
+  await context.addInitScript(() => { window.print = () => {}; });
+  await page.goto('/canvas.html?fixture=stepping-debugger');
+  await page.getByLabel('PDF pages').selectOption('builds');
+  const popup = page.waitForEvent('popup');
+  await page.getByRole('button', { name: 'Export PDF', exact: true }).click();
+  const print = await popup;
+  await expect(print.locator('.sw-print-document')).toHaveAttribute('data-ready', 'true');
+  const stages = print.locator('[data-sw-breakpoint-debugger]');
+  await expect(stages).toHaveCount(3);
+  for (let step = 0; step < 3; step++) {
+    await expect(stages.nth(step)).toHaveAttribute('data-step', String(step));
+    await expect(stages.nth(step)).toHaveAttribute('data-animating', 'false');
+  }
+});
+
+test('speaker notes button downloads notes for the whole deck', async ({ page }) => {
+  await page.goto('/canvas.html?fixture=presenter-export-builds');
+  const source = await getEditorSource(page);
+  const downloaded = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export speaker notes', exact: true }).click();
+  const download = await downloaded;
+  expect(download.suggestedFilename()).toMatch(/-speaker-notes\.txt$/);
+  const stream = await download.createReadStream();
+  const chunks = [];
+  for await (const chunk of stream!) chunks.push(chunk);
+  const notes = Buffer.concat(chunks).toString('utf8');
+  expect(notes).toContain('Slide 1 — Diagram\n\nExplain the reveal.');
+  expect(notes).toContain('Slide 2 — Closing\n\nThank the audience.');
+  expect(notes.indexOf('Explain the reveal.')).toBeLessThan(notes.indexOf('Thank the audience.'));
+  expect(await getEditorSource(page)).toBe(source);
 });

@@ -1,6 +1,7 @@
 import { Button, Select } from '../slidewright/canvas/design-system/Controls.js';
 import { useEffect, useRef, useState } from 'react';
 import type { PdfExportMode } from './pdf-export-model.js';
+import { exportSpeakerNotes } from './speaker-notes-export.js';
 import { parse } from '../slidewright/runtime/parser.js';
 import type { StandaloneHost, DeckChoice } from './standalone-host.js';
 
@@ -24,6 +25,21 @@ export function StandaloneControls({ host, presenting, onPresent, onPresenter, o
     anchor.href = url; anchor.download = host.deckChoice === 'plateau-demo' ? 'plateau-demo.sw' : host.deckChoice === 'uist-2026' ? 'uist-2026.sw' : host.fileName.split('/').at(-1) ?? 'deck.sw';
     anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
+  function downloadNotes() {
+    try {
+      const notes = exportSpeakerNotes(host.source, host.fileName);
+      const url = URL.createObjectURL(new Blob([notes], { type: 'text/plain;charset=utf-8' }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      const base = host.deckChoice === 'custom' ? host.fileName.split('/').at(-1) ?? 'deck.sw' : host.deckChoice;
+      anchor.download = `${base.replace(/\.sw$/i, '')}-speaker-notes.txt`;
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setMessage('Exported speaker notes.');
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : 'Could not export speaker notes.');
+    }
+  }
   async function open(file: File) {
     try {
       const source = await file.text();
@@ -46,9 +62,10 @@ export function StandaloneControls({ host, presenting, onPresent, onPresenter, o
     <Button type="button" onClick={() => setMessage(host.saveDraft() ? 'Saved in this browser' : 'Browser storage unavailable; download a copy.')}>Save draft</Button>
     <label>PDF pages <Select aria-label="PDF pages" value={pdfMode} onChange={event => setPdfMode(event.target.value as PdfExportMode)}>
       <option value="final">Final state per slide</option>
-      <option value="builds">Every authored build (including initial)</option>
+      <option value="builds">Every build and animation stage (including initial)</option>
     </Select></label>
     <Button type="button" onClick={() => onExportPdf(pdfMode)}>Export PDF</Button>
+    <Button type="button" onClick={downloadNotes}>Export speaker notes</Button>
     <Button type="button" onClick={download}>Download source</Button>
     <Button type="button" onClick={() => fileInput.current?.click()}>Open source</Button>
     <input ref={fileInput} type="file" accept=".sw,text/plain" aria-label="Open deck file" hidden onChange={event => { const file = event.currentTarget.files?.[0]; if (file) void open(file); event.currentTarget.value = ''; }} />

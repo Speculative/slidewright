@@ -9,22 +9,32 @@ import { resolvePdfDocument, type PdfDocument, type PdfExportMode, type PdfPage 
 
 interface PdfJob { popup: Window; document: PdfDocument; mode: PdfExportMode }
 
-function PrintPage({ page, final, width, height }: { page: PdfPage; final: boolean; width: number; height: number }) {
+function PrintPage({ page, step, width, height, onCount }: {
+  page: PdfPage; step: number | 'final'; width: number; height: number;
+  onCount?(count: number): void;
+}) {
   const build = useMemo(() => new PresentationBuild(), []);
-  // Child useBuildStep effects register first. Final-state exports settle those
-  // components at their last stage; authored-build exports show initial stages.
-  useEffect(() => { if (final) build.advance(Number.MAX_SAFE_INTEGER); }, [build, final]);
-  return <div className="sw-print-page" data-slide-index={page.slideIndex} data-build-index={page.buildIndex} style={{ width, height }}>
-    <PresentationContext.Provider value={{ build }}>
+  // Descendants register their stage counts before this passive effect runs.
+  useEffect(() => { onCount?.(build.stageCount()); }, [build, onCount]);
+  return <div className="sw-print-page" data-slide-index={page.slideIndex} data-build-index={page.buildIndex} data-animation-step={step} style={{ width, height }}>
+    <PresentationContext.Provider value={{ build, exportStep: step }}>
       {prepareSlide(page.slide)}
     </PresentationContext.Provider>
   </div>;
+}
+
+function PrintFrames({ page, final, width, height }: { page: PdfPage; final: boolean; width: number; height: number }) {
+  const [count, setCount] = useState(1);
+  return <>{Array.from({ length: final ? 1 : count }, (_, step) =>
+    <PrintPage key={step} page={page} step={final ? 'final' : step} width={width} height={height} onCount={step === 0 ? setCount : undefined} />
+  )}</>;
 }
 
 export function PdfExportView({ job }: { job: PdfJob }) {
   const { popup, document: deck, mode } = job;
   const [readyDocument, setReadyDocument] = useState<PdfDocument | null>(null);
   const ready = readyDocument === deck;
+  const [pageCount, setPageCount] = useState(deck.pages.length);
   useEffect(() => {
     let cancelled = false;
     async function prepare() {
@@ -33,13 +43,22 @@ export function PdfExportView({ job }: { job: PdfJob }) {
         link.addEventListener('load', () => resolve(), { once: true });
         link.addEventListener('error', () => resolve(), { once: true });
       })));
+      // Stage discovery adds pages in a React update. Mount those before
+      // enumerating their assets and requesting their fonts.
+      await new Promise<void>(resolve => popup.requestAnimationFrame(() => popup.requestAnimationFrame(() => resolve())));
       // Force layout so cloned styles have requested their fonts before waiting.
       doc.body.getBoundingClientRect();
       await doc.fonts.ready;
       await Promise.all(Array.from(doc.images).map(img => img.decode().catch(() => {})));
-      // Let the final build's React update and browser layout finish.
+      // Let discovered animation pages mount and browser layout finish.
       await new Promise<void>(resolve => popup.requestAnimationFrame(() => popup.requestAnimationFrame(() => resolve())));
+      // Finish finite CSS/Web Animations, preserving their end-state fill.
+      for (const animation of doc.getAnimations()) {
+        const end = animation.effect?.getComputedTiming().endTime;
+        if (typeof end === 'number' && Number.isFinite(end)) animation.finish();
+      }
       if (cancelled || popup.closed) return;
+      setPageCount(doc.querySelectorAll('.sw-print-page').length);
       setReadyDocument(deck);
       popup.focus();
       popup.print();
@@ -51,13 +70,13 @@ export function PdfExportView({ job }: { job: PdfJob }) {
   return createPortal(<DeckMetaContext.Provider value={{ ...deck.meta, total: deck.slideCount }}>
     <div className="sw-print-document" style={style} data-ready={ready}>
       <header className="sw-print-controls"><h1>Export PDF</h1>
-        <p>{mode === 'final' ? 'Final state per slide' : 'Every authored build (including initial)'} · {deck.pages.length} pages. Choose Save as PDF in the print dialog.</p>
-        <p>{mode === 'final' ? 'Custom component builds use their final stage.' : 'Custom component builds use their initial stage on each authored page.'}</p>
+        <p>{mode === 'final' ? 'Final state per slide' : 'Every build and animation stage (including initial)'} · {pageCount} pages. Choose Save as PDF in the print dialog.</p>
+        <p>{mode === 'final' ? 'Custom component builds use their final stage.' : 'Each custom animation stage is exported at its end state.'}</p>
         <button type="button" disabled={!ready} onClick={() => popup.print()}>Print / Save as PDF</button>
         <button type="button" onClick={() => popup.close()}>Close</button>
         {!ready && <p role="status">Preparing fonts and images…</p>}
       </header>
-      {deck.pages.map(page => <PrintPage key={`${page.slideIndex}:${page.buildIndex}`} page={page} final={mode === 'final'} width={deck.meta.width} height={deck.meta.height} />)}
+      {deck.pages.map(page => <PrintFrames key={`${page.slideIndex}:${page.buildIndex}`} page={page} final={mode === 'final'} width={deck.meta.width} height={deck.meta.height} />)}
     </div>
   </DeckMetaContext.Provider>, popup.document.body);
 }
@@ -85,6 +104,7 @@ export function usePdfExport() {
         .sw-print-controls { padding:16px; font:16px system-ui,sans-serif; color:#111; background:white; }
         .sw-print-controls button { margin-right:12px; }
         .sw-print-page { position:relative; overflow:hidden; margin:20px 0; break-inside:avoid; break-after:page; }
+        .sw-print-page *, .sw-print-page *::before, .sw-print-page *::after { transition: none !important; animation-duration: 0.001ms !important; animation-delay: -1s !important; animation-iteration-count: 1 !important; }
         .sw-print-page > div { width:100%; height:100%; }
         .sw-print-page section.slide { width:100%; height:100%; visibility:visible; opacity:1; }
         .sw-print-page:last-child { break-after:auto; }

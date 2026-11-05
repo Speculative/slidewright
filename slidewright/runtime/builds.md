@@ -242,6 +242,9 @@ Presentation advances through custom component steps, authored builds, and then
 slides. The presenter window shares that navigation and shows the next authored
 state. PDF export offers the last authored state per slide or one page per build
 including the initial frame. The final-state mode also selects the final custom
-component stage; the all-build mode uses initial custom component stages on each
-page. Export resolves pages independently and leaves source and editing selection
+component stage; the all-build mode emits the initial and every custom component
+stage for each authored build. Components advance together and clamp at their
+last stage, matching presentation navigation. Export disables transitions, settles
+finite visual animations, and requests static end states for timed playback via
+useBuildStep().staticRendering. Export resolves pages independently and leaves source and editing selection
 unchanged.
