@@ -342,14 +342,14 @@ Deck {
       ]
     
       notes: ["""
-        I'd like to start with a mystery. Think back a year or two ago, when most of you in this room were writing and debugging code by hand.
+        I'd like to start with a mystery. Think back a year or two ago, when most of you were still writing and debugging code by hand.
 
         Do you use print debugging? I'm willing to bet that even amongst people who research novel interfaces, a good number of you use print debugging. I certainly do.
       """, """
         What about breakpoint debugging? Some of you almost certainly feel that a breakpoint debugger confers great advantages by being interactive.
       """, """
         Have you ever wondered why you prefer the debugger that you do?
-        I'd like to show you a framework for thinking about what a particular debugger does for you and why you might prefer different tools in different situations.
+        I'd like to show you a conceptual lens for thinking about what a particular debugger does for you and why you might prefer different tools in different situations.
       """]
     }
     
@@ -382,7 +382,7 @@ Deck {
         }
         
       }
-      notes: "We call this framework Data-Oriented Debugging."
+      notes: "We call this lens Data-Oriented Debugging."
     }
     Slide {
       content: Freeform {
@@ -406,14 +406,20 @@ Deck {
                       "unconventional"
                     ]
                     color: blue
+                    id: "object-4"
+                  
                   }
                   " talk!"
                 
                 
                 
                 ]
+                id: "object-3"
+              
               }
             ]
+            id: "object-2"
+          
           }
           TextBox {
             x: 117
@@ -432,22 +438,32 @@ Deck {
                     content: [
                       "Conceptual Lens: Data-Oriented Debugging"
                     ]
+                    id: "object-7"
+                  
                   }
                   ListItem {
                     content: [
                       "Observing Data-Oriented Debugging in studies"
                     ]
+                    id: "object-8"
+                  
                   }
                   ListItem {
                     content: [
                       "Future Data-Oriented Directions"
                     ]
+                    id: "object-9"
+                  
                   }
                 ]
                 style: "decimal"
+                id: "object-6"
+              
               }
               Paragraph {
                 content: []
+                id: "object-10"
+              
               }
               Paragraph {
                 content: [
@@ -455,20 +471,200 @@ Deck {
                   "😊"
                 
                 ]
+                id: "object-11"
+              
               }
             
             ]
+            id: "object-5"
+            visible: false
+          
+          
           }
+          TextBox {
+            x: 117
+            y: 400
+            sizing: "auto-width"
+            font: "body"
+            fontSize: 64
+            fontWeight: "400"
+            lineHeight: 1.25
+            letterSpacing: 0
+            align: "left"
+            content: [
+              List {
+                items: [
+                  ListItem {
+                    content: [
+                      Span {
+                        runId: "run-1"
+                        content: "Conceptual Lens: Data-Oriented Debugging"
+                      }
+                    ]
+                    id: "object-14"
+                  }
+                  ListItem {
+                    content: [
+                      Span {
+                        runId: "run-2"
+                        content: "Observing Data-Oriented Debugging in studies"
+                      }
+                    ]
+                    id: "object-15"
+                  }
+                  ListItem {
+                    content: [
+                      Span {
+                        runId: "run-3"
+                        content: "Future Data-Oriented Directions"
+                      }
+                    ]
+                    id: "object-16"
+                  }
+                ]
+                style: "decimal"
+                id: "object-13"
+              }
+              Paragraph {
+                content: []
+                id: "object-17"
+              }
+              Paragraph {
+                content: [
+                  Span {
+                    runId: "run-4"
+                    content: "There will be no AI! But ask during Q&A "
+                  },
+                  Span {
+                    runId: "run-5"
+                    content: "😊"
+                  }
+                ]
+                id: "object-18"
+              }
+            ]
+            id: "object-12"
+            visible: false
+          }
+        
         
         
           
         ]
+        id: "object-1"
+      
       }
-      notes: """
-        I'd like to preface this talk by saying this is not your usual UIST talk with a system and an evaluation, and is instead more conceptual. I'll introduce this Data-Oriented Debugging conceptual lens, use it to give an interpretation of debugging behaviors that we've observed in some studies, and paint a picture of a possible future for debugging tools.
-
-        Also, this paper does not address programming and debugging with AI, but if you're interested at the end, I've got some thoughts about it that I'd be happy to share!
-      """
+      notes: [
+        "I'd like to preface this talk by saying this is not your usual UIST talk with a system and an evaluation, and is instead more conceptual. ",
+        "I'll introduce this Data-Oriented Debugging conceptual lens, use it to give an interpretation of debugging behaviors that we've observed in some studies, and paint a picture of a possible future for debugging tools.\n",
+        """
+          Also, this paper does not address programming and debugging with AI, but if you're interested at the end, I've got some thoughts about it that I'd be happy to share!
+        """
+      
+      ]
+      builds: [
+        Build {
+          id: "build-1"
+          changes: [
+            Change {
+              target: "object-12"
+              visible: true
+              content: [
+                List {
+                  items: [
+                    ListItem {
+                      content: [
+                        Span {
+                          runId: "run-1"
+                          content: "Conceptual Lens: Data-Oriented Debugging"
+                        }
+                      ]
+                      id: "object-14"
+                    }
+                    ListItem {
+                      content: [
+                        Span {
+                          runId: "run-2"
+                          content: "Observing Data-Oriented Debugging in studies"
+                        }
+                      ]
+                      id: "object-15"
+                    }
+                    ListItem {
+                      content: [
+                        Span {
+                          runId: "run-3"
+                          content: "Future Data-Oriented Directions"
+                        }
+                      ]
+                      id: "object-16"
+                    }
+                  ]
+                  style: "decimal"
+                  id: "object-13"
+                }
+              ]
+            
+            }
+          ]
+        }
+        Build {
+          id: "build-2"
+          changes: [
+            Change {
+              target: "object-12"
+              content: [
+                List {
+                  items: [
+                    ListItem {
+                      content: [
+                        Span {
+                          runId: "run-1"
+                          content: "Conceptual Lens: Data-Oriented Debugging"
+                        }
+                      ]
+                      id: "object-14"
+                    }
+                    ListItem {
+                      content: [
+                        Span {
+                          runId: "run-2"
+                          content: "Observing Data-Oriented Debugging in studies"
+                        }
+                      ]
+                      id: "object-15"
+                    }
+                    ListItem {
+                      content: [
+                        Span {
+                          runId: "run-3"
+                          content: "Future Data-Oriented Directions"
+                        }
+                      ]
+                      id: "object-16"
+                    }
+                  ]
+                  style: "decimal"
+                  id: "object-13"
+                }
+                Paragraph {
+                  content: []
+                }
+                Paragraph {
+                  content: [
+                    Span {
+                      runId: "run-6"
+                      content: "There will be no AI! But ask during Q&A 😊"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      
+      ]
+    
     }
     Slide {
       label: "Example — evaluate"
@@ -1993,7 +2189,7 @@ Deck {
       label: "Place & Time — Calculator"
       notes: [
         """
-          An on to the other half of the paper title, across Place and Time. If we think of debugging as involving querying a program's execution and getting some output, then it's helpful to have a way to talk about the structure of that execution data
+          If we think of debugging as querying a program's execution, then it's helpful to have a way to talk about the structure of execution data.
 
           We visualize this using the orthogonal axes of Place and Time
 
@@ -2037,7 +2233,7 @@ Deck {
         """
           We can use the Place-Time chart to understand what different debugging tools are doing for us.
 
-          After I add a print statement to my code, when that line of code executes, it prints the expressions that queried for.
+          After I add a print statement to my code, when that line of code executes, it prints the expressions that I queried for.
 
           This happens every time the print statement executes, and the fact that it does is what makes print debugging so useful. I log a particular Place in the code, and the query that I'm expressing is "show me this place across all time".
         """
@@ -2463,7 +2659,7 @@ Deck {
         children: [
           TextBox {
             x: 110
-            y: 407
+            y: 469
             sizing: "auto-width"
             font: "body"
             fontSize: 100
@@ -2479,28 +2675,11 @@ Deck {
               }
             ]
           }
-          TextBox {
-            x: 110
-            y: 572
-            sizing: "auto-width"
-            font: "body"
-            fontSize: 48
-            fontWeight: "400"
-            lineHeight: 1.25
-            letterSpacing: 0
-            align: "left"
-            content: [
-              Paragraph {
-                content: [
-                  "Formative Interviews, Comparative Tool-Use Lab Study"
-                ]
-              }
-            ]
-          }
+          
         ]
       }
       chapter: "Study Findings"
-      notes: "On to things that we learned from applying Data-Oriented Debugging to understand debugging behavior."
+      notes: "We applied our lens when observing debugging behaviors in studies."
     }
     
     Slide {
@@ -2589,11 +2768,7 @@ Deck {
       
       
       }
-      notes: """
-        We did two studies, first a set of interviews with 12 experienced industry programmers where we asked them about their debugging process, then a study where we had 19 participants use different debugging tools to solve two debugging tasks and qualitatively compared how they used them.
-
-        In the lab study, we had participants solve 2 bugs each using different debuggers and compared their debugging behaviors.
-      """
+      notes: "We did two studies, first a set of interviews with 12 experienced industry programmers where we asked them about their debugging process, then a study where we had 19 participants use different debugging tools to solve two debugging tasks and qualitatively compared how they used them."
     }
     Slide {
       label: "Types of Queries — Across Time"
@@ -2901,12 +3076,12 @@ Deck {
     Slide {
       label: "Transformations"
       notes: [
-        "Participants didn't just issue singular queries. We saw them issue multiple queries over the course of a debugging session, oftentimes modifying their existing queries. We call these transformations or movements in place-time.",
-        "The most common one by far was widening across place. This looks something like adding new variables to a print statement. Participants did this because they needed more context or realized that some other place might help them with their current line of investigation.",
+        "Participants didn't just issue one query. We saw them issue multiple queries over the course of a session, oftentimes modifying their existing queries. We call these transformations or movements in place-time.",
+        "The most common one by far was widening across place. This looks something like adding new variables to a print statement. Doing this gives more context for the current line of investigation.",
         """
-          Given that we know that programmers issue different types of queries and transform between them during a debugging session, if you're designing a debugging tool, you should think about how your tool supports transformations. What does the interaction look like?
+          Again, if you're working on a debugging tool, you should think about how it supports transformations. What does the interaction look like?
         """,
-        "There was another common transformation: narrowing in time, where programmers restrict their view of repetitions. For print, this looks like wrapping your print line in a condition. I think it's interesting that participants did this, because it's technically strictly less information, and I think it speaks to there being a cost to having too much stuff to look at.",
+        "There was another common transformation: narrowing in time. For print, this looks like wrapping your print line in a condition. I think it's interesting that participants did this, because it's technically strictly less information, and I think it speaks to there being a cost to having too much stuff to look at.",
         
       
       ]
@@ -3469,7 +3644,7 @@ Deck {
         """
           For example, a print user said "there will be a lot of statements, right? it looks like too much information for me to look at and process and get an output".
 
-          This, to me, smells like a limitation of the tools. For fear of flooding the terminal with more output than they can read and interpret, programmers are intentionally querying for less. Isn't that wrong? Because the tool can't help them, they intentionally inhibit their own comprehension process.
+          This, to me, smells like a limitation of the tools. For fear of flooding the terminal with too much output, programmers intentionally query for less. Isn't that wrong? Because the tool can't help them, they intentionally inhibit their own comprehension process.
         """
       
       ]
@@ -3525,7 +3700,7 @@ Deck {
         ]
       }
       chapter: "Future Directions"
-      notes: "On to things that we learned from applying the Data-Oriented Debugging to understand debugging behavior."
+      notes: "Lastly, I want to give a vision of a possible future debugger."
     }
     
     
@@ -3547,7 +3722,7 @@ Deck {
     Slide {
       label: "autopsy — Assemble a debugging view"
       notes: [
-        "Imagine a tool that captures the full execution trace, including the value of every variable at every step of execution, then assembling the debugging view we need directly from the code.",
+        "Imagine a tool that capturing a full execution trace, including the value of every variable at every step of execution, then assembling a debugging view interactively.",
         "I can pick a place from the code and use direct manipulation to assemble a debugging view of it. I drag node.op into a table",
         "I get a row for that expression at each invocation of this code. So far, this is a query across time for the operator symbols",
         "Since I've got a full execution trace, I can get details on demand for one of these invocations by clicking on it. This gives me a query across time at the time this particular operator was being evaluated.",
